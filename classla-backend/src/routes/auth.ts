@@ -1,0 +1,497 @@
+import { Router, Request, Response } from "express";
+import {
+  workosAuthService,
+  WorkOSAuthenticationError,
+} from "../services/workos";
+import {
+  sessionManagementService,
+  SessionManagementError,
+} from "../services/session";
+import {
+  userSynchronizationService,
+  UserSynchronizationError,
+} from "../services/userSync";
+import { authenticateToken } from "../middleware/auth";
+import { logger } from "../utils/logger";
+import crypto from "crypto";
+
+const router = Router();
+
+/**
+ * POST /auth/password-login
+ * Authenticate user with email and password
+ */
+router.post("/auth/password-login", async (req: Request, res: Response) => {
+  try {
+    const { email, password } = req.body;
+
+    // Validate required parameters
+    if (!email || !password) {
+      logger.warn("Password login missing credentials", {
+        requestId: req.headers["x-request-id"],
+        email: email ? "[PROVIDED]" : "[MISSING]",
+        password: password ? "[PROVIDED]" : "[MISSING]",
+        ip: req.ip,
+      });
+
+      return res.status(400).json({
+        success: false,
+        error: "Email and password are required",
+        code: "MISSING_CREDENTIALS",
+      });
+    }
+
+    // Authenticate with WorkOS
+    const authResult = await workosAuthService.authenticateWithPassword(
+      email,
+      password
+    );
+
+    logger.info("Password authentication successful", {
+      requestId: req.headers["x-request-id"],
+      workosUserId: authResult.user.id,
+      email: authResult.user.email,
+      ip: req.ip,
+    });
+
+    // Sync user with Supabase database
+    const supabaseUser = await userSynchronizationService.syncUser(
+      authResult.user
+    );
+
+    logger.info("User synchronized with database", {
+      requestId: req.headers["x-request-id"],
+      supabaseUserId: supabaseUser.id,
+      workosUserId: authResult.user.id,
+      email: authResult.user.email,
+    });
+
+    // Create user session
+    await sessionManagementService.createSession(req, authResult.user);
+
+    logger.info("User session created", {
+      requestId: req.headers["x-request-id"],
+      supabaseUserId: supabaseUser.id,
+      workosUserId: authResult.user.id,
+      email: authResult.user.email,
+    });
+
+    return res.json({
+      success: true,
+      message: "Authentication successful",
+    });
+  } catch (error) {
+    logger.error("Password authentication failed", {
+      requestId: req.headers["x-request-id"],
+      error: error instanceof Error ? error.message : "Unknown error",
+      ip: req.ip,
+    });
+
+    if (error instanceof WorkOSAuthenticationError) {
+      return res.status(error.statusCode || 500).json({
+        success: false,
+        error: error.message,
+        code: error.code,
+      });
+    }
+
+    if (error instanceof UserSynchronizationError) {
+      return res.status(error.statusCode || 500).json({
+        success: false,
+        error: "Failed to sync user data",
+        code: error.code || "USER_SYNC_ERROR",
+      });
+    }
+
+    if (error instanceof SessionManagementError) {
+      return res.status(error.statusCode || 500).json({
+        success: false,
+        error: "Failed to create session",
+        code: error.code || "SESSION_ERROR",
+      });
+    }
+
+    return res.status(500).json({
+      success: false,
+      error: "Authentication failed",
+      code: "PASSWORD_AUTH_ERROR",
+    });
+  }
+});
+
+/**
+ * POST /auth/google-login
+ * Initiate Google OAuth flow
+ * Generates Google authorization URL and redirects user to Google
+ */
+router.post("/auth/google-login", async (req: Request, res: Response) => {
+  try {
+    // Generate CSRF state token for security
+    const state = crypto.randomBytes(32).toString("hex");
+
+    // Store state in session for validation during callback
+    req.session.authState = state;
+
+    // Generate Google OAuth authorization URL
+    const authorizationUrl =
+      workosAuthService.generateGoogleAuthorizationUrl(state);
+
+    logger.info("Google login initiated", {
+      requestId: req.headers["x-request-id"],
+      state,
+      ip: req.ip,
+    });
+
+    // Return authorization URL for frontend to redirect to
+    return res.json({
+      success: true,
+      authorizationUrl,
+      message: "Google login initiated successfully",
+    });
+  } catch (error) {
+    logger.error("Google login initiation failed", {
+      requestId: req.headers["x-request-id"],
+      error: error instanceof Error ? error.message : "Unknown error",
+      ip: req.ip,
+    });
+
+    if (error instanceof WorkOSAuthenticationError) {
+      return res.status(error.statusCode || 500).json({
+        success: false,
+        error: error.message,
+        code: error.code,
+      });
+    }
+
+    return res.status(500).json({
+      success: false,
+      error: "Failed to initiate Google login",
+      code: "GOOGLE_LOGIN_INITIATION_ERROR",
+    });
+  }
+});
+
+/**
+ * GET /auth/callback
+ * Handle WorkOS OAuth callback
+ * Exchange authorization code for user profile and create session
+ */
+router.get("/auth/callback", async (req: Request, res: Response) => {
+  try {
+    const { code, state } = req.query;
+
+    // Validate required parameters
+    if (!code || typeof code !== "string") {
+      logger.warn("Callback missing authorization code", {
+        requestId: req.headers["x-request-id"],
+        query: req.query,
+        ip: req.ip,
+      });
+
+      return res.status(400).json({
+        success: false,
+        error: "Authorization code is required",
+        code: "MISSING_AUTH_CODE",
+      });
+    }
+
+    // Validate CSRF state token
+    if (!state || state !== req.session.authState) {
+      logger.warn("Invalid or missing state parameter", {
+        requestId: req.headers["x-request-id"],
+        providedState: state,
+        sessionState: req.session.authState,
+        ip: req.ip,
+      });
+
+      return res.status(400).json({
+        success: false,
+        error: "Invalid state parameter",
+        code: "INVALID_STATE",
+      });
+    }
+
+    // Clear the state from session
+    delete req.session.authState;
+
+    // Exchange authorization code for user profile
+    const authResult = await workosAuthService.handleCallback(
+      code,
+      state as string
+    );
+
+    logger.info("WorkOS authentication successful", {
+      requestId: req.headers["x-request-id"],
+      workosUserId: authResult.user.id,
+      email: authResult.user.email,
+      ip: req.ip,
+    });
+
+    // Sync user with Supabase database
+    const supabaseUser = await userSynchronizationService.syncUser(
+      authResult.user
+    );
+
+    logger.info("User synchronized with database", {
+      requestId: req.headers["x-request-id"],
+      supabaseUserId: supabaseUser.id,
+      workosUserId: authResult.user.id,
+      email: authResult.user.email,
+    });
+
+    // Create user session
+    await sessionManagementService.createSession(req, authResult.user);
+
+    logger.info("User session created", {
+      requestId: req.headers["x-request-id"],
+      supabaseUserId: supabaseUser.id,
+      workosUserId: authResult.user.id,
+      email: authResult.user.email,
+    });
+
+    // Redirect to frontend dashboard
+    const frontendUrl = process.env.FRONTEND_URL || "http://localhost:5173";
+    return res.redirect(`${frontendUrl}/dashboard?auth=success`);
+  } catch (error) {
+    logger.error("Authentication callback failed", {
+      requestId: req.headers["x-request-id"],
+      error: error instanceof Error ? error.message : "Unknown error",
+      query: req.query,
+      ip: req.ip,
+    });
+
+    // Determine error type and status code
+    let statusCode = 500;
+    let errorMessage = "Authentication failed";
+    let errorCode = "CALLBACK_ERROR";
+
+    if (error instanceof WorkOSAuthenticationError) {
+      statusCode = error.statusCode || 400;
+      errorMessage = error.message;
+      errorCode = error.code || "WORKOS_ERROR";
+    } else if (error instanceof UserSynchronizationError) {
+      statusCode = error.statusCode || 500;
+      errorMessage = "Failed to sync user data";
+      errorCode = error.code || "USER_SYNC_ERROR";
+    } else if (error instanceof SessionManagementError) {
+      statusCode = error.statusCode || 500;
+      errorMessage = "Failed to create session";
+      errorCode = error.code || "SESSION_ERROR";
+    }
+
+    // Redirect to frontend with error
+    const frontendUrl = process.env.FRONTEND_URL || "http://localhost:5173";
+    return res.redirect(
+      `${frontendUrl}/login?error=${encodeURIComponent(
+        errorMessage
+      )}&code=${errorCode}`
+    );
+  }
+});
+
+/**
+ * POST /auth/logout
+ * Destroy user session and clear cookies
+ */
+router.post("/auth/logout", async (req: Request, res: Response) => {
+  try {
+    const currentUser = sessionManagementService.getCurrentUser(req);
+
+    if (currentUser) {
+      logger.info("User logout initiated", {
+        requestId: req.headers["x-request-id"],
+        userId: currentUser.userId,
+        workosUserId: currentUser.workosUserId,
+        email: currentUser.email,
+        ip: req.ip,
+      });
+    }
+
+    // Destroy session
+    await sessionManagementService.destroySession(req);
+
+    // Clear session cookie
+    sessionManagementService.clearSessionCookie(res);
+
+    logger.info("User logout completed", {
+      requestId: req.headers["x-request-id"],
+      userId: currentUser?.userId,
+      ip: req.ip,
+    });
+
+    return res.json({
+      success: true,
+      message: "Logged out successfully",
+    });
+  } catch (error) {
+    logger.error("Logout failed", {
+      requestId: req.headers["x-request-id"],
+      error: error instanceof Error ? error.message : "Unknown error",
+      ip: req.ip,
+    });
+
+    if (error instanceof SessionManagementError) {
+      return res.status(error.statusCode || 500).json({
+        success: false,
+        error: error.message,
+        code: error.code,
+      });
+    }
+
+    return res.status(500).json({
+      success: false,
+      error: "Failed to logout",
+      code: "LOGOUT_ERROR",
+    });
+  }
+});
+
+/**
+ * GET /auth/profile
+ * Get current user profile information
+ * Protected route - requires valid session
+ */
+router.get(
+  "/auth/profile",
+  authenticateToken,
+  async (req: Request, res: Response) => {
+    try {
+      // User context is set by authenticateToken middleware
+      if (!req.user) {
+        logger.error("User context missing after authentication", {
+          requestId: req.headers["x-request-id"],
+          sessionId: req.sessionID,
+        });
+
+        return res.status(500).json({
+          success: false,
+          error: "User context not available",
+          code: "USER_CONTEXT_ERROR",
+        });
+      }
+
+      // Fetch complete user data from Supabase
+      const supabaseUser = await userSynchronizationService.getUserById(
+        req.user.id
+      );
+
+      if (!supabaseUser) {
+        logger.error("User not found in database", {
+          requestId: req.headers["x-request-id"],
+          userId: req.user.id,
+          workosUserId: req.user.workosUserId,
+        });
+
+        return res.status(404).json({
+          success: false,
+          error: "User not found",
+          code: "USER_NOT_FOUND",
+        });
+      }
+
+      // Get session statistics for additional context
+      const sessionStats = sessionManagementService.getSessionStats(req);
+
+      logger.info("User profile retrieved", {
+        requestId: req.headers["x-request-id"],
+        userId: supabaseUser.id,
+        workosUserId: supabaseUser.workos_user_id,
+        email: supabaseUser.email,
+      });
+
+      // Return user profile data
+      return res.json({
+        success: true,
+        user: {
+          id: supabaseUser.id,
+          workosUserId: supabaseUser.workos_user_id,
+          email: supabaseUser.email,
+          firstName: supabaseUser.first_name,
+          lastName: supabaseUser.last_name,
+          isAdmin: supabaseUser.is_admin,
+          createdAt: supabaseUser.created_at,
+          updatedAt: supabaseUser.updated_at,
+        },
+        session: {
+          isAuthenticated: sessionStats.isAuthenticated,
+          sessionAge: sessionStats.sessionAge,
+          lastActivity: sessionStats.lastActivity,
+        },
+      });
+    } catch (error) {
+      logger.error("Failed to retrieve user profile", {
+        requestId: req.headers["x-request-id"],
+        userId: req.user?.id,
+        error: error instanceof Error ? error.message : "Unknown error",
+        ip: req.ip,
+      });
+
+      if (error instanceof UserSynchronizationError) {
+        return res.status(error.statusCode || 500).json({
+          success: false,
+          error: error.message,
+          code: error.code,
+        });
+      }
+
+      return res.status(500).json({
+        success: false,
+        error: "Failed to retrieve user profile",
+        code: "PROFILE_RETRIEVAL_ERROR",
+      });
+    }
+  }
+);
+
+/**
+ * POST /auth/signup
+ * Initiate WorkOS signup flow (redirects to WorkOS hosted signup)
+ * This is kept for backward compatibility and new user registration
+ */
+router.post("/auth/signup", async (req: Request, res: Response) => {
+  try {
+    // Generate CSRF state token for security
+    const state = crypto.randomBytes(32).toString("hex");
+
+    // Store state in session for validation during callback
+    req.session.authState = state;
+
+    // Generate WorkOS authorization URL for signup
+    const authorizationUrl = workosAuthService.generateAuthorizationUrl(state);
+
+    logger.info("Signup initiated", {
+      requestId: req.headers["x-request-id"],
+      state,
+      ip: req.ip,
+    });
+
+    // Return authorization URL for frontend to redirect to
+    return res.json({
+      success: true,
+      authorizationUrl,
+      message: "Signup initiated successfully",
+    });
+  } catch (error) {
+    logger.error("Signup initiation failed", {
+      requestId: req.headers["x-request-id"],
+      error: error instanceof Error ? error.message : "Unknown error",
+      ip: req.ip,
+    });
+
+    if (error instanceof WorkOSAuthenticationError) {
+      return res.status(error.statusCode || 500).json({
+        success: false,
+        error: error.message,
+        code: error.code,
+      });
+    }
+
+    return res.status(500).json({
+      success: false,
+      error: "Failed to initiate signup",
+      code: "SIGNUP_INITIATION_ERROR",
+    });
+  }
+});
+
+export default router;

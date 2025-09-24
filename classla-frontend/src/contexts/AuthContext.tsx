@@ -1,0 +1,156 @@
+import { createContext, useContext, useEffect, useState, ReactNode } from 'react'
+import { authService, User, SessionInfo } from '../services/auth'
+
+interface AuthContextType {
+  user: User | null
+  session: SessionInfo | null
+  loading: boolean
+  signInWithPassword: (email: string, password: string) => Promise<void>
+  signInWithGoogle: () => Promise<void>
+  signUp: () => Promise<void>
+  signOut: () => Promise<void>
+  isAuthenticated: boolean
+}
+
+const AuthContext = createContext<AuthContextType | undefined>(undefined)
+
+export const useAuth = () => {
+  const context = useContext(AuthContext)
+  if (context === undefined) {
+    throw new Error('useAuth must be used within an AuthProvider')
+  }
+  return context
+}
+
+interface AuthProviderProps {
+  children: ReactNode
+}
+
+export const AuthProvider = ({ children }: AuthProviderProps) => {
+  const [user, setUser] = useState<User | null>(null)
+  const [session, setSession] = useState<SessionInfo | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  // Check authentication status and load user data
+  const checkAuthStatus = async () => {
+    try {
+      setLoading(true)
+      const currentUser = await authService.getCurrentUser()
+      const sessionInfo = await authService.getSessionInfo()
+      
+      setUser(currentUser)
+      setSession(sessionInfo)
+    } catch (error) {
+      console.error('Auth check failed:', error)
+      setUser(null)
+      setSession(null)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    // Check if we just came back from auth callback
+    const urlParams = new URLSearchParams(window.location.search)
+    const authSuccess = urlParams.get('auth') === 'success'
+    
+    if (authSuccess) {
+      // Add a small delay to ensure session cookie is set
+      setTimeout(() => {
+        checkAuthStatus()
+      }, 100)
+      
+      // Clean up the URL parameter
+      const newUrl = window.location.pathname
+      window.history.replaceState({}, '', newUrl)
+    } else {
+      // Normal auth check
+      checkAuthStatus()
+    }
+
+    // Listen for session expiry events from the auth service
+    const handleSessionExpired = () => {
+      setUser(null)
+      setSession(null)
+      setLoading(false)
+    }
+
+    // Listen for auth callback success (when user returns from WorkOS)
+    const handleAuthCallback = () => {
+      // Re-check auth status after callback
+      checkAuthStatus()
+    }
+
+    window.addEventListener('auth:session-expired', handleSessionExpired)
+    window.addEventListener('auth:callback-success', handleAuthCallback)
+
+    return () => {
+      window.removeEventListener('auth:session-expired', handleSessionExpired)
+      window.removeEventListener('auth:callback-success', handleAuthCallback)
+    }
+  }, [])
+
+  const signInWithPassword = async (email: string, password: string) => {
+    try {
+      setLoading(true)
+      await authService.signInWithPassword(email, password)
+      // After successful password auth, check auth status
+      await checkAuthStatus()
+    } catch (error) {
+      console.error('Password sign in failed:', error)
+      setLoading(false)
+      throw error
+    }
+  }
+
+  const signInWithGoogle = async () => {
+    try {
+      setLoading(true)
+      await authService.signInWithGoogle()
+    } catch (error) {
+      console.error('Google sign in failed:', error)
+      setLoading(false)
+      throw error
+    }
+  }
+
+  const signUp = async () => {
+    try {
+      setLoading(true)
+      await authService.redirectToSignup()
+    } catch (error) {
+      console.error('Sign up failed:', error)
+      setLoading(false)
+      throw error
+    }
+  }
+
+  const signOut = async () => {
+    try {
+      setLoading(true)
+      await authService.logout()
+      setUser(null)
+      setSession(null)
+    } catch (error) {
+      console.error('Sign out failed:', error)
+      // Clear local state even if server logout fails
+      setUser(null)
+      setSession(null)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const value = {
+    user,
+    session,
+    loading,
+    signInWithPassword,
+    signInWithGoogle,
+    signUp,
+    signOut,
+    isAuthenticated: user !== null,
+  }
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
+}
