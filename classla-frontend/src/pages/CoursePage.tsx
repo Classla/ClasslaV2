@@ -2,6 +2,7 @@ import React from "react";
 import { useLocation } from "react-router-dom";
 import CourseSummaryPage from "./CourseSummaryPage";
 import StudentsPage from "./StudentsPage";
+import AssignmentPage from "./AssignmentPage";
 
 interface CoursePageProps {
   course?: any;
@@ -18,6 +19,12 @@ const CoursePage: React.FC<CoursePageProps> = (props) => {
   const currentPage = location.pathname.split("/").pop() || "summary";
 
   const renderContent = () => {
+    // Check if this is an assignment route
+    const pathParts = location.pathname.split("/");
+    if (pathParts.includes("assignment") && pathParts.length >= 5) {
+      return <AssignmentPage {...props} />;
+    }
+
     switch (currentPage) {
       case "summary":
         return <CourseSummaryPage {...props} />;

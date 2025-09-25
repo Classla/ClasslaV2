@@ -154,7 +154,7 @@ export const apiClient = {
 
   // Section endpoints
   getCourseSections: (courseId: string) =>
-    api.get(`/course/${courseId}/sections`),
+    api.get(`/sections/by-course/${courseId}`),
   createSection: (data: {
     course_id: string;
     name: string;
@@ -171,6 +171,37 @@ export const apiClient = {
   ) => api.put(`/enrollments/${enrollmentId}`, data),
   deleteEnrollment: (enrollmentId: string) =>
     api.delete(`/enrollments/${enrollmentId}`),
+
+  // Assignment endpoints
+  getCourseAssignments: (courseId: string) =>
+    api.get(`/course/${courseId}/assignments`),
+  getAssignment: (id: string) => api.get(`/assignment/${id}`),
+  getAssignmentForStudent: (id: string) => api.get(`/assignment/${id}/student`),
+  createAssignment: (data: {
+    name: string;
+    course_id: string;
+    settings?: any;
+    content?: string;
+    published_to?: string[];
+    due_dates_map?: Record<string, string>;
+    module_path?: string[];
+    is_lockdown?: boolean;
+    lockdown_time_map?: Record<string, number>;
+  }) => api.post("/assignment", data),
+  updateAssignment: (
+    id: string,
+    data: {
+      name?: string;
+      settings?: any;
+      content?: string;
+      published_to?: string[];
+      due_dates_map?: Record<string, string>;
+      module_path?: string[];
+      is_lockdown?: boolean;
+      lockdown_time_map?: Record<string, number>;
+    }
+  ) => api.put(`/assignment/${id}`, data),
+  deleteAssignment: (id: string) => api.delete(`/assignment/${id}`),
 };
 
 export default api;

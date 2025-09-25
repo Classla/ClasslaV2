@@ -52,6 +52,8 @@ export interface Assignment {
   module_path: string[]; // e.g., ["unit 1", "module 1"] for "unit 1/module 1"
   is_lockdown: boolean;
   lockdown_time_map: Record<string, number>; // user_id to number in seconds
+  created_at: Date;
+  updated_at: Date;
 }
 
 // Submission entity
@@ -120,4 +122,12 @@ export interface JoinLink {
   expiry_date: Date;
   created_by_id: string;
   created_at: Date;
+}
+
+// Module tree structure for organizing assignments
+export interface ModuleTreeNode {
+  path: string[]; // e.g., ["unit 1", "module 1"]
+  name: string; // The display name (last element of path)
+  assignments: Assignment[];
+  children: ModuleTreeNode[];
 }

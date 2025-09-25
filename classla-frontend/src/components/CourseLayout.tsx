@@ -5,6 +5,7 @@ import { apiClient } from "../lib/api";
 import { useToast } from "../hooks/use-toast";
 import { Button } from "./ui/button";
 import Logo from "./Logo";
+import ModuleTree from "./ModuleTree";
 import { BookOpen, Users, Settings, BarChart3 } from "lucide-react";
 import { Course, UserRole } from "../types";
 
@@ -213,15 +214,12 @@ const CourseLayout: React.FC<CourseLayoutProps> = ({ children }) => {
 
             {/* Assignments Section */}
             <div className="mt-8 px-3">
-              <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">
-                Assignments
-              </h3>
-              <div className="space-y-1">
-                {/* Placeholder assignment items */}
-                <div className="text-sm text-gray-500 px-3 py-1">
-                  No assignments yet
-                </div>
-              </div>
+              <ModuleTree
+                courseId={course.id}
+                userRole={userRole}
+                isStudent={isStudent}
+                isInstructor={isInstructor}
+              />
             </div>
           </div>
         </div>

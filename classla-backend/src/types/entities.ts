@@ -1,4 +1,4 @@
-import { UserRole, SubmissionStatus } from './enums';
+import { UserRole, SubmissionStatus } from "./enums";
 
 // Re-export enums for convenience
 export { UserRole, SubmissionStatus };
@@ -16,7 +16,7 @@ export interface Course {
   deleted_at?: Date;
 }
 
-// Section entity  
+// Section entity
 export interface Section {
   id: string;
   course_id: string;
@@ -52,6 +52,8 @@ export interface Assignment {
   module_path: string[]; // e.g., ["unit 1", "module 1"] for "unit 1/module 1"
   is_lockdown: boolean;
   lockdown_time_map: Record<string, number>; // user_id to number in seconds
+  created_at: Date;
+  updated_at: Date;
 }
 
 // Submission entity

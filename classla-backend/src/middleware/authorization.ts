@@ -1,7 +1,12 @@
-import { Request, Response, NextFunction } from 'express';
-import { supabase } from './auth';
-import { UserRole } from '../types/enums';
-import { AuthenticationError, AuthorizationError, ValidationError, asyncHandler } from './errorHandler';
+import { Request, Response, NextFunction } from "express";
+import { supabase } from "./auth";
+import { UserRole } from "../types/enums";
+import {
+  AuthenticationError,
+  AuthorizationError,
+  ValidationError,
+  asyncHandler,
+} from "./errorHandler";
 
 /**
  * Interface for course permissions
@@ -23,20 +28,26 @@ export const hasRole = (roles: string[], requiredRole: UserRole): boolean => {
 /**
  * Check if user has any of the specified roles
  */
-export const hasAnyRole = (roles: string[], requiredRoles: UserRole[]): boolean => {
-  return requiredRoles.some(role => roles.includes(role));
+export const hasAnyRole = (
+  roles: string[],
+  requiredRoles: UserRole[]
+): boolean => {
+  return requiredRoles.some((role) => roles.includes(role));
 };
 
 /**
  * Get user's role in a specific course
  */
-export const getUserCourseRole = async (userId: string, courseId: string): Promise<UserRole | null> => {
+export const getUserCourseRole = async (
+  userId: string,
+  courseId: string
+): Promise<UserRole | null> => {
   try {
     const { data, error } = await supabase
-      .from('course_enrollments')
-      .select('role')
-      .eq('user_id', userId)
-      .eq('course_id', courseId)
+      .from("course_enrollments")
+      .select("role")
+      .eq("user_id", userId)
+      .eq("course_id", courseId)
       .single();
 
     if (error || !data) {
@@ -45,7 +56,7 @@ export const getUserCourseRole = async (userId: string, courseId: string): Promi
 
     return data.role as UserRole;
   } catch (error) {
-    console.error('Error getting user course role:', error);
+    console.error("Error getting user course role:", error);
     return null;
   }
 };
@@ -53,7 +64,10 @@ export const getUserCourseRole = async (userId: string, courseId: string): Promi
 /**
  * Check if user is enrolled in a course
  */
-export const isEnrolledInCourse = async (userId: string, courseId: string): Promise<boolean> => {
+export const isEnrolledInCourse = async (
+  userId: string,
+  courseId: string
+): Promise<boolean> => {
   const role = await getUserCourseRole(userId, courseId);
   return role !== null;
 };
@@ -62,8 +76,8 @@ export const isEnrolledInCourse = async (userId: string, courseId: string): Prom
  * Get course permissions for a user
  */
 export const getCoursePermissions = async (
-  userId: string, 
-  courseId: string, 
+  userId: string,
+  courseId: string,
   isAdmin: boolean = false
 ): Promise<CoursePermissions> => {
   // Admins have full permissions
@@ -72,7 +86,7 @@ export const getCoursePermissions = async (
       canRead: true,
       canWrite: true,
       canGrade: true,
-      canManage: true
+      canManage: true,
     };
   }
 
@@ -84,7 +98,7 @@ export const getCoursePermissions = async (
       canRead: false,
       canWrite: false,
       canGrade: false,
-      canManage: false
+      canManage: false,
     };
   }
 
@@ -94,39 +108,39 @@ export const getCoursePermissions = async (
         canRead: true,
         canWrite: true,
         canGrade: true,
-        canManage: true
+        canManage: true,
       };
-    
+
     case UserRole.TEACHING_ASSISTANT:
       return {
         canRead: true,
         canWrite: false,
         canGrade: true,
-        canManage: false
+        canManage: false,
       };
-    
+
     case UserRole.STUDENT:
       return {
         canRead: true,
         canWrite: false,
         canGrade: false,
-        canManage: false
+        canManage: false,
       };
-    
+
     case UserRole.AUDIT:
       return {
         canRead: true,
         canWrite: false,
         canGrade: false,
-        canManage: false
+        canManage: false,
       };
-    
+
     default:
       return {
         canRead: false,
         canWrite: false,
         canGrade: false,
-        canManage: false
+        canManage: false,
       };
   }
 };
@@ -135,70 +149,84 @@ export const getCoursePermissions = async (
  * Middleware to require specific roles
  */
 export const requireRoles = (requiredRoles: UserRole[]) => {
-  return asyncHandler((req: Request, res: Response, next: NextFunction): void => {
-    if (!req.user) {
-      throw new AuthenticationError();
-    }
+  return asyncHandler(
+    (req: Request, res: Response, next: NextFunction): void => {
+      if (!req.user) {
+        throw new AuthenticationError();
+      }
 
-    const { roles = [], isAdmin } = req.user;
+      const { roles = [], isAdmin } = req.user;
 
-    // Admins bypass role checks
-    if (isAdmin) {
+      // Admins bypass role checks
+      if (isAdmin) {
+        next();
+        return;
+      }
+
+      // Check if user has any of the required roles
+      if (!hasAnyRole(roles, requiredRoles)) {
+        throw new AuthorizationError(
+          `Required roles: ${requiredRoles.join(", ")}`
+        );
+      }
+
       next();
-      return;
     }
-
-    // Check if user has any of the required roles
-    if (!hasAnyRole(roles, requiredRoles)) {
-      throw new AuthorizationError(`Required roles: ${requiredRoles.join(', ')}`);
-    }
-
-    next();
-  });
+  );
 };
 
 /**
  * Middleware to require admin privileges
  */
-export const requireAdmin = asyncHandler((req: Request, res: Response, next: NextFunction): void => {
-  if (!req.user) {
-    throw new AuthenticationError();
-  }
+export const requireAdmin = asyncHandler(
+  (req: Request, res: Response, next: NextFunction): void => {
+    if (!req.user) {
+      throw new AuthenticationError();
+    }
 
-  if (!req.user.isAdmin) {
-    throw new AuthorizationError('Admin privileges required');
-  }
+    if (!req.user.isAdmin) {
+      throw new AuthorizationError("Admin privileges required");
+    }
 
-  next();
-});
+    next();
+  }
+);
 
 /**
  * Middleware to require course enrollment
  */
-export const requireCourseEnrollment = (courseIdParam: string = 'courseId') => {
-  return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+export const requireCourseEnrollment = (courseIdParam: string = "courseId") => {
+  return async (
+    req: Request,
+    res: Response,
+    next: NextFunction
+  ): Promise<void> => {
     if (!req.user) {
       res.status(401).json({
         error: {
-          code: 'AUTHENTICATION_REQUIRED',
-          message: 'Authentication required',
+          code: "AUTHENTICATION_REQUIRED",
+          message: "Authentication required",
           timestamp: new Date().toISOString(),
-          path: req.path
-        }
+          path: req.path,
+        },
       });
       return;
     }
 
-    const courseId = req.params[courseIdParam] || req.body.courseId || req.query.courseId;
+    const courseId =
+      req.params[courseIdParam] ||
+      req.body.courseId ||
+      req.body.course_id ||
+      req.query.courseId;
 
     if (!courseId) {
       res.status(400).json({
         error: {
-          code: 'MISSING_COURSE_ID',
-          message: 'Course ID is required',
+          code: "MISSING_COURSE_ID",
+          message: "Course ID is required",
           timestamp: new Date().toISOString(),
-          path: req.path
-        }
+          path: req.path,
+        },
       });
       return;
     }
@@ -216,11 +244,11 @@ export const requireCourseEnrollment = (courseIdParam: string = 'courseId') => {
     if (!isEnrolled) {
       res.status(403).json({
         error: {
-          code: 'NOT_ENROLLED',
-          message: 'User is not enrolled in this course',
+          code: "NOT_ENROLLED",
+          message: "User is not enrolled in this course",
           timestamp: new Date().toISOString(),
-          path: req.path
-        }
+          path: req.path,
+        },
       });
       return;
     }
@@ -234,31 +262,39 @@ export const requireCourseEnrollment = (courseIdParam: string = 'courseId') => {
  */
 export const requireCoursePermission = (
   permission: keyof CoursePermissions,
-  courseIdParam: string = 'courseId'
+  courseIdParam: string = "courseId"
 ) => {
-  return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  return async (
+    req: Request,
+    res: Response,
+    next: NextFunction
+  ): Promise<void> => {
     if (!req.user) {
       res.status(401).json({
         error: {
-          code: 'AUTHENTICATION_REQUIRED',
-          message: 'Authentication required',
+          code: "AUTHENTICATION_REQUIRED",
+          message: "Authentication required",
           timestamp: new Date().toISOString(),
-          path: req.path
-        }
+          path: req.path,
+        },
       });
       return;
     }
 
-    const courseId = req.params[courseIdParam] || req.body.courseId || req.query.courseId;
+    const courseId =
+      req.params[courseIdParam] ||
+      req.body.courseId ||
+      req.body.course_id ||
+      req.query.courseId;
 
     if (!courseId) {
       res.status(400).json({
         error: {
-          code: 'MISSING_COURSE_ID',
-          message: 'Course ID is required',
+          code: "MISSING_COURSE_ID",
+          message: "Course ID is required",
           timestamp: new Date().toISOString(),
-          path: req.path
-        }
+          path: req.path,
+        },
       });
       return;
     }
@@ -269,11 +305,11 @@ export const requireCoursePermission = (
     if (!permissions[permission]) {
       res.status(403).json({
         error: {
-          code: 'INSUFFICIENT_COURSE_PERMISSIONS',
+          code: "INSUFFICIENT_COURSE_PERMISSIONS",
           message: `Required permission: ${permission}`,
           timestamp: new Date().toISOString(),
-          path: req.path
-        }
+          path: req.path,
+        },
       });
       return;
     }
@@ -285,21 +321,22 @@ export const requireCoursePermission = (
 /**
  * Middleware to check if user can access their own resources or has elevated permissions
  */
-export const requireOwnershipOrElevated = (userIdParam: string = 'userId') => {
+export const requireOwnershipOrElevated = (userIdParam: string = "userId") => {
   return (req: Request, res: Response, next: NextFunction): void => {
     if (!req.user) {
       res.status(401).json({
         error: {
-          code: 'AUTHENTICATION_REQUIRED',
-          message: 'Authentication required',
+          code: "AUTHENTICATION_REQUIRED",
+          message: "Authentication required",
           timestamp: new Date().toISOString(),
-          path: req.path
-        }
+          path: req.path,
+        },
       });
       return;
     }
 
-    const targetUserId = req.params[userIdParam] || req.body.userId || req.query.userId;
+    const targetUserId =
+      req.params[userIdParam] || req.body.userId || req.query.userId;
     const { id: currentUserId, isAdmin, roles = [] } = req.user;
 
     // Allow if user is accessing their own resources
@@ -322,11 +359,11 @@ export const requireOwnershipOrElevated = (userIdParam: string = 'userId') => {
 
     res.status(403).json({
       error: {
-        code: 'ACCESS_DENIED',
-        message: 'Can only access own resources or need elevated permissions',
+        code: "ACCESS_DENIED",
+        message: "Can only access own resources or need elevated permissions",
         timestamp: new Date().toISOString(),
-        path: req.path
-      }
+        path: req.path,
+      },
     });
   };
 };
