@@ -12,6 +12,8 @@ import PublishAssignmentModal from "../components/PublishAssignmentModal";
 import DueDatesModal from "../components/DueDatesModal";
 import { Popover } from "../components/ui/popover";
 import PublishedStudentsList from "../components/PublishedStudentsList";
+import AssignmentEditor from "../components/AssignmentEditor";
+import AssignmentViewer from "../components/AssignmentViewer";
 
 interface AssignmentPageProps {
   userRole?: UserRole;
@@ -163,7 +165,7 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
   };
 
   const handleCancelEdit = () => {
-    setEditedName(assignment.name);
+    setEditedName(assignment?.name || "");
     setIsEditing(false);
   };
 
@@ -341,23 +343,26 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
 
         {/* Assignment Content */}
         <div className="flex-1 mx-6">
-          <Card className="h-full p-6">
-            <div className="text-gray-600">
-              {assignment.content ? (
-                <div>
-                  Assignment content will be rendered here with TipTap editor
-                </div>
-              ) : (
-                <div className="text-center py-12">
-                  <p className="text-lg">No content yet</p>
-                  {effectiveIsInstructor && (
-                    <p className="text-sm mt-2">
-                      Click to add assignment content
-                    </p>
-                  )}
-                </div>
-              )}
-            </div>
+          <Card className="h-full p-0 overflow-hidden">
+            {assignment && (
+              <>
+                {effectiveIsInstructor ? (
+                  <AssignmentEditor
+                    assignment={assignment}
+                    onAssignmentUpdated={handleAssignmentUpdated}
+                    isReadOnly={false}
+                  />
+                ) : (
+                  <AssignmentViewer
+                    assignment={assignment}
+                    onAnswerChange={(blockId: string, answer: any) => {
+                      // TODO: Handle answer changes for interactive blocks
+                      console.log("Answer changed:", blockId, answer);
+                    }}
+                  />
+                )}
+              </>
+            )}
           </Card>
         </div>
       </div>
