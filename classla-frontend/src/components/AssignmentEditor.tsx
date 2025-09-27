@@ -715,7 +715,7 @@ const AssignmentEditor: React.FC<AssignmentEditorProps> = ({
           >
             <EditorContent
               editor={editor}
-              className="prose prose-lg max-w-none focus:outline-none min-h-[500px]"
+              className="assignment-editor-content prose prose-lg max-w-none focus:outline-none min-h-[500px]"
               aria-describedby="editor-help"
             />
 

@@ -289,7 +289,7 @@ const MCQEditor: React.FC<MCQEditorProps> = memo(
         contentEditable={false}
       >
         <div
-          className="mcq-editor border border-gray-200 rounded-lg p-3 my-3 bg-white shadow-sm select-none"
+          className="mcq-editor border border-gray-200 rounded-lg p-3 bg-white shadow-sm select-none"
           role="group"
           aria-label="Multiple choice question editor"
           style={{ cursor: "default" }}
