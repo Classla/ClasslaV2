@@ -92,6 +92,7 @@ export const Popover: React.FC<PopoverProps> = ({
               left: `${position.left}px`,
               minWidth: "320px",
             }}
+            data-popover="true"
           >
             {content}
           </div>,

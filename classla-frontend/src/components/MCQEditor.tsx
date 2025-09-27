@@ -293,37 +293,8 @@ const MCQEditor: React.FC<MCQEditorProps> = memo(
           role="group"
           aria-label="Multiple choice question editor"
           style={{ cursor: "default" }}
-          // Only prevent events that don't originate from input elements
-          onMouseDown={(e) => {
-            const target = e.target as HTMLElement;
-            if (
-              target.tagName !== "INPUT" &&
-              target.tagName !== "TEXTAREA" &&
-              !target.closest(".rich-text-editor")
-            ) {
-              e.stopPropagation();
-            }
-          }}
-          onMouseUp={(e) => {
-            const target = e.target as HTMLElement;
-            if (
-              target.tagName !== "INPUT" &&
-              target.tagName !== "TEXTAREA" &&
-              !target.closest(".rich-text-editor")
-            ) {
-              e.stopPropagation();
-            }
-          }}
-          onClick={(e) => {
-            const target = e.target as HTMLElement;
-            if (
-              target.tagName !== "INPUT" &&
-              target.tagName !== "TEXTAREA" &&
-              !target.closest(".rich-text-editor")
-            ) {
-              e.stopPropagation();
-            }
-          }}
+          // Allow all events to bubble normally for popover outside click detection
+          // ProseMirror interference is handled by the NodeViewWrapper instead
         >
           {/* Header with settings */}
           <div className="flex items-center justify-between mb-3">
