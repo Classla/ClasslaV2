@@ -289,25 +289,38 @@ const MCQEditor: React.FC<MCQEditorProps> = memo(
         contentEditable={false}
       >
         <div
-          className="mcq-editor border border-gray-200 rounded-lg p-3 my-3 bg-white shadow-sm"
+          className="mcq-editor border border-gray-200 rounded-lg p-3 my-3 bg-white shadow-sm select-none"
           role="group"
           aria-label="Multiple choice question editor"
+          style={{ cursor: "default" }}
           // Only prevent events that don't originate from input elements
           onMouseDown={(e) => {
             const target = e.target as HTMLElement;
-            if (target.tagName !== "INPUT" && target.tagName !== "TEXTAREA") {
+            if (
+              target.tagName !== "INPUT" &&
+              target.tagName !== "TEXTAREA" &&
+              !target.closest(".rich-text-editor")
+            ) {
               e.stopPropagation();
             }
           }}
           onMouseUp={(e) => {
             const target = e.target as HTMLElement;
-            if (target.tagName !== "INPUT" && target.tagName !== "TEXTAREA") {
+            if (
+              target.tagName !== "INPUT" &&
+              target.tagName !== "TEXTAREA" &&
+              !target.closest(".rich-text-editor")
+            ) {
               e.stopPropagation();
             }
           }}
           onClick={(e) => {
             const target = e.target as HTMLElement;
-            if (target.tagName !== "INPUT" && target.tagName !== "TEXTAREA") {
+            if (
+              target.tagName !== "INPUT" &&
+              target.tagName !== "TEXTAREA" &&
+              !target.closest(".rich-text-editor")
+            ) {
               e.stopPropagation();
             }
           }}
@@ -316,7 +329,7 @@ const MCQEditor: React.FC<MCQEditorProps> = memo(
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-3">
               <div
-                className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors ${
+                className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors select-none ${
                   validationErrors.length > 0
                     ? "bg-red-100 text-red-600"
                     : "bg-gradient-to-br from-blue-500 to-purple-600 text-white shadow-sm"
@@ -328,7 +341,7 @@ const MCQEditor: React.FC<MCQEditorProps> = memo(
                   <span className="text-sm font-bold">Q</span>
                 )}
               </div>
-              <div>
+              <div className="select-none">
                 <div className="text-sm font-medium text-gray-900">
                   Multiple Choice Question
                 </div>
@@ -339,7 +352,7 @@ const MCQEditor: React.FC<MCQEditorProps> = memo(
                 </div>
               </div>
               {validationErrors.length > 0 && (
-                <span className="text-xs text-red-600 bg-red-50 px-2 py-1 rounded-full font-medium border border-red-200">
+                <span className="text-xs text-red-600 bg-red-50 px-2 py-1 rounded-full font-medium border border-red-200 select-none">
                   {validationErrors.length} error
                   {validationErrors.length > 1 ? "s" : ""}
                 </span>
@@ -416,7 +429,7 @@ const MCQEditor: React.FC<MCQEditorProps> = memo(
 
           {/* Validation Errors */}
           {validationErrors.length > 0 && (
-            <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-md">
+            <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-md select-none">
               <div className="flex items-center gap-2 mb-2">
                 <AlertTriangle className="w-4 h-4 text-red-600" />
                 <span className="text-sm font-medium text-red-800">
@@ -436,28 +449,30 @@ const MCQEditor: React.FC<MCQEditorProps> = memo(
 
           {/* Question editor */}
           <div className="mb-3">
-            <Label className="text-sm font-medium text-gray-700 mb-1 block">
+            <Label className="text-sm font-medium text-gray-700 mb-1 block select-none">
               Question
             </Label>
-            <RichTextEditor
-              content={mcqData.question || ""}
-              onChange={updateQuestion}
-              placeholder="Enter your question..."
-              className={`w-full ${
-                validationErrors.some((error) => error.includes("question"))
-                  ? "border-red-300 focus-within:border-red-500 focus-within:ring-red-200"
-                  : ""
-              }`}
-              onKeyDown={handleKeyDown}
-              minHeight="32px"
-              maxHeight="300px"
-              showToolbar={true}
-            />
+            <div className="select-text">
+              <RichTextEditor
+                content={mcqData.question || ""}
+                onChange={updateQuestion}
+                placeholder="Enter your question..."
+                className={`w-full ${
+                  validationErrors.some((error) => error.includes("question"))
+                    ? "border-red-300 focus-within:border-red-500 focus-within:ring-red-200"
+                    : ""
+                }`}
+                onKeyDown={handleKeyDown}
+                minHeight="32px"
+                maxHeight="300px"
+                showToolbar={true}
+              />
+            </div>
           </div>
 
           {/* Options */}
           <div className="space-y-1 mb-3">
-            <Label className="text-sm font-medium text-gray-700">
+            <Label className="text-sm font-medium text-gray-700 select-none">
               Answer Options
             </Label>
             {mcqData.options.map((option, index) => (
@@ -510,7 +525,7 @@ const MCQEditor: React.FC<MCQEditorProps> = memo(
               >
                 {/* Drag handle */}
                 <div
-                  className="text-gray-400 hover:text-gray-600 cursor-grab active:cursor-grabbing p-1"
+                  className="text-gray-400 hover:text-gray-600 cursor-grab active:cursor-grabbing p-1 select-none"
                   title="Drag to reorder"
                   draggable
                   onDragStart={(e) => {
@@ -543,7 +558,7 @@ const MCQEditor: React.FC<MCQEditorProps> = memo(
                 </button>
 
                 {/* Option text editor with rich text support */}
-                <div className="flex-1">
+                <div className="flex-1 select-text">
                   <RichTextEditor
                     content={option.text || ""}
                     onChange={(text) => updateOptionText(option.id, text)}
@@ -584,7 +599,7 @@ const MCQEditor: React.FC<MCQEditorProps> = memo(
           </Button>
 
           {/* Footer info */}
-          <div className="mt-4 pt-3 border-t border-gray-200 text-xs text-gray-500 space-y-2">
+          <div className="mt-4 pt-3 border-t border-gray-200 text-xs text-gray-500 space-y-2 select-none">
             <div className="flex justify-between items-center">
               <span>
                 {hasCorrectAnswers} correct answer
