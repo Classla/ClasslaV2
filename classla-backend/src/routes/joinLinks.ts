@@ -179,36 +179,66 @@ router.post(
       .single();
 
     if (existingEnrollment) {
-      return res.status(409).json({
-        error: {
-          code: "ALREADY_ENROLLED",
-          message: "User is already enrolled in this course",
-          details: {
-            course_name: course.name,
-            course_slug: joinLink.course_slug,
-            section_slug: joinLink.section_slug,
-          },
-        },
-        timestamp: new Date().toISOString(),
-        path: req.originalUrl,
+      // User is already enrolled in course - check if they need section enrollment
+      if (joinLink.section_slug) {
+        const { data: section, error: sectionError } = await supabase
+          .from("sections")
+          .select("id")
+          .eq("course_id", course.id)
+          .eq("slug", joinLink.section_slug)
+          .single();
+
+        if (sectionError || !section) {
+          console.error("Section not found:", sectionError);
+          return res.status(404).json({ error: "Section not found" });
+        }
+
+        // Check if user's enrollment already has this section
+        const { data: currentEnrollment } = await supabase
+          .from("course_enrollments")
+          .select("section_id")
+          .eq("course_id", course.id)
+          .eq("user_id", user_id)
+          .single();
+
+        if (currentEnrollment && currentEnrollment.section_id !== section.id) {
+          // Update the enrollment to include the section (or change to new section)
+          const { error: sectionUpdateError } = await supabase
+            .from("course_enrollments")
+            .update({ section_id: section.id })
+            .eq("course_id", course.id)
+            .eq("user_id", user_id);
+
+          if (sectionUpdateError) {
+            console.error(
+              "Error updating enrollment with section:",
+              sectionUpdateError
+            );
+            return res
+              .status(500)
+              .json({ error: "Failed to enroll in section" });
+          }
+        }
+      }
+
+      // User is already enrolled - return success response
+      return res.json({
+        message: "You are already enrolled in this course",
+        course_name: course.name,
+        course_slug: joinLink.course_slug,
+        section_slug: joinLink.section_slug,
+        already_enrolled: true,
       });
     }
 
-    // Enroll user as student
-    const { error: enrollError } = await supabase
-      .from("course_enrollments")
-      .insert({
-        course_id: course.id,
-        user_id: user_id,
-        role: "student",
-      });
+    // Prepare enrollment data
+    let enrollmentData: any = {
+      course_id: course.id,
+      user_id: user_id,
+      role: "student",
+    };
 
-    if (enrollError) {
-      console.error("Error enrolling user:", enrollError);
-      return res.status(500).json({ error: "Failed to enroll in course" });
-    }
-
-    // If section_slug is specified, also enroll in section
+    // If section_slug is specified, include section in enrollment
     if (joinLink.section_slug) {
       const { data: section, error: sectionError } = await supabase
         .from("sections")
@@ -217,13 +247,22 @@ router.post(
         .eq("slug", joinLink.section_slug)
         .single();
 
-      if (!sectionError && section) {
-        await supabase.from("section_enrollments").insert({
-          section_id: section.id,
-          user_id: user_id,
-          role: "student",
-        });
+      if (sectionError || !section) {
+        console.error("Section not found:", sectionError);
+        return res.status(404).json({ error: "Section not found" });
       }
+
+      enrollmentData.section_id = section.id;
+    }
+
+    // Enroll user as student (with section if specified)
+    const { error: enrollError } = await supabase
+      .from("course_enrollments")
+      .insert(enrollmentData);
+
+    if (enrollError) {
+      console.error("Error enrolling user:", enrollError);
+      return res.status(500).json({ error: "Failed to enroll in course" });
     }
 
     res.json({

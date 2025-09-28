@@ -406,11 +406,26 @@ const StudentsPage: React.FC<StudentsPageProps> = ({
             <SelectContent>
               <SelectItem value="all">All Members</SelectItem>
               <SelectItem value="none">No Section</SelectItem>
-              {sections?.map((section) => (
-                <SelectItem key={section.id} value={section.id}>
-                  {section.name}
-                </SelectItem>
-              ))}
+              {sections?.map((section) => {
+                // Count students in this section
+                const studentsInSection = students.filter(
+                  (s) => s.enrollment.section_id === section.id
+                ).length;
+                const isEmpty = studentsInSection === 0;
+
+                return (
+                  <SelectItem
+                    key={section.id}
+                    value={section.id}
+                    className={isEmpty ? "text-gray-400" : ""}
+                  >
+                    {section.name}
+                    {isEmpty && (
+                      <span className="text-gray-400 ml-1">(empty)</span>
+                    )}
+                  </SelectItem>
+                );
+              })}
             </SelectContent>
           </Select>
         </div>
@@ -616,14 +631,29 @@ const StudentsPage: React.FC<StudentsPageProps> = ({
                               </SelectTrigger>
                               <SelectContent>
                                 <SelectItem value="none">No Section</SelectItem>
-                                {sections?.map((section) => (
-                                  <SelectItem
-                                    key={section.id}
-                                    value={section.id}
-                                  >
-                                    {section.name}
-                                  </SelectItem>
-                                ))}
+                                {sections?.map((section) => {
+                                  // Count students in this section
+                                  const studentsInSection = students.filter(
+                                    (s) =>
+                                      s.enrollment.section_id === section.id
+                                  ).length;
+                                  const isEmpty = studentsInSection === 0;
+
+                                  return (
+                                    <SelectItem
+                                      key={section.id}
+                                      value={section.id}
+                                      className={isEmpty ? "text-gray-400" : ""}
+                                    >
+                                      {section.name}
+                                      {isEmpty && (
+                                        <span className="text-gray-400 ml-1">
+                                          (empty)
+                                        </span>
+                                      )}
+                                    </SelectItem>
+                                  );
+                                })}
                               </SelectContent>
                             </Select>
                           )}

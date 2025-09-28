@@ -70,7 +70,7 @@ router.get(
         throw sectionsError;
       }
 
-      res.json(sections || []);
+      res.json({ data: sections || [] });
     } catch (error) {
       console.error("Error retrieving sections by course:", error);
       res.status(500).json({
@@ -182,7 +182,7 @@ router.get(
         return;
       }
 
-      res.json(section);
+      res.json({ data: section });
     } catch (error) {
       console.error("Error retrieving section by slug:", error);
       res.status(500).json({
@@ -246,7 +246,7 @@ router.get(
         return;
       }
 
-      res.json(section);
+      res.json({ data: section });
     } catch (error) {
       console.error("Error retrieving section by ID:", error);
       res.status(500).json({
@@ -343,7 +343,7 @@ router.post(
         throw sectionError;
       }
 
-      res.status(201).json(section);
+      res.status(201).json({ data: section });
     } catch (error) {
       console.error("Error creating section:", error);
       res.status(500).json({
@@ -462,7 +462,7 @@ router.put(
         throw updateError;
       }
 
-      res.json(updatedSection);
+      res.json({ data: updatedSection });
     } catch (error) {
       console.error("Error updating section:", error);
       res.status(500).json({
@@ -617,7 +617,7 @@ router.get(
         throw sectionsError;
       }
 
-      res.json(sections || []);
+      res.json({ data: sections || [] });
     } catch (error) {
       console.error("Error retrieving sections by course slug:", error);
       res.status(500).json({

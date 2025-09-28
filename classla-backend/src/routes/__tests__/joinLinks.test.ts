@@ -1,6 +1,22 @@
 import request from "supertest";
 import app from "../../server";
 import { supabase } from "../../middleware/auth";
+import { it } from "node:test";
+import { it } from "node:test";
+import { it } from "node:test";
+import { it } from "node:test";
+import { it } from "node:test";
+import { afterEach } from "node:test";
+import { beforeEach } from "node:test";
+import { describe } from "node:test";
+import { it } from "node:test";
+import { afterEach } from "node:test";
+import { beforeEach } from "node:test";
+import { describe } from "node:test";
+import { it } from "node:test";
+import { it } from "node:test";
+import { describe } from "node:test";
+import { describe } from "node:test";
 
 describe("Join Links API", () => {
   let testUser: any;
@@ -190,6 +206,7 @@ describe("Join Links API", () => {
       expect(response.status).toBe(200);
       expect(response.body.message).toContain("Successfully joined");
       expect(response.body.course_slug).toBe(testCourse.slug);
+      expect(response.body.already_enrolled).toBeFalsy();
 
       // Verify enrollment was created
       const { data: enrollment } = await supabase
@@ -201,6 +218,150 @@ describe("Join Links API", () => {
 
       expect(enrollment).toBeTruthy();
       expect(enrollment.role).toBe("student");
+    });
+
+    it("should return success when student is already enrolled", async () => {
+      // First, enroll the student
+      await supabase.from("course_enrollments").insert({
+        course_id: testCourse.id,
+        user_id: testStudent.id,
+        role: "student",
+      });
+
+      const response = await request(app)
+        .post(`/api/join-links/use/${testJoinLink.id}`)
+        .set("Authorization", `Bearer mock-student-token`);
+
+      expect(response.status).toBe(200);
+      expect(response.body.message).toContain("already enrolled");
+      expect(response.body.course_slug).toBe(testCourse.slug);
+      expect(response.body.already_enrolled).toBe(true);
+
+      // Clean up the enrollment
+      await supabase
+        .from("course_enrollments")
+        .delete()
+        .eq("course_id", testCourse.id)
+        .eq("user_id", testStudent.id);
+    });
+
+    it("should enroll student in section when join link has section_slug", async () => {
+      // Create a test section
+      const { data: section } = await supabase
+        .from("sections")
+        .insert({
+          course_id: testCourse.id,
+          name: "Test Section",
+          slug: "test-section",
+        })
+        .select()
+        .single();
+
+      // Create join link with section
+      const expiryDate = new Date();
+      expiryDate.setDate(expiryDate.getDate() + 7);
+
+      const { data: sectionJoinLink } = await supabase
+        .from("join_links")
+        .insert({
+          course_slug: testCourse.slug,
+          section_slug: section.slug,
+          expiry_date: expiryDate.toISOString(),
+          created_by_id: testUser.id,
+        })
+        .select()
+        .single();
+
+      const response = await request(app)
+        .post(`/api/join-links/use/${sectionJoinLink.id}`)
+        .set("Authorization", `Bearer mock-student-token`);
+
+      expect(response.status).toBe(200);
+      expect(response.body.section_slug).toBe(section.slug);
+
+      // Verify course enrollment was created with section
+      const { data: courseEnrollment } = await supabase
+        .from("course_enrollments")
+        .select("*")
+        .eq("course_id", testCourse.id)
+        .eq("user_id", testStudent.id)
+        .single();
+
+      expect(courseEnrollment).toBeTruthy();
+      expect(courseEnrollment.role).toBe("student");
+      expect(courseEnrollment.section_id).toBe(section.id);
+
+      // Clean up
+      await supabase.from("join_links").delete().eq("id", sectionJoinLink.id);
+      await supabase.from("sections").delete().eq("id", section.id);
+      await supabase
+        .from("course_enrollments")
+        .delete()
+        .eq("course_id", testCourse.id)
+        .eq("user_id", testStudent.id);
+    });
+
+    it("should enroll already-enrolled student in section if not already in section", async () => {
+      // Create a test section
+      const { data: section } = await supabase
+        .from("sections")
+        .insert({
+          course_id: testCourse.id,
+          name: "Test Section 2",
+          slug: "test-section-2",
+        })
+        .select()
+        .single();
+
+      // First, enroll the student in course only
+      await supabase.from("course_enrollments").insert({
+        course_id: testCourse.id,
+        user_id: testStudent.id,
+        role: "student",
+      });
+
+      // Create join link with section
+      const expiryDate = new Date();
+      expiryDate.setDate(expiryDate.getDate() + 7);
+
+      const { data: sectionJoinLink } = await supabase
+        .from("join_links")
+        .insert({
+          course_slug: testCourse.slug,
+          section_slug: section.slug,
+          expiry_date: expiryDate.toISOString(),
+          created_by_id: testUser.id,
+        })
+        .select()
+        .single();
+
+      const response = await request(app)
+        .post(`/api/join-links/use/${sectionJoinLink.id}`)
+        .set("Authorization", `Bearer mock-student-token`);
+
+      expect(response.status).toBe(200);
+      expect(response.body.already_enrolled).toBe(true);
+      expect(response.body.section_slug).toBe(section.slug);
+
+      // Verify enrollment was updated with section
+      const { data: updatedEnrollment } = await supabase
+        .from("course_enrollments")
+        .select("*")
+        .eq("course_id", testCourse.id)
+        .eq("user_id", testStudent.id)
+        .single();
+
+      expect(updatedEnrollment).toBeTruthy();
+      expect(updatedEnrollment.section_id).toBe(section.id);
+
+      // Clean up
+      await supabase.from("join_links").delete().eq("id", sectionJoinLink.id);
+      await supabase.from("sections").delete().eq("id", section.id);
+      await supabase
+        .from("course_enrollments")
+        .delete()
+        .eq("course_id", testCourse.id)
+        .eq("user_id", testStudent.id);
     });
 
     it("should reject expired join links", async () => {

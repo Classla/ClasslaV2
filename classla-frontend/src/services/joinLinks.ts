@@ -12,6 +12,7 @@ export interface UseJoinLinkResponse {
   course_name: string;
   course_slug: string;
   section_slug?: string;
+  already_enrolled?: boolean;
 }
 
 export const joinLinksService = {

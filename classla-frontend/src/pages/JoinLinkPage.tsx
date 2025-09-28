@@ -55,38 +55,15 @@ const JoinLinkPage: React.FC = () => {
 
       const response = await joinLinksService.useJoinLink(linkId);
 
-      // Step 2: Verify enrollment was created
-      setCurrentStep("verifying");
-      setProcessingMessage("Verifying enrollment...");
-
-      // Wait a moment to ensure database consistency
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-
-      // Verify the user is now enrolled in the course
-      try {
-        const userCourses = await apiClient.getUserCourses(user.id);
-        const enrolledCourse = userCourses.data.find(
-          (course: any) => course.slug === response.course_slug
-        );
-
-        if (!enrolledCourse) {
-          console.warn(
-            "Course not found in user's enrolled courses, but join was successful"
-          );
-          // Don't fail here - the join was successful according to the API
-        }
-      } catch (verificationError) {
-        console.warn(
-          "Could not verify enrollment, but join was successful:",
-          verificationError
-        );
-        // Don't fail here - the join was successful according to the API
-      }
-
-      // Step 3: Success
+      // Step 2: Success
       setCurrentStep("complete");
       setResult(response);
-      setProcessingMessage("Successfully enrolled! Redirecting...");
+
+      if (response.already_enrolled) {
+        setProcessingMessage("Already enrolled! Redirecting...");
+      } else {
+        setProcessingMessage("Successfully enrolled! Redirecting...");
+      }
 
       // Redirect after showing success message
       setTimeout(() => {
@@ -98,23 +75,6 @@ const JoinLinkPage: React.FC = () => {
 
       if (err.statusCode === 410) {
         setIsExpired(true);
-      } else if (err.statusCode === 409) {
-        // User is already enrolled
-        const errorDetails = err.details || {};
-        if (errorDetails.course_slug) {
-          setResult({
-            message: "You are already enrolled in this course",
-            course_name: errorDetails.course_name,
-            course_slug: errorDetails.course_slug,
-            section_slug: errorDetails.section_slug,
-          });
-          setCurrentStep("complete");
-          setTimeout(() => {
-            navigate(`/course/${errorDetails.course_slug}`);
-          }, 2000);
-        } else {
-          setError("You are already enrolled in this course");
-        }
       } else {
         setError(err.message || "Failed to join course");
       }
@@ -134,8 +94,7 @@ const JoinLinkPage: React.FC = () => {
   if (
     authLoading ||
     currentStep === "validating" ||
-    currentStep === "enrolling" ||
-    currentStep === "verifying"
+    currentStep === "enrolling"
   ) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -167,15 +126,6 @@ const JoinLinkPage: React.FC = () => {
                   className={`w-2 h-2 rounded-full ${
                     currentStep === "enrolling"
                       ? "bg-purple-600 animate-pulse"
-                      : ["verifying", "complete"].includes(currentStep)
-                      ? "bg-green-500"
-                      : "bg-gray-300"
-                  }`}
-                />
-                <div
-                  className={`w-2 h-2 rounded-full ${
-                    currentStep === "verifying"
-                      ? "bg-purple-600 animate-pulse"
                       : currentStep === "complete"
                       ? "bg-green-500"
                       : "bg-gray-300"
@@ -185,7 +135,6 @@ const JoinLinkPage: React.FC = () => {
               <p className="text-xs text-gray-500">
                 {currentStep === "validating" && "Validating link..."}
                 {currentStep === "enrolling" && "Creating enrollment..."}
-                {currentStep === "verifying" && "Verifying enrollment..."}
               </p>
             </div>
           </div>
@@ -248,14 +197,6 @@ const JoinLinkPage: React.FC = () => {
               >
                 Go to Dashboard
               </button>
-              {error.includes("already enrolled") && result && (
-                <button
-                  onClick={handleGoToCourse}
-                  className="w-full py-2 border border-purple-600 text-purple-600 rounded-lg hover:bg-purple-50 transition-colors"
-                >
-                  Go to Course
-                </button>
-              )}
             </div>
           </div>
         </Card>
@@ -272,13 +213,13 @@ const JoinLinkPage: React.FC = () => {
               <CheckCircle className="w-16 h-16 text-green-500" />
             </div>
             <h1 className="text-2xl font-bold text-gray-900">
-              {result.message.includes("already enrolled")
+              {result.already_enrolled
                 ? "Already Enrolled!"
                 : "Successfully Joined!"}
             </h1>
             <div className="space-y-2">
               <p className="text-gray-600">
-                {result.message.includes("already enrolled")
+                {result.already_enrolled
                   ? `You are already enrolled in`
                   : `You have been enrolled in`}{" "}
                 <strong>{result.course_name}</strong>
