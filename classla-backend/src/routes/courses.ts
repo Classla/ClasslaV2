@@ -455,6 +455,21 @@ router.delete(
         return;
       }
 
+      // Delete all course enrollments first
+      const { error: enrollmentDeleteError } = await supabase
+        .from("course_enrollments")
+        .delete()
+        .eq("course_id", id);
+
+      if (enrollmentDeleteError) {
+        console.error(
+          "Error deleting course enrollments:",
+          enrollmentDeleteError
+        );
+        // Continue with course deletion even if enrollment deletion fails
+        // This ensures the course is still deleted
+      }
+
       // Soft delete the course
       const { data: deletedCourse, error: deleteError } = await supabase
         .from("courses")
