@@ -178,10 +178,21 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
         bulletList: {
           keepMarks: true,
           keepAttributes: false,
+          HTMLAttributes: {
+            class: "tiptap-bullet-list",
+          },
         },
         orderedList: {
           keepMarks: true,
           keepAttributes: false,
+          HTMLAttributes: {
+            class: "tiptap-ordered-list",
+          },
+        },
+        listItem: {
+          HTMLAttributes: {
+            class: "tiptap-list-item",
+          },
         },
         dropcursor: false, // We'll add our own
         gapcursor: false, // We'll add our own
@@ -437,7 +448,7 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
           <div className="relative editor-container">
             <EditorContent
               editor={editor}
-              className="prose prose-lg max-w-none focus:outline-none min-h-[500px] [&_.ProseMirror]:cursor-default"
+              className="prose prose-lg max-w-none focus:outline-none min-h-[500px] [&_.ProseMirror]:cursor-default [&_ul]:list-disc [&_ol]:list-decimal [&_ul]:ml-8 [&_ol]:ml-8 [&_ul]:pl-4 [&_ol]:pl-4 [&_li]:pl-2"
             />
           </div>
         </div>

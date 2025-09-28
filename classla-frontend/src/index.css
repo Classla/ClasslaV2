@@ -63,3 +63,231 @@
     color: hsl(var(--foreground));
   }
 }
+
+/* TipTap Editor List Styles */
+@layer components {
+  .ProseMirror ul,
+  .assignment-editor-content ul,
+  .prose ul {
+    list-style-type: disc;
+    margin-left: 2rem;
+    margin-top: 0.5rem;
+    margin-bottom: 0.5rem;
+    padding-left: 1rem;
+  }
+
+  .ProseMirror ol,
+  .assignment-editor-content ol,
+  .prose ol {
+    list-style-type: decimal;
+    margin-left: 2rem;
+    margin-top: 0.5rem;
+    margin-bottom: 0.5rem;
+    padding-left: 1rem;
+  }
+
+  .ProseMirror ul li,
+  .assignment-editor-content ul li,
+  .prose ul li {
+    display: list-item;
+    margin-left: 0;
+    padding-left: 0.5rem;
+    position: relative;
+  }
+
+  .ProseMirror ol li,
+  .assignment-editor-content ol li,
+  .prose ol li {
+    display: list-item;
+    margin-left: 0;
+    padding-left: 0.5rem;
+    position: relative;
+  }
+
+  /* Nested lists */
+  .ProseMirror ul ul,
+  .assignment-editor-content ul ul,
+  .prose ul ul {
+    list-style-type: circle;
+    margin-top: 0.25rem;
+    margin-bottom: 0.25rem;
+  }
+
+  .ProseMirror ul ul ul,
+  .assignment-editor-content ul ul ul,
+  .prose ul ul ul {
+    list-style-type: square;
+  }
+
+  .ProseMirror ol ol,
+  .assignment-editor-content ol ol,
+  .prose ol ol {
+    list-style-type: lower-alpha;
+    margin-top: 0.25rem;
+    margin-bottom: 0.25rem;
+  }
+
+  .ProseMirror ol ol ol,
+  .assignment-editor-content ol ol ol,
+  .prose ol ol ol {
+    list-style-type: lower-roman;
+  }
+
+  /* Task lists */
+  .ProseMirror ul[data-type="taskList"],
+  .assignment-editor-content ul[data-type="taskList"],
+  .prose ul[data-type="taskList"] {
+    list-style: none;
+    margin-left: 0;
+    padding-left: 0;
+  }
+
+  .ProseMirror ul[data-type="taskList"] li,
+  .assignment-editor-content ul[data-type="taskList"] li,
+  .prose ul[data-type="taskList"] li {
+    display: flex;
+    align-items: flex-start;
+    margin-left: 0;
+    padding-left: 0;
+  }
+
+  .ProseMirror ul[data-type="taskList"] li > label,
+  .assignment-editor-content ul[data-type="taskList"] li > label,
+  .prose ul[data-type="taskList"] li > label {
+    margin-right: 0.5rem;
+    margin-top: 0.125rem;
+    flex-shrink: 0;
+  }
+
+  .ProseMirror ul[data-type="taskList"] li > div,
+  .assignment-editor-content ul[data-type="taskList"] li > div,
+  .prose ul[data-type="taskList"] li > div {
+    flex: 1;
+  }
+
+  /* Ensure list markers are visible */
+  .ProseMirror,
+  .assignment-editor-content,
+  .prose {
+    overflow-wrap: break-word;
+  }
+
+  .ProseMirror ul,
+  .ProseMirror ol,
+  .assignment-editor-content ul,
+  .assignment-editor-content ol,
+  .prose ul,
+  .prose ol {
+    position: relative;
+  }
+
+  /* Force list markers to show - override any resets */
+  .ProseMirror ul li::marker,
+  .assignment-editor-content ul li::marker,
+  .prose ul li::marker {
+    content: "• ";
+    color: currentColor;
+    font-size: 1em;
+    font-weight: normal;
+  }
+
+  .ProseMirror ol li::marker,
+  .assignment-editor-content ol li::marker,
+  .prose ol li::marker {
+    color: currentColor;
+    font-size: 1em;
+    font-weight: 500;
+  }
+
+  /* Alternative approach using pseudo-elements if markers don't work */
+  .ProseMirror ul:not([data-type="taskList"]) li,
+  .assignment-editor-content ul:not([data-type="taskList"]) li,
+  .prose ul:not([data-type="taskList"]) li {
+    position: relative;
+  }
+
+  /* Ensure proper spacing and visibility */
+  .ProseMirror ul li,
+  .ProseMirror ol li,
+  .assignment-editor-content ul li,
+  .assignment-editor-content ol li,
+  .prose ul li,
+  .prose ol li {
+    margin-bottom: 0.25rem;
+    line-height: 1.6;
+  }
+
+  /* Override Tailwind preflight that might be hiding markers */
+  .ProseMirror ul,
+  .assignment-editor-content ul,
+  .prose ul,
+  .tiptap-bullet-list {
+    list-style: disc outside;
+  }
+
+  .ProseMirror ol,
+  .assignment-editor-content ol,
+  .prose ol,
+  .tiptap-ordered-list {
+    list-style: decimal outside;
+  }
+
+  /* Specific TipTap list styles */
+  .tiptap-bullet-list {
+    margin-left: 2rem;
+    margin-top: 0.5rem;
+    margin-bottom: 0.5rem;
+    padding-left: 1rem;
+  }
+
+  .tiptap-ordered-list {
+    margin-left: 2rem;
+    margin-top: 0.5rem;
+    margin-bottom: 0.5rem;
+    padding-left: 1rem;
+  }
+
+  .tiptap-list-item {
+    display: list-item;
+    margin-left: 0;
+    padding-left: 0.5rem;
+    margin-bottom: 0.25rem;
+    line-height: 1.6;
+    position: relative;
+  }
+
+  /* Enhanced bullet styling with normal sized, better positioned markers */
+  .ProseMirror ul:not([data-type="taskList"]) li::marker,
+  .assignment-editor-content ul:not([data-type="taskList"]) li::marker,
+  .prose ul:not([data-type="taskList"]) li::marker,
+  .tiptap-bullet-list .tiptap-list-item::marker {
+    content: "• ";
+    color: #374151;
+    font-size: 1.3em;
+    font-weight: normal;
+  }
+
+  .ProseMirror ol li::marker,
+  .assignment-editor-content ol li::marker,
+  .prose ol li::marker,
+  .tiptap-ordered-list .tiptap-list-item::marker {
+    color: #374151;
+    font-size: 1em;
+    font-weight: 500;
+  }
+
+  /* Nested list styling with different bullet types */
+  .ProseMirror ul ul li::marker,
+  .assignment-editor-content ul ul li::marker,
+  .prose ul ul li::marker {
+    content: "◦";
+    font-size: 1.3em;
+  }
+
+  .ProseMirror ul ul ul li::marker,
+  .assignment-editor-content ul ul ul li::marker,
+  .prose ul ul ul li::marker {
+    content: "▪";
+    font-size: 1.3em;
+  }
+}

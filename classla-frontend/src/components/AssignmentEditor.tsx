@@ -604,10 +604,21 @@ const AssignmentEditor: React.FC<AssignmentEditorProps> = ({
         bulletList: {
           keepMarks: true,
           keepAttributes: false,
+          HTMLAttributes: {
+            class: "tiptap-bullet-list",
+          },
         },
         orderedList: {
           keepMarks: true,
           keepAttributes: false,
+          HTMLAttributes: {
+            class: "tiptap-ordered-list",
+          },
+        },
+        listItem: {
+          HTMLAttributes: {
+            class: "tiptap-list-item",
+          },
         },
         dropcursor: false, // We'll add our own
         gapcursor: false, // We'll add our own
@@ -1084,7 +1095,7 @@ const AssignmentEditor: React.FC<AssignmentEditorProps> = ({
           >
             <EditorContent
               editor={editor}
-              className="assignment-editor-content prose prose-lg max-w-none focus:outline-none min-h-[500px]"
+              className="assignment-editor-content prose prose-lg max-w-none focus:outline-none min-h-[500px] [&_ul]:list-disc [&_ol]:list-decimal [&_ul]:ml-8 [&_ol]:ml-8 [&_ul]:pl-4 [&_ol]:pl-4 [&_li]:pl-2"
               aria-describedby="editor-help"
             />
 
