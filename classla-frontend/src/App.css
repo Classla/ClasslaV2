@@ -605,3 +605,158 @@ Enhanced TipTap Block Styles */
   background: rgba(55, 53, 47, 0.08) !important;
   box-shadow: none !important;
 }
+
+/* Table Controls Styling */
+.table-controls {
+  background: rgba(255, 255, 255, 0.95);
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1),
+    0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  padding: 8px;
+  opacity: 0;
+  transform: translateY(-8px) scale(0.95);
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  pointer-events: none;
+  backdrop-filter: blur(8px);
+}
+
+/* Show table controls when hovering over table or the controls themselves */
+.table-controls:hover,
+.table-controls.visible {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  pointer-events: auto;
+}
+
+.table-controls button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 32px;
+  height: 28px;
+  border: none;
+  background: none;
+  border-radius: 6px;
+  color: #6b7280;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  position: relative;
+  padding: 4px 6px;
+}
+
+.table-controls button:hover {
+  background: #f3f4f6;
+  color: #374151;
+  transform: translateY(-1px);
+}
+
+.table-controls button:focus {
+  outline: 2px solid #8b5cf6;
+  outline-offset: 2px;
+}
+
+.table-controls button:active {
+  transform: translateY(0);
+}
+
+.table-controls button svg {
+  width: 12px;
+  height: 12px;
+}
+
+/* Section labels */
+.table-controls .text-xs {
+  font-weight: 500;
+  letter-spacing: 0.025em;
+}
+
+/* Enhanced table hover effects */
+.ProseMirror table:hover {
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1),
+    0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  transition: box-shadow 0.2s ease;
+}
+
+/* Table Context Menu Styling */
+.table-context-menu {
+  background: white;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1),
+    0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  padding: 4px 0;
+  min-width: 180px;
+  z-index: 50;
+}
+
+.table-context-menu button {
+  width: 100%;
+  padding: 8px 12px;
+  border: none;
+  background: none;
+  text-align: left;
+  font-size: 14px;
+  color: #374151;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.table-context-menu button:hover {
+  background: #f9fafb;
+}
+
+.table-context-menu button:focus {
+  background: #f3f4f6;
+  outline: none;
+}
+
+.table-context-menu button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.table-context-menu button:disabled:hover {
+  background: none;
+}
+
+.table-context-menu button.text-red-600 {
+  color: #dc2626;
+}
+
+.table-context-menu button.text-red-600:hover {
+  background: #fef2f2;
+}
+
+.table-context-menu .border-t {
+  border-top: 1px solid #e5e7eb;
+  margin: 4px 0;
+}
+
+/* Enhanced table cell hover effects */
+.ProseMirror table td:hover,
+.ProseMirror table th:hover {
+  background: rgba(139, 92, 246, 0.05);
+  cursor: pointer;
+}
+
+/* Table selection styling */
+.ProseMirror table .selectedCell {
+  background: rgba(139, 92, 246, 0.1) !important;
+  position: relative;
+}
+
+.ProseMirror table .selectedCell::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  border: 2px solid #8b5cf6;
+  pointer-events: none;
+  border-radius: 2px;
+}

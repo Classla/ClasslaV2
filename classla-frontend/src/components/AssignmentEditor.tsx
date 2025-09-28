@@ -23,6 +23,12 @@ import { apiClient } from "../lib/api";
 import { MCQBlock, validateMCQData } from "./extensions/MCQBlock";
 import { useToast } from "../hooks/use-toast";
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "./ui/tooltip";
+import {
   useAssignmentOptimization,
   usePerformanceMonitoring,
 } from "../hooks/useVirtualScrolling";
@@ -47,6 +53,15 @@ import {
   Link as LinkIcon,
   Strikethrough,
   HelpCircle,
+  Columns,
+  Rows,
+  Merge,
+  Split,
+  Trash2,
+  ArrowUp,
+  ArrowDown,
+  ArrowLeft,
+  ArrowRight,
 } from "lucide-react";
 
 interface AssignmentEditorProps {
@@ -65,6 +80,18 @@ interface SlashCommandItem {
 interface BlockControlsProps {
   block: HTMLElement;
   onAddBlock: () => void;
+}
+
+interface TableControlsProps {
+  table: HTMLElement;
+  editor: any;
+  onHoverChange: (isHovering: boolean) => void;
+}
+
+interface TableContextMenuProps {
+  position: { x: number; y: number };
+  editor: any;
+  onClose: () => void;
 }
 
 // Memoize BlockControls to prevent unnecessary re-renders
@@ -122,6 +149,301 @@ const BlockControls: React.FC<BlockControlsProps> = memo(
   }
 );
 
+// Table Controls Component
+const TableControls: React.FC<TableControlsProps> = memo(
+  ({ table, editor, onHoverChange }) => {
+    // Calculate position immediately to avoid "flying in" effect
+    const position = useMemo(() => {
+      if (!table) return { top: 0, left: 0 };
+
+      const rect = table.getBoundingClientRect();
+      const viewportHeight = window.innerHeight;
+      const viewportWidth = window.innerWidth;
+
+      // Position touching the bottom edge of the table, centered horizontally
+      let top = rect.bottom; // Touching the bottom edge
+      let left = rect.left + rect.width / 2; // Center horizontally
+
+      // Adjust if popup would go off screen horizontally
+      const popupWidth = 350; // Approximate width of controls (reduced since no table section)
+      const popupHeight = 50; // Approximate height of controls
+
+      if (left + popupWidth / 2 > viewportWidth - 16) {
+        left = viewportWidth - popupWidth / 2 - 16;
+      }
+      if (left - popupWidth / 2 < 16) {
+        left = popupWidth / 2 + 16;
+      }
+
+      // If no room below, show above the table
+      if (top + popupHeight > viewportHeight - 16) {
+        top = rect.top - popupHeight; // Touching the top edge
+      }
+
+      return {
+        top,
+        left: left - popupWidth / 2, // Center the popup
+      };
+    }, [table]);
+
+    return (
+      <TooltipProvider>
+        <div
+          className="table-controls visible fixed z-50 flex items-center px-4 py-2"
+          style={{
+            top: position.top,
+            left: position.left,
+          }}
+          onMouseEnter={() => {
+            onHoverChange(true);
+          }}
+          onMouseLeave={() => {
+            onHoverChange(false);
+          }}
+        >
+          {/* Small arrow pointing up to connect to table */}
+          <div className="absolute -top-1 left-1/2 transform -translate-x-1/2 w-2 h-2 bg-white border-l border-t border-gray-200 rotate-45"></div>
+          {/* Rows Section */}
+          <div className="flex flex-col items-center">
+            <div className="text-xs text-gray-500 mb-1 font-medium">Rows</div>
+            <div className="flex items-center space-x-1">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    className="p-2 rounded hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-purple-500 text-gray-600 transition-colors"
+                    onClick={() => editor.chain().focus().addRowBefore().run()}
+                  >
+                    <div className="flex items-center">
+                      <ArrowUp className="w-3 h-3" />
+                      <Plus className="w-3 h-3" />
+                    </div>
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Add row before</p>
+                </TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    className="p-2 rounded hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-purple-500 text-gray-600 transition-colors"
+                    onClick={() => editor.chain().focus().addRowAfter().run()}
+                  >
+                    <div className="flex items-center">
+                      <ArrowDown className="w-3 h-3" />
+                      <Plus className="w-3 h-3" />
+                    </div>
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Add row after</p>
+                </TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    className="p-2 rounded hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-purple-500 text-red-600 transition-colors"
+                    onClick={() => editor.chain().focus().deleteRow().run()}
+                  >
+                    <div className="flex items-center">
+                      <Rows className="w-3 h-3" />
+                      <Trash2 className="w-3 h-3" />
+                    </div>
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Delete row</p>
+                </TooltipContent>
+              </Tooltip>
+            </div>
+          </div>
+
+          <div className="w-px h-8 bg-gray-200 mx-3"></div>
+
+          {/* Columns Section */}
+          <div className="flex flex-col items-center">
+            <div className="text-xs text-gray-500 mb-1 font-medium">
+              Columns
+            </div>
+            <div className="flex items-center space-x-1">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    className="p-2 rounded hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-purple-500 text-gray-600 transition-colors"
+                    onClick={() =>
+                      editor.chain().focus().addColumnBefore().run()
+                    }
+                  >
+                    <div className="flex items-center">
+                      <ArrowLeft className="w-3 h-3" />
+                      <Plus className="w-3 h-3" />
+                    </div>
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Add column before</p>
+                </TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    className="p-2 rounded hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-purple-500 text-gray-600 transition-colors"
+                    onClick={() =>
+                      editor.chain().focus().addColumnAfter().run()
+                    }
+                  >
+                    <div className="flex items-center">
+                      <ArrowRight className="w-3 h-3" />
+                      <Plus className="w-3 h-3" />
+                    </div>
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Add column after</p>
+                </TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    className="p-2 rounded hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-purple-500 text-red-600 transition-colors"
+                    onClick={() => editor.chain().focus().deleteColumn().run()}
+                  >
+                    <div className="flex items-center">
+                      <Columns className="w-3 h-3" />
+                      <Trash2 className="w-3 h-3" />
+                    </div>
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Delete column</p>
+                </TooltipContent>
+              </Tooltip>
+            </div>
+          </div>
+        </div>
+      </TooltipProvider>
+    );
+  }
+);
+
+// Table Context Menu Component
+const TableContextMenu: React.FC<TableContextMenuProps> = memo(
+  ({ position, editor, onClose }) => {
+    useEffect(() => {
+      const handleClickOutside = (event: MouseEvent) => {
+        const target = event.target as HTMLElement;
+        if (!target.closest(".table-context-menu")) {
+          onClose();
+        }
+      };
+
+      const handleEscape = (event: KeyboardEvent) => {
+        if (event.key === "Escape") {
+          onClose();
+        }
+      };
+
+      document.addEventListener("mousedown", handleClickOutside);
+      document.addEventListener("keydown", handleEscape);
+
+      return () => {
+        document.removeEventListener("mousedown", handleClickOutside);
+        document.removeEventListener("keydown", handleEscape);
+      };
+    }, [onClose]);
+
+    const menuItems = [
+      {
+        label: "Add row above",
+        icon: <Rows className="w-4 h-4" />,
+        action: () => editor.chain().focus().addRowBefore().run(),
+      },
+      {
+        label: "Add row below",
+        icon: <Rows className="w-4 h-4" />,
+        action: () => editor.chain().focus().addRowAfter().run(),
+      },
+      { type: "separator" },
+      {
+        label: "Add column before",
+        icon: <Columns className="w-4 h-4" />,
+        action: () => editor.chain().focus().addColumnBefore().run(),
+      },
+      {
+        label: "Add column after",
+        icon: <Columns className="w-4 h-4" />,
+        action: () => editor.chain().focus().addColumnAfter().run(),
+      },
+      { type: "separator" },
+      {
+        label: "Merge cells",
+        icon: <Merge className="w-4 h-4" />,
+        action: () => editor.chain().focus().mergeCells().run(),
+        disabled: !editor.can().mergeCells(),
+      },
+      {
+        label: "Split cell",
+        icon: <Split className="w-4 h-4" />,
+        action: () => editor.chain().focus().splitCell().run(),
+        disabled: !editor.can().splitCell(),
+      },
+      { type: "separator" },
+      {
+        label: "Delete row",
+        icon: <Minus className="w-4 h-4" />,
+        action: () => editor.chain().focus().deleteRow().run(),
+        className: "text-red-600 hover:bg-red-50",
+      },
+      {
+        label: "Delete column",
+        icon: <Minus className="w-4 h-4" />,
+        action: () => editor.chain().focus().deleteColumn().run(),
+        className: "text-red-600 hover:bg-red-50",
+      },
+    ];
+
+    return (
+      <div
+        className="table-context-menu fixed z-50 bg-white border border-gray-200 rounded-lg shadow-lg py-1 min-w-[180px]"
+        style={{
+          left: position.x,
+          top: position.y,
+        }}
+        role="menu"
+        aria-label="Table context menu"
+      >
+        {menuItems.map((item, index) => {
+          if (item.type === "separator") {
+            return (
+              <div key={index} className="border-t border-gray-200 my-1" />
+            );
+          }
+
+          return (
+            <button
+              key={index}
+              className={`w-full px-3 py-2 text-left text-sm flex items-center space-x-2 hover:bg-gray-50 focus:bg-gray-50 focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed ${
+                item.className || ""
+              }`}
+              onClick={() => {
+                if (!item.disabled && item.action) {
+                  item.action();
+                  onClose();
+                }
+              }}
+              disabled={item.disabled}
+              role="menuitem"
+            >
+              {item.icon}
+              <span>{item.label}</span>
+            </button>
+          );
+        })}
+      </div>
+    );
+  }
+);
+
 const AssignmentEditor: React.FC<AssignmentEditorProps> = ({
   assignment,
   onAssignmentUpdated,
@@ -144,6 +466,13 @@ const AssignmentEditor: React.FC<AssignmentEditorProps> = ({
     x: 0,
     y: 0,
   });
+  const [hoveredTable, setHoveredTable] = useState<HTMLElement | null>(null);
+  const [showTableContextMenu, setShowTableContextMenu] = useState(false);
+  const [tableContextMenuPosition, setTableContextMenuPosition] = useState({
+    x: 0,
+    y: 0,
+  });
+  const [isHoveringTableControls, setIsHoveringTableControls] = useState(false);
 
   // Performance optimization: Use refs to avoid unnecessary re-renders
   const editorRef = useRef<any>(null);
@@ -689,6 +1018,24 @@ const AssignmentEditor: React.FC<AssignmentEditorProps> = ({
                   if (block && block !== hoveredBlock) {
                     setHoveredBlock(block);
                   }
+
+                  // Check for table hover
+                  const table = target.closest("table") as HTMLElement;
+                  const tableControls = target.closest(
+                    ".table-controls"
+                  ) as HTMLElement;
+
+                  if (table && table !== hoveredTable) {
+                    setHoveredTable(table);
+                  } else if (!table && !tableControls && hoveredTable) {
+                    // Add a small delay before hiding to allow moving to controls
+                    setTimeout(() => {
+                      // Double-check that we're still not hovering over controls
+                      if (!isHoveringTableControls) {
+                        setHoveredTable(null);
+                      }
+                    }, 150); // Increased delay for better UX
+                  }
                 }, 16);
               }
             }}
@@ -699,8 +1046,10 @@ const AssignmentEditor: React.FC<AssignmentEditorProps> = ({
                 !relatedTarget ||
                 (typeof relatedTarget.closest === "function" &&
                   !relatedTarget.closest(".block-controls") &&
+                  !relatedTarget.closest(".table-controls") &&
                   typeof relatedTarget.matches === "function" &&
-                  !relatedTarget.matches(".block-controls"))
+                  !relatedTarget.matches(".block-controls") &&
+                  !relatedTarget.matches(".table-controls"))
               ) {
                 // Clear existing timeout
                 if (blockHoverTimeoutRef.current) {
@@ -709,7 +1058,27 @@ const AssignmentEditor: React.FC<AssignmentEditorProps> = ({
                 // Add a small delay to prevent flickering
                 blockHoverTimeoutRef.current = setTimeout(() => {
                   setHoveredBlock(null);
+                  if (!isHoveringTableControls) {
+                    setHoveredTable(null);
+                  }
                 }, 100);
+              }
+            }}
+            onContextMenu={(e) => {
+              if (!isReadOnly) {
+                const target = e.target as HTMLElement;
+                const tableCell = target.closest("td, th") as HTMLElement;
+
+                if (tableCell) {
+                  e.preventDefault();
+                  setTableContextMenuPosition({
+                    x: e.clientX,
+                    y: e.clientY,
+                  });
+                  setShowTableContextMenu(true);
+                  setShowSlashMenu(false);
+                  setShowFloatingToolbar(false);
+                }
               }
             }}
           >
@@ -752,6 +1121,15 @@ const AssignmentEditor: React.FC<AssignmentEditorProps> = ({
                     editor.chain().focus().insertContent("/").run();
                   }, 10);
                 }}
+              />
+            )}
+
+            {/* Table Controls */}
+            {!isReadOnly && hoveredTable && (
+              <TableControls
+                table={hoveredTable}
+                editor={editor}
+                onHoverChange={setIsHoveringTableControls}
               />
             )}
           </div>
@@ -926,6 +1304,15 @@ const AssignmentEditor: React.FC<AssignmentEditorProps> = ({
             </button>
           </div>
         </div>
+      )}
+
+      {/* Table Context Menu */}
+      {!isReadOnly && showTableContextMenu && (
+        <TableContextMenu
+          position={tableContextMenuPosition}
+          editor={editor}
+          onClose={() => setShowTableContextMenu(false)}
+        />
       )}
     </div>
   );
