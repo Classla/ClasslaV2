@@ -2,7 +2,7 @@
 
 ## Introduction
 
-Classla LMS is a comprehensive learning management system that enables instructors to create courses, manage assignments, and grade student submissions. The system consists of a React frontend with Vite and an Express.js backend integrated with Supabase for authentication and data storage. The platform supports role-based access control with different user types including instructors, admins, teaching assistants, students, and audit users.
+Classla is a comprehensive learning management system that enables instructors to create courses, manage assignments, and grade student submissions. The system consists of a React frontend with Vite and an Express.js backend integrated with Supabase for authentication and data storage. The platform supports role-based access control with different user types including instructors, admins, teaching assistants, students, and audit users.
 
 ## Requirements
 

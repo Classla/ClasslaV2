@@ -2,7 +2,7 @@
 
 ## Overview
 
-Classla LMS is designed as a modern, scalable learning management system with a clear separation between frontend and backend concerns. The architecture follows a client-server model with a React/Vite frontend communicating with an Express.js backend that integrates with Supabase for authentication and PostgreSQL database operations.
+Classla is designed as a modern, scalable learning management system with a clear separation between frontend and backend concerns. The architecture follows a client-server model with a React/Vite frontend communicating with an Express.js backend that integrates with Supabase for authentication and PostgreSQL database operations.
 
 ## Architecture
 

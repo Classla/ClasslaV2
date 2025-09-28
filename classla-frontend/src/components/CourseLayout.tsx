@@ -156,7 +156,7 @@ const CourseLayout: React.FC<CourseLayoutProps> = ({ children }) => {
                 className="flex items-center space-x-3 text-white hover:text-purple-100 transition-colors"
               >
                 <Logo size="sm" variant="white" showFallback={true} />
-                <span className="text-xl font-semibold">Classla LMS</span>
+                <span className="text-xl font-semibold">Classla</span>
               </button>
               <span className="text-white text-lg">•</span>
               <span className="text-white text-lg font-medium">

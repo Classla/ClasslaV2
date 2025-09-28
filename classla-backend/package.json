@@ -1,7 +1,7 @@
 {
   "name": "classla-backend",
   "version": "1.0.0",
-  "description": "Backend API for Classla LMS",
+  "description": "Backend API for Classla",
   "main": "dist/server.js",
   "scripts": {
     "dev": "tsx watch src/server.ts",

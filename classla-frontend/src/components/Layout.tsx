@@ -24,7 +24,7 @@ const Layout = () => {
                 <Link to="/" className="flex items-center space-x-3">
                   <Logo size="sm" variant="white" showFallback={true} />
                   <span className="text-white text-xl font-semibold">
-                    Classla LMS
+                    Classla
                   </span>
                 </Link>
               </div>

@@ -1,6 +1,6 @@
-# Classla LMS Type System
+# Classla Type System
 
-This directory contains all shared TypeScript types, interfaces, and utilities for the Classla LMS backend.
+This directory contains all shared TypeScript types, interfaces, and utilities for the Classla backend.
 
 ## Structure
 

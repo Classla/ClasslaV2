@@ -1,4 +1,4 @@
--- Classla LMS Initial Database Schema Migration
+-- Classla Initial Database Schema Migration
 -- This migration creates all the core tables, enums, and indexes for the LMS system
 
 -- Enable UUID extension for generating UUIDs

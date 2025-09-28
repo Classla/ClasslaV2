@@ -1,4 +1,4 @@
-# Classla LMS
+# Classla
 
 A comprehensive learning management system built with React and Express.js.
 

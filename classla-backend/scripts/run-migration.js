@@ -1,5 +1,5 @@
 /**
- * Migration display script for Classla LMS
+ * Migration display script for Classla
  * This script displays migration SQL for manual execution in Supabase
  */
 

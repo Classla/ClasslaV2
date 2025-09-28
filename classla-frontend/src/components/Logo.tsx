@@ -51,7 +51,7 @@ const Logo: React.FC<LogoProps> = ({
       >
         <img
           src={logoPath}
-          alt="Classla LMS Logo"
+          alt="Classla Logo"
           className={`${logoSizeClass} object-contain`}
           onError={handleImageError}
         />

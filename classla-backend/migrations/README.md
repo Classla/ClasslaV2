@@ -1,6 +1,6 @@
 # Database Migrations
 
-This directory contains SQL migration files for the Classla LMS database schema.
+This directory contains SQL migration files for the Classla database schema.
 
 ## Files
 

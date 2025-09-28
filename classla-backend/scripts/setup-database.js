@@ -1,5 +1,5 @@
 /**
- * Database setup script for Classla LMS
+ * Database setup script for Classla
  * This script helps verify the database schema is properly set up
  */
 
@@ -10,7 +10,7 @@ const path = require('path');
 const migrationPath = path.join(__dirname, '../migrations/001_initial_schema.sql');
 const migrationSQL = fs.readFileSync(migrationPath, 'utf8');
 
-console.log('=== Classla LMS Database Setup ===\n');
+console.log('=== Classla Database Setup ===\n');
 
 console.log('Migration file loaded successfully!');
 console.log(`File: ${migrationPath}`);

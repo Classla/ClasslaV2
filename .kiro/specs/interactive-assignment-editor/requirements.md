@@ -2,7 +2,7 @@
 
 ## Introduction
 
-This feature adds interactive assignment editing and viewing capabilities to the Classla LMS. The system will provide two distinct components: an AssignmentEditor for instructors to create and edit assignments with interactive blocks, and an AssignmentViewer for students to view and interact with assignments. The initial implementation will focus on a Multiple Choice Question (MCQ) block that allows instructors to create questions with configurable answers and autograding, while students can select answers.
+This feature adds interactive assignment editing and viewing capabilities to the Classla. The system will provide two distinct components: an AssignmentEditor for instructors to create and edit assignments with interactive blocks, and an AssignmentViewer for students to view and interact with assignments. The initial implementation will focus on a Multiple Choice Question (MCQ) block that allows instructors to create questions with configurable answers and autograding, while students can select answers.
 
 ## Requirements
 

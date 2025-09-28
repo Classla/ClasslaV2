@@ -1,6 +1,6 @@
 # Tailwind CSS & shadcn/ui Setup
 
-This document outlines the setup of Tailwind CSS, shadcn/ui, and react-icons in the Classla LMS frontend.
+This document outlines the setup of Tailwind CSS, shadcn/ui, and react-icons in the Classla frontend.
 
 ## What's Been Added
 
