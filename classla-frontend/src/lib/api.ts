@@ -144,6 +144,7 @@ export const apiClient = {
       summary_content?: string;
     }
   ) => api.put(`/course/${id}`, data),
+  deleteCourse: (id: string) => api.delete(`/course/${id}`),
   joinCourse: (data: { slug: string }) => api.post("/course/join", data),
   getCourseStudents: (courseId: string) =>
     api.get(`/course/${courseId}/students`),

@@ -216,7 +216,7 @@ const CourseLayout: React.FC<CourseLayoutProps> = ({ children }) => {
             <div className="mt-8 px-3">
               <ModuleTree
                 courseId={course.id}
-                userRole={userRole}
+                userRole={userRole || undefined}
                 isStudent={isStudent}
                 isInstructor={isInstructor}
               />

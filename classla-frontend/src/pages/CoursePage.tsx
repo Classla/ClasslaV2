@@ -3,6 +3,7 @@ import { useLocation } from "react-router-dom";
 import CourseSummaryPage from "./CourseSummaryPage";
 import StudentsPage from "./StudentsPage";
 import AssignmentPage from "./AssignmentPage";
+import CourseSettingsPage from "./CourseSettingsPage";
 
 interface CoursePageProps {
   course?: any;
@@ -37,11 +38,7 @@ const CoursePage: React.FC<CoursePageProps> = (props) => {
           </div>
         );
       case "settings":
-        return (
-          <div className="p-8 text-center text-gray-600">
-            Settings coming soon...
-          </div>
-        );
+        return <CourseSettingsPage {...props} />;
       default:
         return <CourseSummaryPage {...props} />;
     }

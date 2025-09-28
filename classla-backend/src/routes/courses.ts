@@ -363,14 +363,8 @@ router.put(
   async (req: Request, res: Response): Promise<void> => {
     try {
       const { id } = req.params;
-      const {
-        name,
-        description,
-        settings,
-        thumbnail_url,
-        summary_content,
-        slug,
-      } = req.body;
+      const { name, description, settings, thumbnail_url, summary_content } =
+        req.body;
 
       // Check if course exists and is not deleted
       const { data: existingCourse, error: existingError } = await supabase
@@ -392,29 +386,6 @@ router.put(
         return;
       }
 
-      // If slug is being changed, check if new slug already exists
-      if (slug && slug.toUpperCase() !== existingCourse.slug) {
-        const { data: slugExists } = await supabase
-          .from("courses")
-          .select("id")
-          .eq("slug", slug.toUpperCase())
-          .is("deleted_at", null)
-          .neq("id", id)
-          .single();
-
-        if (slugExists) {
-          res.status(409).json({
-            error: {
-              code: "SLUG_ALREADY_EXISTS",
-              message: "A course with this slug already exists",
-              timestamp: new Date().toISOString(),
-              path: req.path,
-            },
-          });
-          return;
-        }
-      }
-
       // Prepare update data
       const updateData: Partial<Course> = {};
 
@@ -424,7 +395,6 @@ router.put(
       if (thumbnail_url !== undefined) updateData.thumbnail_url = thumbnail_url;
       if (summary_content !== undefined)
         updateData.summary_content = summary_content;
-      if (slug !== undefined) updateData.slug = slug.toUpperCase();
 
       // Update the course
       const { data: updatedCourse, error: updateError } = await supabase
