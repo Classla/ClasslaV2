@@ -406,7 +406,7 @@ const StudentsPage: React.FC<StudentsPageProps> = ({
             <SelectContent>
               <SelectItem value="all">All Members</SelectItem>
               <SelectItem value="none">No Section</SelectItem>
-              {sections.map((section) => (
+              {sections?.map((section) => (
                 <SelectItem key={section.id} value={section.id}>
                   {section.name}
                 </SelectItem>
@@ -616,7 +616,7 @@ const StudentsPage: React.FC<StudentsPageProps> = ({
                               </SelectTrigger>
                               <SelectContent>
                                 <SelectItem value="none">No Section</SelectItem>
-                                {sections.map((section) => (
+                                {sections?.map((section) => (
                                   <SelectItem
                                     key={section.id}
                                     value={section.id}
