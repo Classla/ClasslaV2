@@ -91,7 +91,7 @@ describe("MCQViewer", () => {
       />
     );
 
-    expect(screen.getByText("Select all that apply")).toBeInTheDocument();
+    expect(screen.getByText("Multiple answers allowed")).toBeInTheDocument();
 
     const option1 = screen.getByText("3").closest("div");
     const option2 = screen.getByText("4").closest("div");

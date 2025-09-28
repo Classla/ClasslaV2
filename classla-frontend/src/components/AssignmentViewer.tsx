@@ -4,7 +4,6 @@ import React, {
   useCallback,
   useMemo,
   useRef,
-  memo,
 } from "react";
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
@@ -219,7 +218,7 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
 
   const editor = useEditor({
     extensions: editorExtensions,
-    content: assignment.content || "",
+    content: "", // Start with empty content, we'll set it properly in useEffect
     editable: false, // Read-only mode
     onCreate: ({ editor }) => {
       // Store the answer change callback and state getter in the editor's storage
@@ -240,11 +239,20 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
 
   // Optimized content validation and setting with better error handling
   useEffect(() => {
-    if (editor && assignment.content !== editor.getHTML()) {
+    if (editor) {
+      if (!assignment.content) {
+        editor.commands.setContent("");
+        setContentError(null);
+        return;
+      }
       try {
-        // Validate content before setting - optimized for performance
-        if (assignment.content) {
-          // Only validate if content contains MCQ blocks
+        // Try to parse as JSON first (new format), fallback to HTML (legacy support)
+        try {
+          const parsedContent = JSON.parse(assignment.content);
+          editor.commands.setContent(parsedContent);
+          setContentError(null);
+        } catch (jsonError) {
+          // Handle HTML content with MCQ validation
           if (assignment.content.includes('data-type="mcq-block"')) {
             const tempDiv = document.createElement("div");
             tempDiv.innerHTML = assignment.content;
@@ -326,9 +334,6 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
             editor.commands.setContent(assignment.content);
             setContentError(null);
           }
-        } else {
-          editor.commands.setContent("");
-          setContentError(null);
         }
       } catch (error) {
         console.error("Failed to set assignment content:", error);

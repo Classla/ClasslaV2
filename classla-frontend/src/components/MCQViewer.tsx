@@ -107,77 +107,89 @@ const MCQViewer: React.FC<MCQViewerProps> = memo(
     );
 
     return (
-      <NodeViewWrapper className="mcq-viewer-wrapper">
+      <NodeViewWrapper
+        className="mcq-viewer-wrapper"
+        as="div"
+        draggable={false}
+        contentEditable={false}
+      >
         <div
-          className={`mcq-viewer border rounded-lg p-4 my-4 bg-white shadow-sm transition-all duration-300 ${
-            selectedCount > 0 ? "border-blue-300 shadow-md" : "border-gray-200"
+          className={`mcq-viewer border border-gray-200 rounded-lg p-3 bg-white shadow-sm transition-all duration-300 select-none ${
+            selectedCount > 0 ? "border-blue-300 shadow-md" : ""
           } ${isAnswerChanged ? "ring-2 ring-blue-200" : ""}`}
           role="group"
           aria-label="Multiple choice question"
+          style={{ cursor: "default" }}
         >
-          {/* Header */}
-          <div className="flex items-center gap-2 mb-4">
-            <div
-              className={`w-6 h-6 rounded flex items-center justify-center transition-colors ${
-                hasDataError
-                  ? "bg-yellow-100 text-yellow-600"
-                  : selectedOptions.length > 0
-                  ? "bg-blue-500 text-white"
-                  : "bg-blue-100 text-blue-600"
-              }`}
-            >
-              {hasDataError ? (
-                <AlertTriangle className="w-4 h-4" />
-              ) : (
-                <span className="text-sm font-medium">Q</span>
+          {/* Header with matching style to MCQEditor */}
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-3">
+              <div
+                className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors select-none ${
+                  hasDataError
+                    ? "bg-red-100 text-red-600"
+                    : selectedOptions.length > 0
+                    ? "bg-gradient-to-br from-blue-500 to-purple-600 text-white shadow-sm"
+                    : "bg-gradient-to-br from-blue-500 to-purple-600 text-white shadow-sm opacity-70"
+                }`}
+              >
+                {hasDataError ? (
+                  <AlertTriangle className="w-5 h-5" />
+                ) : (
+                  <span className="text-sm font-bold">Q</span>
+                )}
+              </div>
+              <div className="select-none">
+                <div className="text-sm font-medium text-gray-900">
+                  Multiple Choice Question
+                </div>
+                <div className="text-xs text-gray-500">
+                  {mcqData.allowMultiple
+                    ? "Multiple answers allowed"
+                    : "Single answer only"}
+                </div>
+              </div>
+              {hasDataError && (
+                <span className="text-xs text-red-600 bg-red-50 px-2 py-1 rounded-full font-medium border border-red-200 select-none">
+                  Data recovered
+                </span>
+              )}
+              {selectedOptions.length > 0 && (
+                <span className="text-xs text-blue-600 bg-blue-50 px-2 py-1 rounded-full font-medium border border-blue-200 select-none">
+                  Answered
+                </span>
               )}
             </div>
-            <span className="text-sm font-medium text-gray-700">
-              Multiple Choice Question
-            </span>
-            {hasDataError && (
-              <span className="text-xs text-yellow-700 bg-yellow-50 px-2 py-1 rounded font-medium">
-                Data recovered
-              </span>
-            )}
-            {mcqData.allowMultiple && (
-              <span className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded">
-                Select all that apply
-              </span>
-            )}
-            {selectedOptions.length > 0 && (
-              <span className="text-xs text-blue-600 bg-blue-50 px-2 py-1 rounded font-medium">
-                Answered
-              </span>
-            )}
           </div>
 
-          {/* Question */}
-          <div className="mb-4">
-            <h3
-              id="mcq-question"
-              className="text-base font-medium text-gray-900 leading-relaxed"
-            >
-              {mcqData.question || "Question text not available"}
-            </h3>
+          {/* Question with rich text display */}
+          <div className="mb-3">
+            <div className="text-sm font-medium text-gray-700 mb-1 block select-none">
+              Question
+            </div>
+            <div
+              className="text-base font-medium text-gray-900 leading-relaxed select-text"
+              dangerouslySetInnerHTML={{
+                __html: mcqData.question || "Question text not available",
+              }}
+            />
           </div>
 
-          {/* Options */}
-          <div
-            className="space-y-2 mb-4"
-            role="radiogroup"
-            aria-labelledby="mcq-question"
-          >
+          {/* Options with matching style to MCQEditor */}
+          <div className="space-y-1 mb-3">
+            <div className="text-sm font-medium text-gray-700 select-none mb-1">
+              Answer Options
+            </div>
             {mcqData.options.map((option, index) => {
               const isSelected = isOptionSelected(option.id);
 
               return (
                 <div
                   key={option.id}
-                  className={`flex items-center gap-3 p-3 border rounded-md cursor-pointer transition-all duration-200 hover:bg-gray-50 focus-within:ring-2 focus-within:ring-blue-500 focus-within:ring-offset-2 ${
+                  className={`flex items-center gap-2 p-1 border rounded-md transition-all duration-200 cursor-pointer ${
                     isSelected
                       ? "border-blue-500 bg-blue-50 shadow-sm"
-                      : "border-gray-200 hover:border-gray-300"
+                      : "border-gray-200 bg-gray-50 hover:bg-gray-100"
                   } ${isAnswerChanged && isSelected ? "animate-pulse" : ""}`}
                   onClick={() => handleOptionSelect(option.id)}
                   role={mcqData.allowMultiple ? "checkbox" : "radio"}
@@ -193,62 +205,53 @@ const MCQViewer: React.FC<MCQViewerProps> = memo(
                     isSelected ? " (selected)" : ""
                   }`}
                 >
-                  {/* Selection indicator */}
-                  <div
-                    className={`relative flex items-center justify-center transition-colors ${
-                      inputType === "checkbox"
-                        ? "w-5 h-5 border-2 rounded"
-                        : "w-5 h-5 border-2 rounded-full"
-                    } ${
-                      isSelected
-                        ? "bg-blue-500 border-blue-500"
-                        : "border-gray-300"
-                    }`}
-                  >
-                    {isSelected && (
-                      <>
-                        {inputType === "checkbox" ? (
-                          <Check className="w-3 h-3 text-white" />
-                        ) : (
-                          <div className="w-2 h-2 bg-white rounded-full" />
-                        )}
-                      </>
-                    )}
+                  {/* Selection indicator matching MCQEditor style */}
+                  <div className="p-1">
+                    <div
+                      className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all duration-200 ${
+                        isSelected
+                          ? "bg-blue-500 border-blue-500 text-white shadow-md scale-110"
+                          : "border-gray-300 hover:border-blue-400 hover:bg-blue-50"
+                      }`}
+                    >
+                      {isSelected && <Check className="w-4 h-4" />}
+                    </div>
                   </div>
 
-                  {/* Option text */}
-                  <label
-                    className={`flex-1 text-sm cursor-pointer select-none ${
-                      isSelected ? "text-blue-900 font-medium" : "text-gray-700"
-                    }`}
-                  >
-                    {option.text || `Option ${index + 1}`}
-                  </label>
+                  {/* Option text with rich text display */}
+                  <div className="flex-1 select-text">
+                    <div
+                      className={`text-sm transition-colors ${
+                        isSelected
+                          ? "text-blue-900 font-medium"
+                          : "text-gray-700"
+                      }`}
+                      dangerouslySetInnerHTML={{
+                        __html: option.text || `Option ${index + 1}`,
+                      }}
+                    />
+                  </div>
                 </div>
               );
             })}
           </div>
 
-          {/* Footer info */}
-          <div className="pt-3 border-t border-gray-200 text-xs flex justify-between items-center">
-            <span
-              className={`transition-colors ${
-                selectedCount > 0
-                  ? "text-blue-600 font-medium"
-                  : "text-gray-500"
-              }`}
-              aria-live="polite"
-            >
-              {selectedCount > 0 ? `${selectedCount} selected` : "No selection"}
-            </span>
-            <div className="flex items-center gap-2">
-              <span className="text-gray-500">{mcqData.points} points</span>
-              {selectedCount > 0 && (
-                <div
-                  className="w-2 h-2 bg-green-500 rounded-full animate-pulse"
-                  aria-hidden="true"
-                ></div>
-              )}
+          {/* Footer info matching MCQEditor style */}
+          <div className="mt-4 pt-3 border-t border-gray-200 text-xs text-gray-500 space-y-2 select-none">
+            <div className="flex justify-between items-center">
+              <span
+                className={`transition-colors ${
+                  selectedCount > 0
+                    ? "text-blue-600 font-medium"
+                    : "text-gray-500"
+                }`}
+                aria-live="polite"
+              >
+                {selectedCount > 0
+                  ? `${selectedCount} selected`
+                  : "No selection"}
+              </span>
+              <span>{mcqData.points} points</span>
             </div>
           </div>
         </div>
