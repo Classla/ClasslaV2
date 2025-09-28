@@ -448,7 +448,7 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
           <div className="relative editor-container">
             <EditorContent
               editor={editor}
-              className="prose prose-lg max-w-none focus:outline-none min-h-[500px] [&_.ProseMirror]:cursor-default [&_ul]:list-disc [&_ol]:list-decimal [&_ul]:ml-8 [&_ol]:ml-8 [&_ul]:pl-4 [&_ol]:pl-4 [&_li]:pl-2"
+              className="assignment-viewer-content prose prose-lg max-w-none focus:outline-none min-h-[500px] [&_.ProseMirror]:cursor-default [&_ul]:list-disc [&_ol]:list-decimal [&_ul]:ml-8 [&_ol]:ml-8 [&_ul]:pl-4 [&_ol]:pl-4 [&_li]:pl-2"
             />
           </div>
         </div>
