@@ -400,6 +400,7 @@ router.post(
         module_path,
         is_lockdown,
         lockdown_time_map,
+        order,
       } = req.body;
 
       // Validate required fields
@@ -477,6 +478,7 @@ router.post(
           module_path: module_path || [],
           is_lockdown: is_lockdown || false,
           lockdown_time_map: lockdown_time_map || {},
+          order: order || 0,
         })
         .select()
         .single();
@@ -520,6 +522,7 @@ router.put(
         module_path,
         is_lockdown,
         lockdown_time_map,
+        order,
       } = req.body;
       const { id: userId, isAdmin } = req.user!;
 
@@ -622,6 +625,7 @@ router.put(
       if (is_lockdown !== undefined) updateData.is_lockdown = is_lockdown;
       if (lockdown_time_map !== undefined)
         updateData.lockdown_time_map = lockdown_time_map;
+      if (order !== undefined) (updateData as any).order = order;
 
       // Update the assignment
       const { data: updatedAssignment, error: updateError } = await supabase

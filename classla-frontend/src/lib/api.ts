@@ -188,6 +188,7 @@ export const apiClient = {
     module_path?: string[];
     is_lockdown?: boolean;
     lockdown_time_map?: Record<string, number>;
+    order?: number;
   }) => api.post("/assignment", data),
   updateAssignment: (
     id: string,
@@ -200,6 +201,7 @@ export const apiClient = {
       module_path?: string[];
       is_lockdown?: boolean;
       lockdown_time_map?: Record<string, number>;
+      order?: number;
     }
   ) => api.put(`/assignment/${id}`, data),
   deleteAssignment: (id: string) => api.delete(`/assignment/${id}`),
