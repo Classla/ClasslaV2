@@ -52,7 +52,6 @@ export interface Assignment {
   module_path: string[]; // e.g., ["unit 1", "module 1"] for "unit 1/module 1"
   is_lockdown: boolean;
   lockdown_time_map: Record<string, number>; // user_id to number in seconds
-  order: number; // Order of assignment within its module/folder for sorting
   created_at: Date;
   updated_at: Date;
 }
