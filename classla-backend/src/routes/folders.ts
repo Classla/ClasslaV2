@@ -1,0 +1,597 @@
+import { Router, Request, Response } from "express";
+import { supabase } from "../middleware/auth";
+import { authenticateToken } from "../middleware/auth";
+import {
+  requireCoursePermission,
+  getCoursePermissions,
+  getUserCourseRole,
+} from "../middleware/authorization";
+import { UserRole } from "../types/enums";
+
+const router = Router();
+
+/**
+ * GET /course/:courseId/folders
+ * Get all folders for a course (instructor/TA only)
+ */
+router.get(
+  "/course/:courseId/folders",
+  authenticateToken,
+  async (req: Request, res: Response): Promise<void> => {
+    try {
+      const { courseId } = req.params;
+      const { id: userId, isAdmin } = req.user!;
+
+      // Check course permissions
+      const permissions = await getCoursePermissions(userId, courseId, isAdmin);
+
+      if (!permissions.canRead) {
+        res.status(403).json({
+          error: {
+            code: "INSUFFICIENT_PERMISSIONS",
+            message: "Not authorized to access folders for this course",
+            timestamp: new Date().toISOString(),
+            path: req.path,
+          },
+        });
+        return;
+      }
+
+      // Get user's role in the course
+      const userRole = await getUserCourseRole(userId, courseId);
+
+      // Only instructors, TAs, and admins can see folders
+      if (
+        userRole !== UserRole.INSTRUCTOR &&
+        userRole !== UserRole.TEACHING_ASSISTANT &&
+        !isAdmin
+      ) {
+        res.status(403).json({
+          error: {
+            code: "INSUFFICIENT_PERMISSIONS",
+            message: "Only instructors and TAs can access folder structure",
+            timestamp: new Date().toISOString(),
+            path: req.path,
+          },
+        });
+        return;
+      }
+
+      // Get all folders for the course
+      const { data: folders, error: foldersError } = await supabase
+        .from("folders")
+        .select("*")
+        .eq("course_id", courseId)
+        .order("order_index", { ascending: true });
+
+      if (foldersError) {
+        throw foldersError;
+      }
+
+      res.json(folders || []);
+    } catch (error) {
+      console.error("Error retrieving course folders:", error);
+      res.status(500).json({
+        error: {
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Failed to retrieve course folders",
+          timestamp: new Date().toISOString(),
+          path: req.path,
+        },
+      });
+    }
+  }
+);
+
+/**
+ * POST /folder
+ * Create new folder
+ */
+router.post(
+  "/folder",
+  authenticateToken,
+  requireCoursePermission("canManage"),
+  async (req: Request, res: Response): Promise<void> => {
+    try {
+      const { course_id, path, name, order_index } = req.body;
+
+      // Validate required fields
+      if (!course_id || !path || !name) {
+        res.status(400).json({
+          error: {
+            code: "MISSING_REQUIRED_FIELDS",
+            message: "course_id, path, and name are required",
+            timestamp: new Date().toISOString(),
+            path: req.path,
+          },
+        });
+        return;
+      }
+
+      // Validate path is an array
+      if (!Array.isArray(path)) {
+        res.status(400).json({
+          error: {
+            code: "INVALID_PATH_FORMAT",
+            message: "Path must be an array of strings",
+            timestamp: new Date().toISOString(),
+            path: req.path,
+          },
+        });
+        return;
+      }
+
+      // Validate that name matches the last element of path
+      if (path.length > 0 && path[path.length - 1] !== name) {
+        res.status(400).json({
+          error: {
+            code: "NAME_PATH_MISMATCH",
+            message: "Name must match the last element of the path",
+            timestamp: new Date().toISOString(),
+            path: req.path,
+          },
+        });
+        return;
+      }
+
+      // Create the folder
+      const { data: folder, error: folderError } = await supabase
+        .from("folders")
+        .insert({
+          course_id,
+          path,
+          name,
+          order_index: order_index || 0,
+        })
+        .select()
+        .single();
+
+      if (folderError) {
+        // Handle unique constraint violation
+        if (folderError.code === "23505") {
+          res.status(409).json({
+            error: {
+              code: "FOLDER_ALREADY_EXISTS",
+              message: "A folder with this path already exists in the course",
+              timestamp: new Date().toISOString(),
+              path: req.path,
+            },
+          });
+          return;
+        }
+        throw folderError;
+      }
+
+      res.status(201).json(folder);
+    } catch (error) {
+      console.error("Error creating folder:", error);
+      res.status(500).json({
+        error: {
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Failed to create folder",
+          timestamp: new Date().toISOString(),
+          path: req.path,
+        },
+      });
+    }
+  }
+);
+
+/**
+ * PUT /folder/:id
+ * Update folder
+ */
+router.put(
+  "/folder/:id",
+  authenticateToken,
+  async (req: Request, res: Response): Promise<void> => {
+    try {
+      const { id } = req.params;
+      const { name, order_index } = req.body;
+      const { id: userId, isAdmin } = req.user!;
+
+      // Get the existing folder
+      const { data: existingFolder, error: existingError } = await supabase
+        .from("folders")
+        .select("*")
+        .eq("id", id)
+        .single();
+
+      if (existingError || !existingFolder) {
+        res.status(404).json({
+          error: {
+            code: "FOLDER_NOT_FOUND",
+            message: "Folder not found",
+            timestamp: new Date().toISOString(),
+            path: req.path,
+          },
+        });
+        return;
+      }
+
+      // Check permissions for the course
+      const permissions = await getCoursePermissions(
+        userId,
+        existingFolder.course_id,
+        isAdmin
+      );
+
+      if (!permissions.canManage) {
+        res.status(403).json({
+          error: {
+            code: "INSUFFICIENT_PERMISSIONS",
+            message: "Not authorized to update this folder",
+            timestamp: new Date().toISOString(),
+            path: req.path,
+          },
+        });
+        return;
+      }
+
+      // Prepare update data
+      const updateData: any = {};
+      if (name !== undefined) {
+        updateData.name = name;
+        // Update the last element of the path to match the new name
+        const newPath = [...existingFolder.path];
+        if (newPath.length > 0) {
+          newPath[newPath.length - 1] = name;
+        }
+        updateData.path = newPath;
+      }
+      if (order_index !== undefined) updateData.order_index = order_index;
+
+      // Update the folder
+      const { data: updatedFolder, error: updateError } = await supabase
+        .from("folders")
+        .update(updateData)
+        .eq("id", id)
+        .select()
+        .single();
+
+      if (updateError) {
+        throw updateError;
+      }
+
+      res.json(updatedFolder);
+    } catch (error) {
+      console.error("Error updating folder:", error);
+      res.status(500).json({
+        error: {
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Failed to update folder",
+          timestamp: new Date().toISOString(),
+          path: req.path,
+        },
+      });
+    }
+  }
+);
+
+/**
+ * DELETE /folder/:id
+ * Delete folder
+ */
+router.delete(
+  "/folder/:id",
+  authenticateToken,
+  async (req: Request, res: Response): Promise<void> => {
+    try {
+      const { id } = req.params;
+      const { id: userId, isAdmin } = req.user!;
+
+      // Get the existing folder
+      const { data: existingFolder, error: existingError } = await supabase
+        .from("folders")
+        .select("*")
+        .eq("id", id)
+        .single();
+
+      if (existingError || !existingFolder) {
+        res.status(404).json({
+          error: {
+            code: "FOLDER_NOT_FOUND",
+            message: "Folder not found",
+            timestamp: new Date().toISOString(),
+            path: req.path,
+          },
+        });
+        return;
+      }
+
+      // Check permissions for the course
+      const permissions = await getCoursePermissions(
+        userId,
+        existingFolder.course_id,
+        isAdmin
+      );
+
+      if (!permissions.canManage) {
+        res.status(403).json({
+          error: {
+            code: "INSUFFICIENT_PERMISSIONS",
+            message: "Not authorized to delete this folder",
+            timestamp: new Date().toISOString(),
+            path: req.path,
+          },
+        });
+        return;
+      }
+
+      // Delete the folder
+      const { error: deleteError } = await supabase
+        .from("folders")
+        .delete()
+        .eq("id", id);
+
+      if (deleteError) {
+        throw deleteError;
+      }
+
+      res.json({
+        message: "Folder deleted successfully",
+        folder_id: id,
+      });
+    } catch (error) {
+      console.error("Error deleting folder:", error);
+      res.status(500).json({
+        error: {
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Failed to delete folder",
+          timestamp: new Date().toISOString(),
+          path: req.path,
+        },
+      });
+    }
+  }
+);
+
+/**
+ * PUT /folder/:id/move
+ * Move folder to new path (updates folder and all nested items)
+ */
+router.put(
+  "/folder/:id/move",
+  authenticateToken,
+  async (req: Request, res: Response): Promise<void> => {
+    try {
+      const { id } = req.params;
+      const { newPath } = req.body; // Array of path segments
+      const { id: userId, isAdmin } = req.user!;
+
+      // Get the existing folder
+      const { data: existingFolder, error: existingError } = await supabase
+        .from("folders")
+        .select("*")
+        .eq("id", id)
+        .single();
+
+      if (existingError || !existingFolder) {
+        res.status(404).json({
+          error: {
+            code: "FOLDER_NOT_FOUND",
+            message: "Folder not found",
+            timestamp: new Date().toISOString(),
+            path: req.path,
+          },
+        });
+        return;
+      }
+
+      // Check permissions for the course
+      const permissions = await getCoursePermissions(
+        userId,
+        existingFolder.course_id,
+        isAdmin
+      );
+
+      if (!permissions.canManage) {
+        res.status(403).json({
+          error: {
+            code: "INSUFFICIENT_PERMISSIONS",
+            message: "Not authorized to move this folder",
+            timestamp: new Date().toISOString(),
+            path: req.path,
+          },
+        });
+        return;
+      }
+
+      // Validate newPath
+      if (!Array.isArray(newPath)) {
+        res.status(400).json({
+          error: {
+            code: "INVALID_PATH_FORMAT",
+            message: "New path must be an array of strings",
+            timestamp: new Date().toISOString(),
+            path: req.path,
+          },
+        });
+        return;
+      }
+
+      const oldPath = existingFolder.path;
+      const oldPathPrefix = oldPath.join("/");
+      const newPathPrefix = newPath.join("/");
+
+      // Update the folder's path
+      const { error: updateFolderError } = await supabase
+        .from("folders")
+        .update({
+          path: newPath,
+          name: newPath[newPath.length - 1] || existingFolder.name,
+        })
+        .eq("id", id);
+
+      if (updateFolderError) {
+        throw updateFolderError;
+      }
+
+      // Find and update all nested folders
+      const { data: nestedFolders, error: nestedFoldersError } = await supabase
+        .from("folders")
+        .select("*")
+        .eq("course_id", existingFolder.course_id);
+
+      if (nestedFoldersError) {
+        throw nestedFoldersError;
+      }
+
+      // Update nested folders that start with the old path
+      const foldersToUpdate =
+        nestedFolders?.filter(
+          (f) =>
+            f.id !== id &&
+            f.path.length > oldPath.length &&
+            f.path.slice(0, oldPath.length).join("/") === oldPathPrefix
+        ) || [];
+
+      for (const nestedFolder of foldersToUpdate) {
+        const relativePath = nestedFolder.path.slice(oldPath.length);
+        const newNestedPath = [...newPath, ...relativePath];
+
+        await supabase
+          .from("folders")
+          .update({
+            path: newNestedPath,
+            name: newNestedPath[newNestedPath.length - 1] || nestedFolder.name,
+          })
+          .eq("id", nestedFolder.id);
+      }
+
+      // Find and update all nested assignments
+      const { data: nestedAssignments, error: nestedAssignmentsError } =
+        await supabase
+          .from("assignments")
+          .select("*")
+          .eq("course_id", existingFolder.course_id);
+
+      if (nestedAssignmentsError) {
+        throw nestedAssignmentsError;
+      }
+
+      // Update assignments that are in the moved folder or its subfolders
+      const assignmentsToUpdate =
+        nestedAssignments?.filter(
+          (a) =>
+            a.module_path.length >= oldPath.length &&
+            a.module_path.slice(0, oldPath.length).join("/") === oldPathPrefix
+        ) || [];
+
+      for (const assignment of assignmentsToUpdate) {
+        const relativePath = assignment.module_path.slice(oldPath.length);
+        const newAssignmentPath = [...newPath, ...relativePath];
+
+        await supabase
+          .from("assignments")
+          .update({ module_path: newAssignmentPath })
+          .eq("id", assignment.id);
+      }
+
+      res.json({
+        message: "Folder moved successfully",
+        folder_id: id,
+        old_path: oldPath,
+        new_path: newPath,
+        updated_folders: foldersToUpdate.length,
+        updated_assignments: assignmentsToUpdate.length,
+      });
+    } catch (error) {
+      console.error("Error moving folder:", error);
+      res.status(500).json({
+        error: {
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Failed to move folder",
+          timestamp: new Date().toISOString(),
+          path: req.path,
+        },
+      });
+    }
+  }
+);
+
+/**
+ * PUT /course/:courseId/reorder
+ * Bulk reorder folders and assignments
+ */
+router.put(
+  "/course/:courseId/reorder",
+  authenticateToken,
+  async (req: Request, res: Response): Promise<void> => {
+    try {
+      const { courseId } = req.params;
+      const { items } = req.body; // Array of { id, type: 'folder' | 'assignment', order_index }
+      const { id: userId, isAdmin } = req.user!;
+
+      // Check permissions for the course
+      const permissions = await getCoursePermissions(userId, courseId, isAdmin);
+
+      if (!permissions.canManage) {
+        res.status(403).json({
+          error: {
+            code: "INSUFFICIENT_PERMISSIONS",
+            message: "Not authorized to reorder items in this course",
+            timestamp: new Date().toISOString(),
+            path: req.path,
+          },
+        });
+        return;
+      }
+
+      // Validate items array
+      if (!Array.isArray(items)) {
+        res.status(400).json({
+          error: {
+            code: "INVALID_ITEMS_FORMAT",
+            message: "Items must be an array",
+            timestamp: new Date().toISOString(),
+            path: req.path,
+          },
+        });
+        return;
+      }
+
+      // Update folders
+      const folderUpdates = items
+        .filter((item) => item.type === "folder")
+        .map((item) =>
+          supabase
+            .from("folders")
+            .update({ order_index: item.order_index })
+            .eq("id", item.id)
+            .eq("course_id", courseId)
+        );
+
+      // Update assignments
+      const assignmentUpdates = items
+        .filter((item) => item.type === "assignment")
+        .map((item) =>
+          supabase
+            .from("assignments")
+            .update({ order_index: item.order_index })
+            .eq("id", item.id)
+            .eq("course_id", courseId)
+        );
+
+      // Execute all updates
+      await Promise.all([...folderUpdates, ...assignmentUpdates]);
+
+      res.json({
+        message: "Items reordered successfully",
+        updated_count: items.length,
+      });
+    } catch (error) {
+      console.error("Error reordering items:", error);
+      res.status(500).json({
+        error: {
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Failed to reorder items",
+          timestamp: new Date().toISOString(),
+          path: req.path,
+        },
+      });
+    }
+  }
+);
+
+export default router;

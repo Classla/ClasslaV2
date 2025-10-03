@@ -173,6 +173,34 @@ export const apiClient = {
   deleteEnrollment: (enrollmentId: string) =>
     api.delete(`/enrollments/${enrollmentId}`),
 
+  // Folder endpoints
+  getCourseFolders: (courseId: string) =>
+    api.get(`/course/${courseId}/folders`),
+  createFolder: (data: {
+    course_id: string;
+    path: string[];
+    name: string;
+    order_index?: number;
+  }) => api.post("/folder", data),
+  updateFolder: (
+    id: string,
+    data: {
+      name?: string;
+      order_index?: number;
+    }
+  ) => api.put(`/folder/${id}`, data),
+  deleteFolder: (id: string) => api.delete(`/folder/${id}`),
+  moveFolder: (id: string, newPath: string[]) =>
+    api.put(`/folder/${id}/move`, { newPath }),
+  reorderItems: (
+    courseId: string,
+    items: Array<{
+      id: string;
+      type: "folder" | "assignment";
+      order_index: number;
+    }>
+  ) => api.put(`/course/${courseId}/reorder`, { items }),
+
   // Assignment endpoints
   getCourseAssignments: (courseId: string) =>
     api.get(`/course/${courseId}/assignments`),
@@ -188,6 +216,7 @@ export const apiClient = {
     module_path?: string[];
     is_lockdown?: boolean;
     lockdown_time_map?: Record<string, number>;
+    order_index?: number;
   }) => api.post("/assignment", data),
   updateAssignment: (
     id: string,
@@ -200,6 +229,7 @@ export const apiClient = {
       module_path?: string[];
       is_lockdown?: boolean;
       lockdown_time_map?: Record<string, number>;
+      order_index?: number;
     }
   ) => api.put(`/assignment/${id}`, data),
   deleteAssignment: (id: string) => api.delete(`/assignment/${id}`),

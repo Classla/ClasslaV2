@@ -40,6 +40,16 @@ export interface User {
   settings: Record<string, any>;
 }
 
+// Folder entity - represents empty folders in the module tree
+export interface Folder {
+  id: string;
+  course_id: string;
+  path: string[]; // e.g., ["unit 1", "module 1"] for "unit 1/module 1"
+  name: string; // The display name of the folder (last element of path)
+  order_index: number; // For ordering folders within their parent
+  created_at: Date;
+}
+
 // Assignment entity
 export interface Assignment {
   id: string;
@@ -52,6 +62,7 @@ export interface Assignment {
   module_path: string[]; // e.g., ["unit 1", "module 1"] for "unit 1/module 1"
   is_lockdown: boolean;
   lockdown_time_map: Record<string, number>; // user_id to number in seconds
+  order_index: number; // For ordering assignments within their module
   created_at: Date;
   updated_at: Date;
 }

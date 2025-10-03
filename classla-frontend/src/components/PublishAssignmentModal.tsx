@@ -65,7 +65,7 @@ const PublishAssignmentModal: React.FC<PublishAssignmentModalProps> = ({
       const sectionsResponse = await apiClient.getCourseSections(
         assignment.course_id
       );
-      const sectionsData = sectionsResponse.data;
+      const sectionsData = sectionsResponse.data.data;
 
       // Fetch enrollments
       const enrollmentsResponse = await apiClient.getCourseEnrollments(
