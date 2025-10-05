@@ -233,6 +233,29 @@ export const apiClient = {
     }
   ) => api.put(`/assignment/${id}`, data),
   deleteAssignment: (id: string) => api.delete(`/assignment/${id}`),
+
+  // Submission endpoints
+  getSubmission: (id: string) => api.get(`/submission/${id}`),
+  getSubmissionsByAssignment: (assignmentId: string) =>
+    api.get(`/submissions/by-assignment/${assignmentId}`),
+  createOrUpdateSubmission: (data: {
+    assignment_id: string;
+    values: Record<string, any>;
+    course_id: string;
+  }) => api.post("/submission", data),
+  updateSubmissionValues: (id: string, values: Record<string, any>) =>
+    api.put(`/submission/${id}`, { values }),
+  submitSubmission: (id: string) => api.post(`/submission/${id}/submit`),
+  gradeSubmission: (id: string, grade: number, grader_id?: string) =>
+    api.put(`/submission/${id}/grade`, { grade, grader_id }),
+
+  // Block autograding endpoints
+  autogradeBlocks: (
+    assignmentId: string,
+    submissionValues: Record<string, any>
+  ) => api.post(`/blocks/autograde/${assignmentId}`, { submissionValues }),
+  extractBlocks: (assignmentId: string) =>
+    api.get(`/blocks/extract/${assignmentId}`),
 };
 
 export default api;

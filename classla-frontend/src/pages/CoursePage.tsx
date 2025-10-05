@@ -1,9 +1,10 @@
 import React from "react";
-import { useLocation } from "react-router-dom";
+import { useLocation, useParams } from "react-router-dom";
 import CourseSummaryPage from "./CourseSummaryPage";
 import StudentsPage from "./StudentsPage";
 import AssignmentPage from "./AssignmentPage";
 import CourseSettingsPage from "./CourseSettingsPage";
+import SubmissionsList from "../components/SubmissionsList";
 
 interface CoursePageProps {
   course?: any;
@@ -17,11 +18,25 @@ interface CoursePageProps {
 
 const CoursePage: React.FC<CoursePageProps> = (props) => {
   const location = useLocation();
+  const { courseSlug } = useParams<{ courseSlug: string }>();
   const currentPage = location.pathname.split("/").pop() || "summary";
 
   const renderContent = () => {
     // Check if this is an assignment route
     const pathParts = location.pathname.split("/");
+
+    // Check for submissions route
+    if (pathParts.includes("submissions") && pathParts.includes("assignment")) {
+      const assignmentIndex = pathParts.indexOf("assignment");
+      const assignmentId = pathParts[assignmentIndex + 1];
+      return (
+        <SubmissionsList
+          assignmentId={assignmentId}
+          courseSlug={courseSlug || ""}
+        />
+      );
+    }
+
     if (pathParts.includes("assignment") && pathParts.length >= 5) {
       return <AssignmentPage {...props} />;
     }

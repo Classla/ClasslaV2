@@ -18,16 +18,39 @@ import { TableCell } from "@tiptap/extension-table-cell";
 import Dropcursor from "@tiptap/extension-dropcursor";
 import Gapcursor from "@tiptap/extension-gapcursor";
 import Underline from "@tiptap/extension-underline";
-import { AlertTriangle, RefreshCw } from "lucide-react";
+import {
+  AlertTriangle,
+  RefreshCw,
+  Send,
+  Save,
+  ChevronDown,
+  Clock,
+} from "lucide-react";
 
 import { Assignment } from "../types";
 import { MCQBlockViewer } from "./extensions/MCQBlockViewer";
 import { validateMCQData, sanitizeMCQData } from "./extensions/MCQBlock";
 import { Button } from "./ui/button";
+import { apiClient } from "../lib/api";
+import { useToast } from "../hooks/use-toast";
+import SubmissionSuccessModal from "./SubmissionSuccessModal";
+import { randomizeMCQBlocks } from "../utils/randomization";
+import { Popover } from "./ui/popover";
 
 interface AssignmentViewerProps {
   assignment: Assignment;
   onAnswerChange?: (blockId: string, answer: any) => void;
+  submissionId?: string;
+  submissionStatus?: string | null;
+  submissionTimestamp?: Date | string | null;
+  onSubmissionCreated?: (submissionId: string) => void;
+  onSubmissionStatusChange?: (status: string) => void;
+  isStudent?: boolean;
+  courseSlug?: string;
+  studentId?: string; // For deterministic randomization
+  allSubmissions?: any[]; // All submissions for this student
+  selectedSubmissionId?: string; // Currently selected submission
+  onSubmissionSelect?: (submissionId: string) => void; // Callback when submission is selected
 }
 
 // Answer state management for MCQ blocks
@@ -45,10 +68,46 @@ const getAnswerStorageKey = (assignmentId: string) =>
 const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
   assignment,
   onAnswerChange,
+  submissionId: initialSubmissionId,
+  submissionStatus: initialSubmissionStatus,
+  submissionTimestamp: initialSubmissionTimestamp,
+  onSubmissionCreated,
+  onSubmissionStatusChange,
+  isStudent = false,
+  courseSlug = "",
+  studentId,
+  allSubmissions = [],
+  selectedSubmissionId,
+  onSubmissionSelect,
 }) => {
+  const { toast } = useToast();
   const [answerState, setAnswerState] = useState<AnswerState>({});
   const [contentError, setContentError] = useState<string | null>(null);
   const [isRecovering, setIsRecovering] = useState(false);
+  const [submissionId, setSubmissionId] = useState<string | undefined>(
+    initialSubmissionId
+  );
+  const [isSaving, setIsSaving] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submissionStatus, setSubmissionStatus] = useState<string>(
+    initialSubmissionStatus || "in-progress"
+  );
+  const [submissionTimestamp, setSubmissionTimestamp] = useState<
+    Date | string | null
+  >(initialSubmissionTimestamp || null);
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
+  const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Determine if the viewer should be read-only
+  const showResponsesAfterSubmission =
+    assignment.settings?.showResponsesAfterSubmission ?? false;
+  const allowResubmissions = assignment.settings?.allowResubmissions ?? false;
+
+  // Read-only if submitted/graded AND not showing responses
+  // OR if graded (always read-only when graded)
+  const isReadOnly =
+    (submissionStatus === "submitted" && !showResponsesAfterSubmission) ||
+    submissionStatus === "graded";
 
   // Performance optimization: Use refs to avoid unnecessary re-renders
   const editorRef = useRef<any>(null);
@@ -115,6 +174,59 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
     [assignment.id]
   );
 
+  // Auto-save submission values
+  const autoSaveSubmission = useCallback(
+    async (values: Record<string, string[]>) => {
+      if (!isStudent) return; // Only students can save submissions
+
+      // Clear existing timeout
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+      }
+
+      // Set new timeout for auto-save
+      saveTimeoutRef.current = setTimeout(async () => {
+        try {
+          setIsSaving(true);
+
+          if (submissionId) {
+            // Update existing submission
+            await apiClient.updateSubmissionValues(submissionId, values);
+          } else {
+            // Create new submission
+            const response = await apiClient.createOrUpdateSubmission({
+              assignment_id: assignment.id,
+              values,
+              course_id: assignment.course_id,
+            });
+            const newSubmissionId = response.data.id;
+            setSubmissionId(newSubmissionId);
+            setSubmissionStatus(response.data.status);
+            onSubmissionCreated?.(newSubmissionId);
+          }
+        } catch (error) {
+          console.error("Failed to auto-save submission:", error);
+          toast({
+            title: "Auto-save failed",
+            description:
+              "Your answers could not be saved automatically. Please try submitting manually.",
+            variant: "destructive",
+          });
+        } finally {
+          setIsSaving(false);
+        }
+      }, 2000); // Auto-save after 2 seconds of inactivity
+    },
+    [
+      isStudent,
+      submissionId,
+      assignment.id,
+      assignment.course_id,
+      onSubmissionCreated,
+      toast,
+    ]
+  );
+
   const handleMCQAnswerChange = useCallback(
     (blockId: string, selectedOptions: string[]) => {
       try {
@@ -148,12 +260,27 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
         setAnswerState(newAnswerState);
         saveAnswerState(newAnswerState);
         onAnswerChange?.(blockId, selectedOptions);
+
+        // Auto-save to backend if student
+        if (isStudent) {
+          const submissionValues: Record<string, string[]> = {};
+          Object.keys(newAnswerState).forEach((key) => {
+            submissionValues[key] = newAnswerState[key].selectedOptions;
+          });
+          autoSaveSubmission(submissionValues);
+        }
       } catch (error) {
         console.error("Error handling MCQ answer change:", error);
         // Continue without updating state to prevent crashes
       }
     },
-    [answerState, saveAnswerState, onAnswerChange]
+    [
+      answerState,
+      saveAnswerState,
+      onAnswerChange,
+      isStudent,
+      autoSaveSubmission,
+    ]
   );
 
   // Function to get answer state for a specific block - optimized with ref
@@ -230,11 +357,12 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
   const editor = useEditor({
     extensions: editorExtensions,
     content: "", // Start with empty content, we'll set it properly in useEffect
-    editable: false, // Read-only mode
+    editable: !isReadOnly, // Read-only when submitted/graded
     onCreate: ({ editor }) => {
       // Store the answer change callback and state getter in the editor's storage
       (editor.storage as any).mcqAnswerCallback = handleMCQAnswerChange;
       (editor.storage as any).getBlockAnswerState = getBlockAnswerState;
+      (editor.storage as any).isReadOnly = isReadOnly;
     },
     // No onUpdate handler since this is read-only
     // No onSelectionUpdate handler since we don't need editing features
@@ -259,7 +387,22 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
       try {
         // Try to parse as JSON first (new format), fallback to HTML (legacy support)
         try {
-          const parsedContent = JSON.parse(assignment.content);
+          let parsedContent = JSON.parse(assignment.content);
+
+          // Apply randomization if enabled and we have student ID
+          const shouldRandomize =
+            isStudent &&
+            studentId &&
+            assignment.settings?.randomizeQuestionOrder;
+
+          if (shouldRandomize) {
+            parsedContent = randomizeMCQBlocks(
+              parsedContent,
+              studentId,
+              assignment.id
+            );
+          }
+
           editor.commands.setContent(parsedContent);
           setContentError(null);
         } catch (jsonError) {
@@ -366,13 +509,15 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
     }
   }, [assignment.content, editor]);
 
-  // Update editor storage when callbacks change
+  // Update editor storage when callbacks or read-only status change
   useEffect(() => {
     if (editor) {
       (editor.storage as any).mcqAnswerCallback = handleMCQAnswerChange;
       (editor.storage as any).getBlockAnswerState = getBlockAnswerState;
+      (editor.storage as any).isReadOnly = isReadOnly;
+      editor.setEditable(!isReadOnly);
     }
-  }, [editor, handleMCQAnswerChange, getBlockAnswerState]);
+  }, [editor, handleMCQAnswerChange, getBlockAnswerState, isReadOnly]);
 
   // Cleanup effect for proper resource management
   useEffect(() => {
@@ -404,8 +549,253 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
     }
   }, []);
 
+  const handleResubmit = useCallback(async () => {
+    if (!assignment) return;
+
+    try {
+      setIsSubmitting(true);
+      // Create a new submission with current answer state
+      const submissionValues: Record<string, string[]> = {};
+      Object.keys(answerState).forEach((key) => {
+        submissionValues[key] = answerState[key].selectedOptions;
+      });
+
+      const response = await apiClient.createOrUpdateSubmission({
+        assignment_id: assignment.id,
+        values: submissionValues,
+        course_id: assignment.course_id,
+      });
+
+      const newSubmissionId = response.data.id;
+      setSubmissionId(newSubmissionId);
+      setSubmissionStatus("in-progress");
+      onSubmissionCreated?.(newSubmissionId);
+      onSubmissionStatusChange?.("in-progress");
+
+      toast({
+        title: "Ready to resubmit",
+        description: "You can now make changes and submit again.",
+      });
+    } catch (error: any) {
+      console.error("Failed to create resubmission:", error);
+      toast({
+        title: "Resubmission failed",
+        description: error.message || "Failed to create new submission",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
+  }, [
+    assignment,
+    answerState,
+    onSubmissionCreated,
+    onSubmissionStatusChange,
+    toast,
+  ]);
+
+  const handleSubmit = useCallback(async () => {
+    if (!submissionId) {
+      toast({
+        title: "No submission to submit",
+        description: "Please answer at least one question before submitting.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (submissionStatus === "submitted" || submissionStatus === "graded") {
+      toast({
+        title: "Already submitted",
+        description: "This assignment has already been submitted.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      setIsSubmitting(true);
+      await apiClient.submitSubmission(submissionId);
+      setSubmissionStatus("submitted");
+      onSubmissionStatusChange?.("submitted");
+      setShowSuccessModal(true);
+    } catch (error: any) {
+      console.error("Failed to submit assignment:", error);
+
+      // Provide detailed error message
+      let errorMessage = "Failed to submit your assignment. Please try again.";
+      if (error.response?.data?.error?.message) {
+        errorMessage = error.response.data.error.message;
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+
+      toast({
+        title: "Submission failed",
+        description: errorMessage,
+        variant: "destructive",
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
+  }, [submissionId, submissionStatus, toast, onSubmissionStatusChange]);
+
   return (
     <div className="h-full flex flex-col bg-white relative">
+      {/* Submitted Banner */}
+      {isStudent && submissionStatus === "submitted" && (
+        <div className="bg-green-600 text-white px-4 py-3 border-b border-green-700">
+          <div className="max-w-4xl mx-auto flex items-center justify-center gap-2">
+            <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+              <path
+                fillRule="evenodd"
+                d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
+                clipRule="evenodd"
+              />
+            </svg>
+            <span className="font-medium">
+              {showResponsesAfterSubmission
+                ? "Assignment Submitted - You can view your responses below"
+                : "Assignment Submitted - Your answers are locked"}
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* Graded Banner */}
+      {isStudent && submissionStatus === "graded" && (
+        <div className="bg-purple-600 text-white px-4 py-3 border-b border-purple-700">
+          <div className="max-w-4xl mx-auto flex items-center justify-center gap-2">
+            <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+              <path
+                fillRule="evenodd"
+                d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
+                clipRule="evenodd"
+              />
+            </svg>
+            <span className="font-medium">
+              Assignment Graded - View your results below
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* Submission Selector Header */}
+      {isStudent && allSubmissions.length > 1 && (
+        <div className="bg-gray-50 border-b border-gray-200 px-4 py-2">
+          <div className="max-w-4xl mx-auto flex items-center justify-end">
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-gray-600">Viewing:</span>
+              <Popover
+                trigger={
+                  <button className="flex items-center gap-2 text-sm border border-gray-300 rounded-md px-3 py-1.5 bg-white hover:border-gray-400 hover:bg-gray-50 transition-colors">
+                    <span>
+                      {allSubmissions.findIndex(
+                        (s) => s.id === (selectedSubmissionId || submissionId)
+                      ) === 0
+                        ? "Latest Submission"
+                        : `Submission ${
+                            allSubmissions.length -
+                            allSubmissions.findIndex(
+                              (s) =>
+                                s.id === (selectedSubmissionId || submissionId)
+                            )
+                          }`}
+                    </span>
+                    <ChevronDown className="w-4 h-4 text-gray-500" />
+                  </button>
+                }
+                content={
+                  <div className="w-80 max-h-96 overflow-y-auto">
+                    <div className="p-3 border-b bg-gray-50">
+                      <h3 className="font-semibold text-gray-900">
+                        Submission History
+                      </h3>
+                      <p className="text-xs text-gray-600 mt-1">
+                        {allSubmissions.length} submission
+                        {allSubmissions.length !== 1 ? "s" : ""}
+                      </p>
+                    </div>
+                    <div className="divide-y">
+                      {allSubmissions.map((sub, index) => {
+                        const isSelected =
+                          sub.id === (selectedSubmissionId || submissionId);
+                        const label =
+                          index === 0
+                            ? "Latest Submission"
+                            : `Submission ${allSubmissions.length - index}`;
+                        const timestamp = new Date(
+                          sub.timestamp
+                        ).toLocaleString("en-US", {
+                          month: "short",
+                          day: "numeric",
+                          year: "numeric",
+                          hour: "numeric",
+                          minute: "2-digit",
+                        });
+
+                        return (
+                          <button
+                            key={sub.id}
+                            onClick={() => onSubmissionSelect?.(sub.id)}
+                            className={`w-full p-3 text-left hover:bg-gray-50 transition-colors ${
+                              isSelected
+                                ? "bg-purple-50 border-l-4 border-purple-600"
+                                : ""
+                            }`}
+                          >
+                            <div className="flex items-start justify-between">
+                              <div className="flex-1">
+                                <div className="flex items-center gap-2">
+                                  <Clock className="w-4 h-4 text-gray-400" />
+                                  <span className="text-sm font-medium text-gray-900">
+                                    {label}
+                                  </span>
+                                </div>
+                                <p className="text-xs text-gray-600 mt-1 ml-6">
+                                  {timestamp}
+                                </p>
+                                {sub.status === "graded" &&
+                                  sub.grade !== null &&
+                                  sub.grade !== undefined && (
+                                    <div className="text-sm font-semibold text-purple-600 mt-1 ml-6">
+                                      Grade: {sub.grade}
+                                    </div>
+                                  )}
+                              </div>
+                              <div>
+                                <span
+                                  className={`text-xs px-2 py-1 rounded-full font-medium ${
+                                    sub.status === "graded"
+                                      ? "bg-purple-100 text-purple-700"
+                                      : sub.status === "submitted"
+                                      ? "bg-green-100 text-green-700"
+                                      : "bg-blue-100 text-blue-700"
+                                  }`}
+                                >
+                                  {sub.status === "in-progress"
+                                    ? "In Progress"
+                                    : sub.status === "submitted"
+                                    ? "Submitted"
+                                    : sub.status === "graded"
+                                    ? "Graded"
+                                    : sub.status}
+                                </span>
+                              </div>
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                }
+                className="right-0"
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Content Error Banner */}
       {contentError && (
         <div className="bg-yellow-50 border-b border-yellow-200 px-4 py-3">
@@ -442,17 +832,162 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
         </div>
       )}
 
-      {/* Editor Content */}
-      <div className="flex-1 overflow-auto">
-        <div className="max-w-4xl mx-auto p-8 relative">
-          <div className="relative editor-container">
-            <EditorContent
-              editor={editor}
-              className="assignment-viewer-content prose prose-lg max-w-none focus:outline-none min-h-[500px] [&_.ProseMirror]:cursor-default [&_ul]:list-disc [&_ol]:list-decimal [&_ul]:ml-8 [&_ol]:ml-8 [&_ul]:pl-4 [&_ol]:pl-4 [&_li]:pl-2"
-            />
+      {/* Editor Content or Submission Success Screen */}
+      <div className="flex-1 overflow-auto pb-24">
+        {submissionStatus === "submitted" && !showResponsesAfterSubmission ? (
+          // Show submission success screen when responses are disabled
+          <div className="max-w-2xl mx-auto p-8">
+            <div className="bg-white rounded-lg border border-gray-200 p-8 text-center">
+              <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <svg
+                  className="w-10 h-10 text-green-600"
+                  fill="currentColor"
+                  viewBox="0 0 20 20"
+                >
+                  <path
+                    fillRule="evenodd"
+                    d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
+                    clipRule="evenodd"
+                  />
+                </svg>
+              </div>
+              <h2 className="text-2xl font-bold text-gray-900 mb-2">
+                Assignment Submitted Successfully
+              </h2>
+              <p className="text-gray-600 mb-6">
+                Your submission has been recorded and will be reviewed by your
+                instructor.
+              </p>
+              <div className="bg-gray-50 rounded-lg p-4 mb-6">
+                <div className="text-sm text-gray-600 mb-1">Submitted at</div>
+                <div className="text-lg font-medium text-gray-900">
+                  {submissionTimestamp
+                    ? new Date(submissionTimestamp).toLocaleString("en-US", {
+                        month: "long",
+                        day: "numeric",
+                        year: "numeric",
+                        hour: "numeric",
+                        minute: "2-digit",
+                      })
+                    : "Just now"}
+                </div>
+              </div>
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <p className="text-sm text-blue-800">
+                  <strong>Note:</strong> Your instructor has disabled viewing
+                  responses after submission. You will be notified when your
+                  assignment has been graded.
+                </p>
+              </div>
+            </div>
+          </div>
+        ) : (
+          // Show normal editor content
+          <div className="max-w-4xl mx-auto p-8 relative">
+            <div className="relative editor-container">
+              <EditorContent
+                editor={editor}
+                className="assignment-viewer-content prose prose-lg max-w-none focus:outline-none min-h-[500px] [&_.ProseMirror]:cursor-default [&_ul]:list-disc [&_ol]:list-decimal [&_ul]:ml-8 [&_ol]:ml-8 [&_ul]:pl-4 [&_ol]:pl-4 [&_li]:pl-2"
+              />
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Fixed Bottom Bar for Students */}
+      {isStudent && (
+        <div className="sticky bottom-0 left-0 right-0 border-t border-gray-200 bg-white shadow-lg z-40">
+          <div className="max-w-4xl mx-auto px-6 py-4 flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              {isSaving && (
+                <div className="flex items-center text-sm text-gray-600">
+                  <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                  Saving...
+                </div>
+              )}
+              {!isSaving &&
+                submissionId &&
+                submissionStatus !== "submitted" &&
+                submissionStatus !== "graded" && (
+                  <div className="flex items-center text-sm text-green-600">
+                    <Save className="w-4 h-4 mr-2" />
+                    All changes saved
+                  </div>
+                )}
+              {submissionStatus === "submitted" && (
+                <div className="text-sm font-medium text-blue-600">
+                  ✓ Submitted
+                </div>
+              )}
+              {submissionStatus === "graded" && (
+                <div className="text-sm font-medium text-purple-600">
+                  ✓ Graded
+                </div>
+              )}
+            </div>
+            <div className="flex items-center gap-3">
+              {allowResubmissions && submissionStatus === "submitted" && (
+                <Button
+                  onClick={handleResubmit}
+                  disabled={isSubmitting}
+                  variant="outline"
+                  size="lg"
+                  className="border-purple-600 text-purple-600 hover:bg-purple-50"
+                >
+                  {isSubmitting ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                      Creating...
+                    </>
+                  ) : (
+                    <>
+                      <RefreshCw className="w-4 h-4 mr-2" />
+                      Resubmit
+                    </>
+                  )}
+                </Button>
+              )}
+              <Button
+                onClick={handleSubmit}
+                disabled={
+                  isSubmitting ||
+                  submissionStatus === "submitted" ||
+                  submissionStatus === "graded" ||
+                  !submissionId
+                }
+                className="bg-purple-600 hover:bg-purple-700 text-white disabled:opacity-50 disabled:cursor-not-allowed"
+                size="lg"
+              >
+                {isSubmitting ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                    Submitting...
+                  </>
+                ) : submissionStatus === "submitted" ? (
+                  <>
+                    <Send className="w-4 h-4 mr-2" />
+                    Submitted
+                  </>
+                ) : (
+                  <>
+                    <Send className="w-4 h-4 mr-2" />
+                    Submit Assignment
+                  </>
+                )}
+              </Button>
+            </div>
           </div>
         </div>
-      </div>
+      )}
+
+      {/* Submission Success Modal */}
+      <SubmissionSuccessModal
+        isOpen={showSuccessModal}
+        onClose={() => setShowSuccessModal(false)}
+        assignmentName={assignment.name}
+        assignmentId={assignment.id}
+        courseSlug={courseSlug}
+      />
     </div>
   );
 };

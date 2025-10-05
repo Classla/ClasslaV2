@@ -37,8 +37,8 @@ export const MCQBlockViewer = Node.create({
             try {
               const parsed = JSON.parse(dataAttr);
 
-              // Validate and sanitize the parsed data
-              const validation = validateMCQData(parsed);
+              // Validate and sanitize the parsed data (student view mode)
+              const validation = validateMCQData(parsed, true);
               if (!validation.isValid) {
                 console.warn(
                   "Invalid MCQ data in viewer, sanitizing:",
@@ -56,9 +56,9 @@ export const MCQBlockViewer = Node.create({
           return sanitizeMCQData(null);
         },
         renderHTML: (attributes) => {
-          // Validate before rendering
+          // Validate before rendering (student view mode)
           const mcqData = attributes.mcqData || defaultMCQData;
-          const validation = validateMCQData(mcqData);
+          const validation = validateMCQData(mcqData, true);
 
           if (!validation.isValid) {
             console.warn(

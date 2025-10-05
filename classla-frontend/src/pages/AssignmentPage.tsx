@@ -10,6 +10,7 @@ import { Calendar, Users, Eye, Settings } from "lucide-react";
 import { Assignment, UserRole } from "../types";
 import PublishAssignmentModal from "../components/PublishAssignmentModal";
 import DueDatesModal from "../components/DueDatesModal";
+import AssignmentSettingsPanel from "../components/AssignmentSettingsPanel";
 import { Popover } from "../components/ui/popover";
 import PublishedStudentsList from "../components/PublishedStudentsList";
 import AssignmentEditor from "../components/AssignmentEditor";
@@ -49,6 +50,18 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
   const [activeSidebarPanel, setActiveSidebarPanel] = useState<
     "grader" | "settings" | null
   >(null);
+  const [submissionId, setSubmissionId] = useState<string | undefined>(
+    undefined
+  );
+  const [submissionStatus, setSubmissionStatus] = useState<string | null>(null);
+  const [submissionTimestamp, setSubmissionTimestamp] = useState<
+    Date | string | null
+  >(null);
+  const [isStarting, setIsStarting] = useState(false);
+  const [allSubmissions, setAllSubmissions] = useState<any[]>([]);
+  const [selectedSubmissionId, setSelectedSubmissionId] = useState<
+    string | undefined
+  >(undefined);
 
   // Wait for user role to be determined before making API calls
   const effectiveIsStudent = isStudent ?? false;
@@ -107,6 +120,38 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
           assignmentData.due_dates_map[user.id]
         ) {
           setUserDueDate(assignmentData.due_dates_map[user.id]);
+        }
+
+        // Fetch submission if student
+        if (effectiveIsStudent) {
+          try {
+            const submissionsResponse =
+              await apiClient.getSubmissionsByAssignment(assignmentId);
+            const submissions = submissionsResponse.data;
+
+            // Filter to only this user's submissions and sort by timestamp
+            const userSubmissions = submissions
+              .filter((sub: any) => sub.student_id === user.id)
+              .sort(
+                (a: any, b: any) =>
+                  new Date(b.timestamp).getTime() -
+                  new Date(a.timestamp).getTime()
+              );
+
+            setAllSubmissions(userSubmissions);
+
+            // Use the most recent submission
+            if (userSubmissions.length > 0) {
+              const latestSubmission = userSubmissions[0];
+              setSubmissionId(latestSubmission.id);
+              setSelectedSubmissionId(latestSubmission.id);
+              setSubmissionStatus(latestSubmission.status);
+              setSubmissionTimestamp(latestSubmission.timestamp);
+            }
+          } catch (submissionError) {
+            console.log("No submission found yet:", submissionError);
+            // This is okay - student hasn't started yet
+          }
         }
       } catch (error: any) {
         console.error("Failed to fetch assignment:", error);
@@ -209,6 +254,40 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
     return 0;
   };
 
+  const handleStartAssignment = async () => {
+    if (!assignment || !user?.id) return;
+
+    try {
+      setIsStarting(true);
+      const response = await apiClient.createOrUpdateSubmission({
+        assignment_id: assignment.id,
+        values: {},
+        course_id: assignment.course_id,
+      });
+
+      setSubmissionId(response.data.id);
+      setSelectedSubmissionId(response.data.id);
+      setSubmissionStatus(response.data.status);
+
+      // Add to submissions list
+      setAllSubmissions([response.data]);
+
+      toast({
+        title: "Assignment started",
+        description: "You can now begin working on this assignment.",
+      });
+    } catch (error: any) {
+      console.error("Failed to start assignment:", error);
+      toast({
+        title: "Error starting assignment",
+        description: error.message || "Failed to start assignment",
+        variant: "destructive",
+      });
+    } finally {
+      setIsStarting(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -300,13 +379,31 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
                   </div>
                 )}
 
-                {/* Due Date (Student view) */}
-                {effectiveIsStudent && userDueDate && (
-                  <div className="flex items-center space-x-2">
-                    <Calendar className="w-4 h-4" />
-                    <span className="text-sm">
-                      Due: {formatDueDate(userDueDate)}
-                    </span>
+                {/* Due Date and Status (Student view) */}
+                {effectiveIsStudent && (
+                  <div className="flex items-center space-x-4">
+                    {userDueDate && (
+                      <div className="flex items-center space-x-2">
+                        <Calendar className="w-4 h-4" />
+                        <span className="text-sm">
+                          Due: {formatDueDate(userDueDate)}
+                        </span>
+                      </div>
+                    )}
+                    {submissionStatus && (
+                      <div className="flex items-center space-x-2">
+                        <span className="text-sm font-medium">
+                          Status:{" "}
+                          {submissionStatus === "in-progress"
+                            ? "In Progress"
+                            : submissionStatus === "submitted"
+                            ? "Submitted"
+                            : submissionStatus === "graded"
+                            ? "Graded"
+                            : submissionStatus}
+                        </span>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -352,14 +449,75 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
                     onAssignmentUpdated={handleAssignmentUpdated}
                     isReadOnly={false}
                   />
-                ) : (
+                ) : submissionId ? (
                   <AssignmentViewer
                     assignment={assignment}
-                    onAnswerChange={(blockId: string, answer: any) => {
-                      // TODO: Handle answer changes for interactive blocks
-                      console.log("Answer changed:", blockId, answer);
+                    submissionId={submissionId}
+                    submissionStatus={submissionStatus}
+                    submissionTimestamp={submissionTimestamp}
+                    isStudent={true}
+                    courseSlug={courseSlug || ""}
+                    studentId={user?.id}
+                    allSubmissions={allSubmissions}
+                    selectedSubmissionId={selectedSubmissionId}
+                    onSubmissionSelect={(id) => {
+                      const selected = allSubmissions.find((s) => s.id === id);
+                      if (selected) {
+                        setSelectedSubmissionId(id);
+                        setSubmissionId(id);
+                        setSubmissionStatus(selected.status);
+                        setSubmissionTimestamp(selected.timestamp);
+                      }
+                    }}
+                    onSubmissionCreated={(id) => {
+                      setSubmissionId(id);
+                      setSelectedSubmissionId(id);
+                      // Refresh submissions list
+                      if (assignmentId && user?.id) {
+                        apiClient
+                          .getSubmissionsByAssignment(assignmentId)
+                          .then((response) => {
+                            const userSubmissions = response.data
+                              .filter((sub: any) => sub.student_id === user.id)
+                              .sort(
+                                (a: any, b: any) =>
+                                  new Date(b.timestamp).getTime() -
+                                  new Date(a.timestamp).getTime()
+                              );
+                            setAllSubmissions(userSubmissions);
+                          });
+                      }
+                    }}
+                    onSubmissionStatusChange={(status) => {
+                      setSubmissionStatus(status);
                     }}
                   />
+                ) : (
+                  <div className="flex items-center justify-center h-full">
+                    <div className="text-center max-w-md">
+                      <h3 className="text-2xl font-semibold text-gray-900 mb-4">
+                        Assignment Not Started
+                      </h3>
+                      <p className="text-gray-600 mb-6">
+                        Click the button below to begin working on this
+                        assignment. Your progress will be saved automatically.
+                      </p>
+                      <Button
+                        onClick={handleStartAssignment}
+                        disabled={isStarting}
+                        className="bg-purple-600 hover:bg-purple-700 text-white px-8 py-3 text-lg"
+                      >
+                        {isStarting ? (
+                          <>
+                            <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-2"></div>
+                            Starting...
+                          </>
+                        ) : (
+                          "Start Assignment"
+                        )}
+                      </Button>
+                    </div>
+                  </div>
                 )}
               </>
             )}
@@ -386,15 +544,18 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
                 </Button>
               </div>
             </div>
-            <div className="flex-1 p-4 overflow-y-auto">
-              <div className="text-gray-600 text-center py-12">
-                <p className="text-lg">
-                  {activeSidebarPanel === "grader"
-                    ? "Grader Panel"
-                    : "Settings Panel"}
-                </p>
-                <p className="text-sm mt-2">Content coming soon...</p>
-              </div>
+            <div className="flex-1 overflow-y-auto">
+              {activeSidebarPanel === "grader" ? (
+                <div className="text-gray-600 text-center py-12 p-4">
+                  <p className="text-lg">Grader Panel</p>
+                  <p className="text-sm mt-2">Content coming soon...</p>
+                </div>
+              ) : activeSidebarPanel === "settings" && assignment ? (
+                <AssignmentSettingsPanel
+                  assignment={assignment}
+                  onAssignmentUpdated={handleAssignmentUpdated}
+                />
+              ) : null}
             </div>
           </div>
         </div>

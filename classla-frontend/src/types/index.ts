@@ -50,12 +50,20 @@ export interface Folder {
   created_at: Date;
 }
 
+// Assignment Settings
+export interface AssignmentSettings {
+  allowLateSubmissions?: boolean;
+  allowResubmissions?: boolean;
+  showResponsesAfterSubmission?: boolean;
+  [key: string]: any;
+}
+
 // Assignment entity
 export interface Assignment {
   id: string;
   name: string;
   course_id: string;
-  settings: Record<string, any>;
+  settings: AssignmentSettings;
   content: string; // tiptap editor content, stores all blocks, questions, and autograder data.
   published_to: string[]; // Array of course/section IDs
   due_dates_map: Record<string, Date>; // user_id to Date

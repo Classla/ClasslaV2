@@ -85,6 +85,7 @@ import submissionRoutes from "./routes/submissions";
 import graderRoutes from "./routes/graders";
 import rubricRoutes from "./routes/rubrics";
 import joinLinksRoutes from "./routes/joinLinks";
+import blocksRoutes from "./routes/blocks";
 
 // Auth routes (mounted at root for WorkOS callback compatibility)
 app.use("/", authRoutes);
@@ -101,6 +102,7 @@ app.use("/api", submissionRoutes);
 app.use("/api", graderRoutes);
 app.use("/api", rubricRoutes);
 app.use("/api/join-links", joinLinksRoutes);
+app.use("/api", blocksRoutes);
 
 // Error handling - must be after all routes
 app.use(errorHandler);

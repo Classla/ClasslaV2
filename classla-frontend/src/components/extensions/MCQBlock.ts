@@ -18,6 +18,15 @@ export interface MCQBlockData {
   explanation?: string;
 }
 
+// Generate a UUID v4 compatible ID
+const generateUUID = (): string => {
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === "x" ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+};
+
 // Default MCQ data for new blocks
 const defaultMCQData: MCQBlockData = {
   id: "",
@@ -52,10 +61,11 @@ const htmlToText = (html: string): string => {
 
 // Validation functions for MCQ data with caching for performance
 export const validateMCQData = (
-  data: any
+  data: any,
+  isStudentView: boolean = false
 ): { isValid: boolean; errors: string[] } => {
   // Create a cache key based on the data structure
-  const cacheKey = JSON.stringify(data);
+  const cacheKey = JSON.stringify(data) + (isStudentView ? "-student" : "");
 
   // Check cache first for performance
   if (validationCache.has(cacheKey)) {
@@ -112,12 +122,14 @@ export const validateMCQData = (
       }
     });
 
-    // Check if at least one option is marked as correct
-    const hasCorrectAnswer = data.options.some(
-      (option: any) => option.isCorrect === true
-    );
-    if (!hasCorrectAnswer) {
-      errors.push("MCQ must have at least one correct answer");
+    // Check if at least one option is marked as correct (skip for student view)
+    if (!isStudentView) {
+      const hasCorrectAnswer = data.options.some(
+        (option: any) => option.isCorrect === true
+      );
+      if (!hasCorrectAnswer) {
+        errors.push("MCQ must have at least one correct answer");
+      }
     }
   }
 
@@ -152,10 +164,10 @@ export const sanitizeMCQData = (data: any): MCQBlockData => {
   if (!data || typeof data !== "object") {
     const newData = {
       ...defaultMCQData,
-      id: `mcq-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`,
+      id: generateUUID(),
       options: [
-        { id: "opt-1", text: "", isCorrect: true }, // Set first option as correct
-        { id: "opt-2", text: "", isCorrect: false },
+        { id: generateUUID(), text: "", isCorrect: true }, // Set first option as correct
+        { id: generateUUID(), text: "", isCorrect: false },
       ],
     };
     return newData;
@@ -163,10 +175,7 @@ export const sanitizeMCQData = (data: any): MCQBlockData => {
 
   // Ensure required fields with fallbacks
   const sanitized: MCQBlockData = {
-    id:
-      data.id && typeof data.id === "string"
-        ? data.id
-        : `mcq-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`,
+    id: data.id && typeof data.id === "string" ? data.id : generateUUID(),
     question: typeof data.question === "string" ? data.question : "",
     options: [],
     allowMultiple:
@@ -180,13 +189,11 @@ export const sanitizeMCQData = (data: any): MCQBlockData => {
   if (Array.isArray(data.options) && data.options.length > 0) {
     sanitized.options = data.options
       .filter((option: any) => option && typeof option === "object")
-      .map((option: any, index: number) => ({
+      .map((option: any) => ({
         id:
           option.id && typeof option.id === "string"
             ? option.id
-            : `opt-${Date.now()}-${index}-${Math.random()
-                .toString(36)
-                .substring(2, 11)}`,
+            : generateUUID(),
         text: typeof option.text === "string" ? option.text : "",
         isCorrect:
           typeof option.isCorrect === "boolean" ? option.isCorrect : false,
@@ -196,9 +203,7 @@ export const sanitizeMCQData = (data: any): MCQBlockData => {
   // Ensure minimum 2 options
   while (sanitized.options.length < 2) {
     sanitized.options.push({
-      id: `opt-${Date.now()}-${sanitized.options.length}-${Math.random()
-        .toString(36)
-        .substring(2, 11)}`,
+      id: generateUUID(),
       text: "",
       isCorrect: false,
     });
@@ -261,18 +266,14 @@ export const MCQBlock = Node.create({
 
               const sanitizedData = sanitizeMCQData(parsed);
 
-              // Generate new IDs for pasted content to avoid conflicts
+              // Generate new UUIDs for pasted content to avoid conflicts
               // This ensures each pasted MCQ block has unique identifiers
               return {
                 ...sanitizedData,
-                id: `mcq-${Date.now()}-${Math.random()
-                  .toString(36)
-                  .substring(2, 11)}`,
+                id: generateUUID(),
                 options: sanitizedData.options.map((option) => ({
                   ...option,
-                  id: `opt-${Date.now()}-${Math.random()
-                    .toString(36)
-                    .substring(2, 11)}`,
+                  id: generateUUID(),
                 })),
               };
             } catch (error) {
@@ -379,9 +380,11 @@ export const MCQBlock = Node.create({
         ({ commands }) => {
           const mcqData: MCQBlockData = {
             ...defaultMCQData,
-            id: `mcq-${Date.now()}-${Math.random()
-              .toString(36)
-              .substring(2, 11)}`,
+            id: generateUUID(),
+            options: [
+              { id: generateUUID(), text: "", isCorrect: false },
+              { id: generateUUID(), text: "", isCorrect: false },
+            ],
             ...data,
           };
 
@@ -419,18 +422,14 @@ export const MCQBlock = Node.create({
         );
       },
 
-      // Generate new IDs for pasted content to avoid conflicts
+      // Generate new UUIDs for pasted content to avoid conflicts
       generateNewIds: (data: MCQBlockData): MCQBlockData => {
         return {
           ...data,
-          id: `mcq-${Date.now()}-${Math.random()
-            .toString(36)
-            .substring(2, 11)}`,
+          id: generateUUID(),
           options: data.options.map((option) => ({
             ...option,
-            id: `opt-${Date.now()}-${Math.random()
-              .toString(36)
-              .substring(2, 11)}`,
+            id: generateUUID(),
           })),
         };
       },

@@ -37,9 +37,9 @@ const MCQViewer: React.FC<MCQViewerProps> = memo(
       [selectedOptions.length]
     );
 
-    // Validate and sanitize MCQ data on mount
+    // Validate and sanitize MCQ data on mount (student view mode)
     useEffect(() => {
-      const validation = validateMCQData(rawMcqData);
+      const validation = validateMCQData(rawMcqData, true);
       if (!validation.isValid) {
         console.warn(
           "Invalid MCQ data in viewer, sanitizing:",
@@ -67,6 +67,12 @@ const MCQViewer: React.FC<MCQViewerProps> = memo(
 
     const handleOptionSelect = useCallback(
       (optionId: string) => {
+        // Check if editor is read-only
+        const isReadOnly = (editor?.storage as any)?.isReadOnly;
+        if (isReadOnly) {
+          return; // Don't allow changes when read-only
+        }
+
         let newSelection: string[];
 
         if (mcqData.allowMultiple) {
@@ -182,28 +188,34 @@ const MCQViewer: React.FC<MCQViewerProps> = memo(
             </div>
             {mcqData.options.map((option, index) => {
               const isSelected = isOptionSelected(option.id);
+              const isReadOnly = (editor?.storage as any)?.isReadOnly;
 
               return (
                 <div
                   key={option.id}
-                  className={`flex items-center gap-2 p-1 border rounded-md transition-all duration-200 cursor-pointer ${
+                  className={`flex items-center gap-2 p-1 border rounded-md transition-all duration-200 ${
+                    isReadOnly
+                      ? "cursor-not-allowed opacity-75"
+                      : "cursor-pointer"
+                  } ${
                     isSelected
                       ? "border-blue-500 bg-blue-50 shadow-sm"
                       : "border-gray-200 bg-gray-50 hover:bg-gray-100"
                   } ${isAnswerChanged && isSelected ? "animate-pulse" : ""}`}
-                  onClick={() => handleOptionSelect(option.id)}
+                  onClick={() => !isReadOnly && handleOptionSelect(option.id)}
                   role={mcqData.allowMultiple ? "checkbox" : "radio"}
                   aria-checked={isSelected}
-                  tabIndex={0}
+                  aria-disabled={isReadOnly}
+                  tabIndex={isReadOnly ? -1 : 0}
                   onKeyDown={(e) => {
-                    if (e.key === "Enter" || e.key === " ") {
+                    if (!isReadOnly && (e.key === "Enter" || e.key === " ")) {
                       e.preventDefault();
                       handleOptionSelect(option.id);
                     }
                   }}
                   aria-label={`${option.text || `Option ${index + 1}`}${
                     isSelected ? " (selected)" : ""
-                  }`}
+                  }${isReadOnly ? " (locked)" : ""}`}
                 >
                   {/* Selection indicator matching MCQEditor style */}
                   <div className="p-1">

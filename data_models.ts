@@ -72,12 +72,22 @@ interface Folder {
   created_at: Date;
 }
 
+/**
+ * Assignment Settings stored in the settings JSONB field
+ */
+interface AssignmentSettings {
+  allowLateSubmissions?: boolean; // Allow submissions after due date
+  allowResubmissions?: boolean; // Allow students to resubmit (creates new submission)
+  showResponsesAfterSubmission?: boolean; // Show student their answers after submitting
+  [key: string]: any; // Allow other settings
+}
+
 // Assignment entity
 interface Assignment {
   id: string;
   name: string;
   course_id: string;
-  settings: Record<string, any>;
+  settings: AssignmentSettings;
   content: string; // tiptap editor content, stores all blocks, questions, and autograder data.
   published_to: string[]; // Array of course/section IDs
   due_dates_map: Record<string, Date>; // user_id to Date
@@ -88,16 +98,31 @@ interface Assignment {
 }
 
 // Submission entity
+/**
+ * Submission represents a student's work on an assignment
+ *
+ * The values field stores answers keyed by block ID (UUID):
+ * - For MCQ blocks: values[blockId] = string[] (array of selected option IDs)
+ * - For future block types: values[blockId] = any (type-specific data)
+ *
+ * Example:
+ * {
+ *   "550e8400-e29b-41d4-a716-446655440000": ["opt-uuid-1", "opt-uuid-2"],
+ *   "6ba7b810-9dad-11d1-80b4-00c04fd430c8": ["opt-uuid-3"]
+ * }
+ */
 interface Submission {
   id: string;
   assignment_id: string;
   timestamp: Date;
-  values: Record<string, any>; // block_id, value
+  values: Record<string, any>; // block_id (UUID) -> answer value
   course_id: string;
   student_id: string;
   grader_id?: string;
   grade?: number;
   status: "submitted" | "graded" | "returned" | "in-progress";
+  created_at: Date;
+  updated_at: Date;
 }
 
 // Grader entity (feedback and grading info)
@@ -164,6 +189,7 @@ export {
   CourseEnrollment,
   Folder,
   Assignment,
+  AssignmentSettings,
   Submission,
   Grader,
   Rubric,

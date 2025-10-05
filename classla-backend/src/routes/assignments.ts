@@ -14,6 +14,7 @@ const router = Router();
 /**
  * Filter assignment content for student view
  * Removes autograder data and other instructor-only content
+ * Specifically removes correct answer information from MCQ blocks
  */
 const filterAssignmentContentForStudent = (content: string): string => {
   try {
@@ -58,6 +59,27 @@ const filterAssignmentContentForStudent = (content: string): string => {
               ...filteredAttrs
             } = block.attrs;
             block.attrs = filteredAttrs;
+          }
+
+          // Filter MCQ blocks to remove correct answer information
+          if (block.type === "mcqBlock" && block.attrs?.mcqData) {
+            const mcqData = block.attrs.mcqData;
+
+            // Remove isCorrect from all options
+            if (mcqData.options && Array.isArray(mcqData.options)) {
+              mcqData.options = mcqData.options.map((option: any) => {
+                const { isCorrect, ...filteredOption } = option;
+                return {
+                  ...filteredOption,
+                  isCorrect: false, // Always set to false for students
+                };
+              });
+            }
+
+            // Remove explanation (can contain answer hints)
+            delete mcqData.explanation;
+
+            block.attrs.mcqData = mcqData;
           }
 
           return block;
@@ -465,13 +487,20 @@ router.post(
         }
       }
 
-      // Create the assignment
+      // Create the assignment with default settings
+      const defaultSettings = {
+        showResponsesAfterSubmission: true, // Default to showing responses
+        allowLateSubmissions: false,
+        allowResubmissions: false,
+        ...settings, // Allow override from request
+      };
+
       const { data: assignment, error: assignmentError } = await supabase
         .from("assignments")
         .insert({
           name,
           course_id,
-          settings: settings || {},
+          settings: defaultSettings,
           content: content || "",
           published_to: published_to || [],
           due_dates_map: due_dates_map || {},
