@@ -35,6 +35,7 @@ import { useToast } from "../hooks/use-toast";
 import SubmissionSuccessModal from "./SubmissionSuccessModal";
 import { randomizeMCQBlocks } from "../utils/randomization";
 import { Popover } from "./ui/popover";
+import AssignmentContentSkeleton from "./AssignmentContentSkeleton";
 
 interface AssignmentViewerProps {
   assignment: Assignment;
@@ -87,6 +88,7 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
     initialSubmissionId
   );
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isLoadingSubmission, setIsLoadingSubmission] = useState(false);
   const [submissionStatus, setSubmissionStatus] = useState<string>(
     initialSubmissionStatus || "in-progress"
   );
@@ -127,10 +129,12 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
     const fetchSubmissionData = async () => {
       if (!submissionId) {
         setAnswerState({});
+        setIsLoadingSubmission(false);
         return;
       }
 
       try {
+        setIsLoadingSubmission(true);
         const response = await apiClient.getSubmission(submissionId);
         const submission = response.data;
 
@@ -159,6 +163,8 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
         setAnswerState(newAnswerState);
       } catch (error) {
         console.error("Failed to fetch submission data:", error);
+      } finally {
+        setIsLoadingSubmission(false);
       }
     };
 
@@ -937,6 +943,9 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
               </div>
             </div>
           </div>
+        ) : isLoadingSubmission ? (
+          // Show skeleton loader while loading submission
+          <AssignmentContentSkeleton />
         ) : (
           // Show normal editor content
           <div className="max-w-4xl mx-auto p-8 relative">
