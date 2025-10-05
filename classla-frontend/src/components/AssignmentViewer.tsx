@@ -22,7 +22,6 @@ import {
   AlertTriangle,
   RefreshCw,
   Send,
-  Save,
   ChevronDown,
   Clock,
 } from "lucide-react";
@@ -87,7 +86,6 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
   const [submissionId, setSubmissionId] = useState<string | undefined>(
     initialSubmissionId
   );
-  const [isSaving, setIsSaving] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submissionStatus, setSubmissionStatus] = useState<string>(
     initialSubmissionStatus || "in-progress"
@@ -95,6 +93,19 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
   const [submissionTimestamp, setSubmissionTimestamp] = useState<
     Date | string | null
   >(initialSubmissionTimestamp || null);
+
+  // Update internal state when props change
+  useEffect(() => {
+    setSubmissionId(initialSubmissionId);
+  }, [initialSubmissionId]);
+
+  useEffect(() => {
+    setSubmissionStatus(initialSubmissionStatus || "in-progress");
+  }, [initialSubmissionStatus]);
+
+  useEffect(() => {
+    setSubmissionTimestamp(initialSubmissionTimestamp || null);
+  }, [initialSubmissionTimestamp]);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -103,38 +114,56 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
     assignment.settings?.showResponsesAfterSubmission ?? false;
   const allowResubmissions = assignment.settings?.allowResubmissions ?? false;
 
-  // Read-only if submitted/graded AND not showing responses
-  // OR if graded (always read-only when graded)
-  const isReadOnly =
-    (submissionStatus === "submitted" && !showResponsesAfterSubmission) ||
-    submissionStatus === "graded";
+  // All submissions are read-only when viewing them
+  // Only allow editing when actively working on a new/in-progress submission
+  const isReadOnly = true; // Always read-only when viewing submissions
 
   // Performance optimization: Use refs to avoid unnecessary re-renders
   const editorRef = useRef<any>(null);
   const answerStateRef = useRef<AnswerState>({});
 
-  // Load answer state from session storage on component mount
+  // Fetch submission data when submissionId changes - always from backend
   useEffect(() => {
-    const storageKey = getAnswerStorageKey(assignment.id.toString());
-    const savedAnswers = sessionStorage.getItem(storageKey);
-
-    if (savedAnswers) {
-      try {
-        const parsedAnswers = JSON.parse(savedAnswers);
-        // Convert timestamp strings back to Date objects
-        const restoredAnswers: AnswerState = {};
-        Object.keys(parsedAnswers).forEach((blockId) => {
-          restoredAnswers[blockId] = {
-            ...parsedAnswers[blockId],
-            timestamp: new Date(parsedAnswers[blockId].timestamp),
-          };
-        });
-        setAnswerState(restoredAnswers);
-      } catch (error) {
-        console.error("Failed to load saved answers:", error);
+    const fetchSubmissionData = async () => {
+      if (!submissionId) {
+        setAnswerState({});
+        return;
       }
-    }
-  }, [assignment.id]);
+
+      try {
+        const response = await apiClient.getSubmission(submissionId);
+        const submission = response.data;
+
+        console.log("[AssignmentViewer] Fetched submission:", {
+          submissionId,
+          status: submission.status,
+          values: submission.values,
+        });
+
+        // Update status and timestamp
+        setSubmissionStatus(submission.status);
+        setSubmissionTimestamp(submission.timestamp);
+
+        // Always use server data
+        const newAnswerState: AnswerState = {};
+        if (submission.values && typeof submission.values === "object") {
+          Object.keys(submission.values).forEach((blockId) => {
+            newAnswerState[blockId] = {
+              selectedOptions: submission.values[blockId] || [],
+              timestamp: new Date(submission.timestamp),
+            };
+          });
+        }
+
+        console.log("[AssignmentViewer] Setting answer state:", newAnswerState);
+        setAnswerState(newAnswerState);
+      } catch (error) {
+        console.error("Failed to fetch submission data:", error);
+      }
+    };
+
+    fetchSubmissionData();
+  }, [submissionId]);
 
   // Save answer state to session storage whenever it changes
   const saveAnswerState = useCallback(
@@ -184,10 +213,11 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
         clearTimeout(saveTimeoutRef.current);
       }
 
+      // Auto-save disabled - submissions are read-only
       // Set new timeout for auto-save
       saveTimeoutRef.current = setTimeout(async () => {
         try {
-          setIsSaving(true);
+          // setIsSaving(true); // Removed - read-only mode
 
           if (submissionId) {
             // Update existing submission
@@ -213,7 +243,7 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
             variant: "destructive",
           });
         } finally {
-          setIsSaving(false);
+          // setIsSaving(false); // Removed - read-only mode
         }
       }, 2000); // Auto-save after 2 seconds of inactivity
     },
@@ -285,16 +315,21 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
 
   // Function to get answer state for a specific block - optimized with ref
   const getBlockAnswerState = useCallback((blockId: string) => {
-    return (
-      answerStateRef.current[blockId] || {
-        selectedOptions: [],
-        timestamp: new Date(),
-      }
-    );
+    const state = answerStateRef.current[blockId] || {
+      selectedOptions: [],
+      timestamp: new Date(),
+    };
+    console.log("[AssignmentViewer] getBlockAnswerState called:", {
+      blockId,
+      state,
+      allAnswerState: answerStateRef.current,
+    });
+    return state;
   }, []);
 
   // Update ref when answerState changes
   useEffect(() => {
+    console.log("[AssignmentViewer] Updating answerStateRef:", answerState);
     answerStateRef.current = answerState;
   }, [answerState]);
 
@@ -518,6 +553,27 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
       editor.setEditable(!isReadOnly);
     }
   }, [editor, handleMCQAnswerChange, getBlockAnswerState, isReadOnly]);
+
+  // Force editor to re-render when answer state changes (for submission switching)
+  useEffect(() => {
+    if (editor && !editor.isDestroyed) {
+      console.log(
+        "[AssignmentViewer] Forcing editor re-render with answer state:",
+        answerState
+      );
+
+      // Update editor storage to trigger node view updates
+      (editor.storage as any).answerStateVersion = Date.now();
+
+      // Force a full re-render by updating a meta property
+      const tr = editor.state.tr;
+      tr.setMeta("forceUpdate", true);
+      editor.view.dispatch(tr);
+
+      // Also force view update
+      editor.view.updateState(editor.state);
+    }
+  }, [editor, answerState]);
 
   // Cleanup effect for proper resource management
   useEffect(() => {
@@ -899,21 +955,6 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
         <div className="sticky bottom-0 left-0 right-0 border-t border-gray-200 bg-white shadow-lg z-40">
           <div className="max-w-4xl mx-auto px-6 py-4 flex items-center justify-between">
             <div className="flex items-center gap-4">
-              {isSaving && (
-                <div className="flex items-center text-sm text-gray-600">
-                  <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
-                  Saving...
-                </div>
-              )}
-              {!isSaving &&
-                submissionId &&
-                submissionStatus !== "submitted" &&
-                submissionStatus !== "graded" && (
-                  <div className="flex items-center text-sm text-green-600">
-                    <Save className="w-4 h-4 mr-2" />
-                    All changes saved
-                  </div>
-                )}
               {submissionStatus === "submitted" && (
                 <div className="text-sm font-medium text-blue-600">
                   ✓ Submitted
@@ -923,6 +964,9 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
                 <div className="text-sm font-medium text-purple-600">
                   ✓ Graded
                 </div>
+              )}
+              {submissionStatus === "in-progress" && (
+                <div className="text-sm text-gray-600">In Progress</div>
               )}
             </div>
             <div className="flex items-center gap-3">

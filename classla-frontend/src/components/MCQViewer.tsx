@@ -55,14 +55,50 @@ const MCQViewer: React.FC<MCQViewerProps> = memo(
     }, [rawMcqData]);
 
     // Load initial state from editor storage (persistent state)
+    // Re-load when answerStateVersion changes (for submission switching)
     useEffect(() => {
       const getBlockAnswerState = (editor?.storage as any)?.getBlockAnswerState;
+
       if (getBlockAnswerState && mcqData.id) {
         const blockState: BlockAnswerState = getBlockAnswerState(mcqData.id);
-        if (blockState.selectedOptions.length > 0) {
-          setSelectedOptions(blockState.selectedOptions);
-        }
+        console.log("[MCQViewer] Loading answer state for block:", {
+          blockId: mcqData.id,
+          blockState,
+          selectedOptions: blockState.selectedOptions,
+        });
+        setSelectedOptions(blockState.selectedOptions);
       }
+    }, [editor, mcqData.id]);
+
+    // Poll for answer state changes (for submission switching)
+    useEffect(() => {
+      if (!editor || !mcqData.id) return;
+
+      const checkForUpdates = () => {
+        const getBlockAnswerState = (editor.storage as any)
+          ?.getBlockAnswerState;
+        const currentVersion = (editor.storage as any)?.answerStateVersion;
+        const lastVersion = (editor.storage as any)?._lastProcessedVersion;
+
+        if (
+          currentVersion &&
+          currentVersion !== lastVersion &&
+          getBlockAnswerState
+        ) {
+          const blockState: BlockAnswerState = getBlockAnswerState(mcqData.id);
+          console.log("[MCQViewer] Detected answer state change:", {
+            blockId: mcqData.id,
+            blockState,
+            currentVersion,
+            lastVersion,
+          });
+          setSelectedOptions(blockState.selectedOptions);
+          (editor.storage as any)._lastProcessedVersion = currentVersion;
+        }
+      };
+
+      const interval = setInterval(checkForUpdates, 100);
+      return () => clearInterval(interval);
     }, [editor, mcqData.id]);
 
     const handleOptionSelect = useCallback(
