@@ -8,6 +8,8 @@ import Logo from "./Logo";
 import ModuleTree from "./ModuleTree";
 import { BookOpen, Users, Settings, BarChart3 } from "lucide-react";
 import { Course, UserRole } from "../types";
+import { Allotment } from "allotment";
+import "allotment/dist/style.css";
 
 interface CourseLayoutProps {
   children: React.ReactNode;
@@ -192,59 +194,65 @@ const CourseLayout: React.FC<CourseLayoutProps> = ({ children }) => {
         </div>
       </header>
 
-      <div className="flex flex-1 overflow-hidden">
-        {/* Sidebar */}
-        <div className="w-64 bg-white border-r border-gray-200 flex flex-col">
-          {/* Navigation Items */}
-          <div className="flex-1 py-6">
-            <nav className="space-y-1 px-3">
-              {navigationTabs.map((tab) => {
-                const Icon = tab.icon;
-                const isActive = currentPage === tab.id;
+      <div className="flex-1 overflow-hidden">
+        <Allotment>
+          {/* Sidebar - Resizable */}
+          <Allotment.Pane minSize={200} maxSize={400} preferredSize={256}>
+            <div className="h-full bg-white border-r border-gray-200 flex flex-col">
+              {/* Navigation Items */}
+              <div className="flex-1 overflow-auto py-6">
+                <nav className="space-y-1 px-3">
+                  {navigationTabs.map((tab) => {
+                    const Icon = tab.icon;
+                    const isActive = currentPage === tab.id;
 
-                return (
-                  <button
-                    key={tab.id}
-                    onClick={() =>
-                      navigate(`/course/${courseSlug}/${tab.path}`)
-                    }
-                    className={`w-full flex items-center space-x-3 px-3 py-2 text-sm font-medium rounded-md transition-colors ${
-                      isActive
-                        ? "bg-purple-100 text-purple-700"
-                        : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
-                    }`}
-                  >
-                    <Icon className="w-5 h-5" />
-                    <span>{tab.label}</span>
-                  </button>
-                );
-              })}
-            </nav>
+                    return (
+                      <button
+                        key={tab.id}
+                        onClick={() =>
+                          navigate(`/course/${courseSlug}/${tab.path}`)
+                        }
+                        className={`w-full flex items-center space-x-3 px-3 py-2 text-sm font-medium rounded-md transition-colors ${
+                          isActive
+                            ? "bg-purple-100 text-purple-700"
+                            : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
+                        }`}
+                      >
+                        <Icon className="w-5 h-5" />
+                        <span>{tab.label}</span>
+                      </button>
+                    );
+                  })}
+                </nav>
 
-            {/* Assignments Section */}
-            <div className="mt-8 px-3">
-              <ModuleTree
-                courseId={course.id}
-                userRole={userRole || undefined}
-                isStudent={isStudent}
-                isInstructor={isInstructor}
-              />
+                {/* Assignments Section */}
+                <div className="mt-8 px-3">
+                  <ModuleTree
+                    courseId={course.id}
+                    userRole={userRole || undefined}
+                    isStudent={isStudent}
+                    isInstructor={isInstructor}
+                  />
+                </div>
+              </div>
             </div>
-          </div>
-        </div>
+          </Allotment.Pane>
 
-        {/* Main Content */}
-        <div className="flex-1 overflow-auto">
-          {React.cloneElement(children as React.ReactElement, {
-            course,
-            setCourse,
-            userRole,
-            isStudent,
-            isInstructor,
-            handleCopyJoinCode,
-            copied,
-          })}
-        </div>
+          {/* Main Content */}
+          <Allotment.Pane minSize={400}>
+            <div className="h-full overflow-auto">
+              {React.cloneElement(children as React.ReactElement, {
+                course,
+                setCourse,
+                userRole,
+                isStudent,
+                isInstructor,
+                handleCopyJoinCode,
+                copied,
+              })}
+            </div>
+          </Allotment.Pane>
+        </Allotment>
       </div>
     </div>
   );

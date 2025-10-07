@@ -16,6 +16,8 @@ import { Popover } from "../components/ui/popover";
 import PublishedStudentsList from "../components/PublishedStudentsList";
 import AssignmentEditor from "../components/AssignmentEditor";
 import AssignmentViewer from "../components/AssignmentViewer";
+import { Allotment } from "allotment";
+import "allotment/dist/style.css";
 
 interface AssignmentPageProps {
   userRole?: UserRole;
@@ -328,270 +330,281 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
 
   return (
     <div className="h-full flex">
-      {/* Main Content Area */}
-      <div className="flex-1 flex flex-col">
-        {/* Assignment Header */}
-        <Card className="bg-purple-600 text-white border-0 rounded-3xl mx-6 mt-4 flex-shrink-0">
-          <div className="p-6">
-            <div className="flex justify-between items-start">
-              <div className="space-y-2 flex-1">
-                {/* Title */}
-                <div className="flex items-center space-x-2">
-                  {isEditing ? (
-                    <div className="flex items-center space-x-2 flex-1">
-                      <Input
-                        value={editedName}
-                        onChange={(e) => setEditedName(e.target.value)}
-                        className="text-3xl font-bold bg-white/10 border-white/20 text-white placeholder-white/70"
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") handleSaveName();
-                          if (e.key === "Escape") handleCancelEdit();
-                        }}
-                        onBlur={handleSaveName}
-                        autoFocus
-                      />
+      <Allotment className="flex-1">
+        {/* Main Scrollable Content Area */}
+        <Allotment.Pane minSize={400}>
+          <div className="h-full flex flex-col overflow-auto">
+            {/* Assignment Header */}
+            <Card className="bg-purple-600 text-white border-0 rounded-3xl mx-6 mt-4 flex-shrink-0">
+              <div className="p-6">
+                <div className="flex justify-between items-start">
+                  <div className="space-y-2 flex-1">
+                    {/* Title */}
+                    <div className="flex items-center space-x-2">
+                      {isEditing ? (
+                        <div className="flex items-center space-x-2 flex-1">
+                          <Input
+                            value={editedName}
+                            onChange={(e) => setEditedName(e.target.value)}
+                            className="text-3xl font-bold bg-white/10 border-white/20 text-white placeholder-white/70"
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") handleSaveName();
+                              if (e.key === "Escape") handleCancelEdit();
+                            }}
+                            onBlur={handleSaveName}
+                            autoFocus
+                          />
+                        </div>
+                      ) : (
+                        <h1
+                          className={`text-3xl font-bold ${
+                            effectiveIsInstructor
+                              ? "cursor-pointer hover:text-purple-100"
+                              : ""
+                          }`}
+                          onClick={() =>
+                            effectiveIsInstructor && setIsEditing(true)
+                          }
+                        >
+                          {assignment.name}
+                        </h1>
+                      )}
                     </div>
-                  ) : (
-                    <h1
-                      className={`text-3xl font-bold ${
-                        effectiveIsInstructor
-                          ? "cursor-pointer hover:text-purple-100"
-                          : ""
-                      }`}
-                      onClick={() =>
-                        effectiveIsInstructor && setIsEditing(true)
-                      }
-                    >
-                      {assignment.name}
-                    </h1>
-                  )}
-                </div>
 
-                {/* Publishing Status (Instructor only) */}
-                {effectiveIsInstructor && (
-                  <div className="flex items-center space-x-2">
-                    <Users className="w-4 h-4" />
-                    <Popover
-                      trigger={
-                        <button className="text-white hover:text-purple-100 text-sm flex items-center space-x-1">
-                          <span>
-                            Published to {assignment.published_to?.length || 0}{" "}
-                            students
-                          </span>
-                        </button>
-                      }
-                      content={
-                        <PublishedStudentsList assignment={assignment} />
-                      }
-                      className="left-0"
-                    />
-                  </div>
-                )}
-
-                {/* Due Date and Status (Student view) */}
-                {effectiveIsStudent && (
-                  <div className="flex items-center space-x-4">
-                    {userDueDate && (
+                    {/* Publishing Status (Instructor only) */}
+                    {effectiveIsInstructor && (
                       <div className="flex items-center space-x-2">
-                        <Calendar className="w-4 h-4" />
-                        <span className="text-sm">
-                          Due: {formatDueDate(userDueDate)}
-                        </span>
+                        <Users className="w-4 h-4" />
+                        <Popover
+                          trigger={
+                            <button className="text-white hover:text-purple-100 text-sm flex items-center space-x-1">
+                              <span>
+                                Published to{" "}
+                                {assignment.published_to?.length || 0} students
+                              </span>
+                            </button>
+                          }
+                          content={
+                            <PublishedStudentsList assignment={assignment} />
+                          }
+                          className="left-0"
+                        />
                       </div>
                     )}
-                    {submissionStatus && (
-                      <div className="flex items-center space-x-2">
-                        <span className="text-sm font-medium">
-                          Status:{" "}
-                          {submissionStatus === "in-progress"
-                            ? "In Progress"
-                            : submissionStatus === "submitted"
-                            ? "Submitted"
-                            : submissionStatus === "graded"
-                            ? "Graded"
-                            : submissionStatus}
-                        </span>
+
+                    {/* Due Date and Status (Student view) */}
+                    {effectiveIsStudent && (
+                      <div className="flex items-center space-x-4">
+                        {userDueDate && (
+                          <div className="flex items-center space-x-2">
+                            <Calendar className="w-4 h-4" />
+                            <span className="text-sm">
+                              Due: {formatDueDate(userDueDate)}
+                            </span>
+                          </div>
+                        )}
+                        {submissionStatus && (
+                          <div className="flex items-center space-x-2">
+                            <span className="text-sm font-medium">
+                              Status:{" "}
+                              {submissionStatus === "in-progress"
+                                ? "In Progress"
+                                : submissionStatus === "submitted"
+                                ? "Submitted"
+                                : submissionStatus === "graded"
+                                ? "Graded"
+                                : submissionStatus}
+                            </span>
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
-                )}
-              </div>
 
-              <div className="flex flex-col items-end space-y-3">
-                {/* Management Buttons (Instructor only) */}
-                {effectiveIsInstructor && (
-                  <div className="flex items-center space-x-3">
-                    <Button
-                      onClick={handlePublishClick}
-                      className="bg-white text-purple-600 hover:bg-gray-100 font-semibold"
-                    >
-                      Manage Publishing
-                    </Button>
-                    <Button
-                      onClick={handleConfigureDueDates}
-                      className="bg-white text-purple-600 hover:bg-gray-100 font-semibold"
-                    >
-                      Manage Due Dates
-                    </Button>
+                  <div className="flex flex-col items-end space-y-3">
+                    {/* Management Buttons (Instructor only) */}
+                    {effectiveIsInstructor && (
+                      <div className="flex items-center space-x-3">
+                        <Button
+                          onClick={handlePublishClick}
+                          className="bg-white text-purple-600 hover:bg-gray-100 font-semibold"
+                        >
+                          Manage Publishing
+                        </Button>
+                        <Button
+                          onClick={handleConfigureDueDates}
+                          className="bg-white text-purple-600 hover:bg-gray-100 font-semibold"
+                        >
+                          Manage Due Dates
+                        </Button>
+                      </div>
+                    )}
+
+                    {/* Points */}
+                    <div className="flex items-center space-x-2">
+                      <span className="text-lg font-semibold">
+                        Points: {getTotalPoints()}
+                      </span>
+                    </div>
                   </div>
-                )}
-
-                {/* Points */}
-                <div className="flex items-center space-x-2">
-                  <span className="text-lg font-semibold">
-                    Points: {getTotalPoints()}
-                  </span>
                 </div>
               </div>
+            </Card>
+
+            {/* Assignment Content */}
+            <div className="flex-1 mx-6">
+              <Card className="h-full p-0 overflow-hidden">
+                {assignment && (
+                  <>
+                    {effectiveIsInstructor ? (
+                      selectedGradingStudent ? (
+                        <AssignmentViewer
+                          assignment={assignment}
+                          submissionId={
+                            selectedGradingStudent.latestSubmission?.id
+                          }
+                          submissionStatus={
+                            selectedGradingStudent.latestSubmission?.status
+                          }
+                          submissionTimestamp={
+                            selectedGradingStudent.latestSubmission?.timestamp
+                          }
+                          isStudent={false}
+                          studentId={selectedGradingStudent.userId}
+                        />
+                      ) : (
+                        <AssignmentEditor
+                          assignment={assignment}
+                          onAssignmentUpdated={handleAssignmentUpdated}
+                          isReadOnly={false}
+                        />
+                      )
+                    ) : submissionId ? (
+                      <AssignmentViewer
+                        assignment={assignment}
+                        submissionId={submissionId}
+                        submissionStatus={submissionStatus}
+                        submissionTimestamp={submissionTimestamp}
+                        isStudent={true}
+                        courseSlug={courseSlug || ""}
+                        studentId={user?.id}
+                        allSubmissions={allSubmissions}
+                        selectedSubmissionId={selectedSubmissionId}
+                        onSubmissionSelect={(id) => {
+                          const selected = allSubmissions.find(
+                            (s) => s.id === id
+                          );
+                          if (selected) {
+                            setSelectedSubmissionId(id);
+                            setSubmissionId(id);
+                            setSubmissionStatus(selected.status);
+                            setSubmissionTimestamp(selected.timestamp);
+                          }
+                        }}
+                        onSubmissionCreated={(id) => {
+                          setSubmissionId(id);
+                          setSelectedSubmissionId(id);
+                          // Refresh submissions list
+                          if (assignmentId && user?.id) {
+                            apiClient
+                              .getSubmissionsByAssignment(assignmentId)
+                              .then((response) => {
+                                const userSubmissions = response.data
+                                  .filter(
+                                    (sub: any) => sub.student_id === user.id
+                                  )
+                                  .sort(
+                                    (a: any, b: any) =>
+                                      new Date(b.timestamp).getTime() -
+                                      new Date(a.timestamp).getTime()
+                                  );
+                                setAllSubmissions(userSubmissions);
+                              });
+                          }
+                        }}
+                        onSubmissionStatusChange={(status) => {
+                          setSubmissionStatus(status);
+                        }}
+                      />
+                    ) : (
+                      <div className="flex items-center justify-center h-full">
+                        <div className="text-center max-w-md">
+                          <h3 className="text-2xl font-semibold text-gray-900 mb-4">
+                            Assignment Not Started
+                          </h3>
+                          <p className="text-gray-600 mb-6">
+                            Click the button below to begin working on this
+                            assignment. Your progress will be saved
+                            automatically.
+                          </p>
+                          <Button
+                            onClick={handleStartAssignment}
+                            disabled={isStarting}
+                            className="bg-purple-600 hover:bg-purple-700 text-white px-8 py-3 text-lg"
+                          >
+                            {isStarting ? (
+                              <>
+                                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-2"></div>
+                                Starting...
+                              </>
+                            ) : (
+                              "Start Assignment"
+                            )}
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
+              </Card>
             </div>
           </div>
-        </Card>
+        </Allotment.Pane>
 
-        {/* Assignment Content */}
-        <div className="flex-1 mx-6">
-          <Card className="h-full p-0 overflow-hidden">
-            {assignment && (
-              <>
-                {effectiveIsInstructor ? (
-                  selectedGradingStudent ? (
-                    <AssignmentViewer
-                      assignment={assignment}
-                      submissionId={selectedGradingStudent.latestSubmission?.id}
-                      submissionStatus={
-                        selectedGradingStudent.latestSubmission?.status
-                      }
-                      submissionTimestamp={
-                        selectedGradingStudent.latestSubmission?.timestamp
-                      }
-                      isStudent={false}
-                      studentId={selectedGradingStudent.userId}
-                    />
-                  ) : (
-                    <AssignmentEditor
-                      assignment={assignment}
-                      onAssignmentUpdated={handleAssignmentUpdated}
-                      isReadOnly={false}
-                    />
-                  )
-                ) : submissionId ? (
-                  <AssignmentViewer
+        {/* Sidebar Panel - Resizable */}
+        {hasInstructionalPrivileges && activeSidebarPanel && assignment && (
+          <Allotment.Pane minSize={280} maxSize={600} preferredSize={320}>
+            <div className="h-full bg-white border-l border-gray-200 shadow-xl flex flex-col">
+              <div className="p-4 border-b bg-gray-50 flex-shrink-0">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-lg font-semibold capitalize">
+                    {activeSidebarPanel === "grader"
+                      ? "Grading"
+                      : activeSidebarPanel}
+                  </h3>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setActiveSidebarPanel(null)}
+                    className="w-8 h-8 p-0"
+                  >
+                    ×
+                  </Button>
+                </div>
+              </div>
+              <div className="flex-1 overflow-y-auto min-h-0">
+                {activeSidebarPanel === "grader" ? (
+                  <GradingSidebar
                     assignment={assignment}
-                    submissionId={submissionId}
-                    submissionStatus={submissionStatus}
-                    submissionTimestamp={submissionTimestamp}
-                    isStudent={true}
-                    courseSlug={courseSlug || ""}
-                    studentId={user?.id}
-                    allSubmissions={allSubmissions}
-                    selectedSubmissionId={selectedSubmissionId}
-                    onSubmissionSelect={(id) => {
-                      const selected = allSubmissions.find((s) => s.id === id);
-                      if (selected) {
-                        setSelectedSubmissionId(id);
-                        setSubmissionId(id);
-                        setSubmissionStatus(selected.status);
-                        setSubmissionTimestamp(selected.timestamp);
-                      }
-                    }}
-                    onSubmissionCreated={(id) => {
-                      setSubmissionId(id);
-                      setSelectedSubmissionId(id);
-                      // Refresh submissions list
-                      if (assignmentId && user?.id) {
-                        apiClient
-                          .getSubmissionsByAssignment(assignmentId)
-                          .then((response) => {
-                            const userSubmissions = response.data
-                              .filter((sub: any) => sub.student_id === user.id)
-                              .sort(
-                                (a: any, b: any) =>
-                                  new Date(b.timestamp).getTime() -
-                                  new Date(a.timestamp).getTime()
-                              );
-                            setAllSubmissions(userSubmissions);
-                          });
-                      }
-                    }}
-                    onSubmissionStatusChange={(status) => {
-                      setSubmissionStatus(status);
-                    }}
+                    courseId={assignment.course_id}
+                    onStudentSelect={setSelectedGradingStudent}
+                    selectedStudent={selectedGradingStudent}
                   />
                 ) : (
-                  <div className="flex items-center justify-center h-full">
-                    <div className="text-center max-w-md">
-                      <h3 className="text-2xl font-semibold text-gray-900 mb-4">
-                        Assignment Not Started
-                      </h3>
-                      <p className="text-gray-600 mb-6">
-                        Click the button below to begin working on this
-                        assignment. Your progress will be saved automatically.
-                      </p>
-                      <Button
-                        onClick={handleStartAssignment}
-                        disabled={isStarting}
-                        className="bg-purple-600 hover:bg-purple-700 text-white px-8 py-3 text-lg"
-                      >
-                        {isStarting ? (
-                          <>
-                            <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-2"></div>
-                            Starting...
-                          </>
-                        ) : (
-                          "Start Assignment"
-                        )}
-                      </Button>
-                    </div>
-                  </div>
+                  <AssignmentSettingsPanel
+                    assignment={assignment}
+                    onAssignmentUpdated={handleAssignmentUpdated}
+                  />
                 )}
-              </>
-            )}
-          </Card>
-        </div>
-      </div>
-
-      {/* Sidebar Panel */}
-      {hasInstructionalPrivileges && activeSidebarPanel && assignment && (
-        <div className="w-80 bg-white border-l border-gray-200 shadow-xl">
-          <div className="h-full flex flex-col">
-            <div className="p-4 border-b bg-gray-50">
-              <div className="flex items-center justify-between">
-                <h3 className="text-lg font-semibold capitalize">
-                  {activeSidebarPanel === "grader"
-                    ? "Grading"
-                    : activeSidebarPanel}
-                </h3>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setActiveSidebarPanel(null)}
-                  className="w-8 h-8 p-0"
-                >
-                  ×
-                </Button>
               </div>
             </div>
-            <div className="flex-1 overflow-y-auto">
-              {activeSidebarPanel === "grader" ? (
-                <GradingSidebar
-                  assignment={assignment}
-                  courseId={assignment.course_id}
-                  onStudentSelect={setSelectedGradingStudent}
-                  selectedStudent={selectedGradingStudent}
-                />
-              ) : (
-                <AssignmentSettingsPanel
-                  assignment={assignment}
-                  onAssignmentUpdated={handleAssignmentUpdated}
-                />
-              )}
-            </div>
-          </div>
-        </div>
-      )}
+          </Allotment.Pane>
+        )}
+      </Allotment>
 
-      {/* Right Sidebar Strip */}
+      {/* Right Sidebar Strip - Fixed, outside Allotment */}
       {hasInstructionalPrivileges && (
-        <div className="w-12 bg-gray-100 border-l border-gray-200 flex flex-col">
+        <div className="w-12 bg-gray-100 border-l border-gray-200 flex flex-col flex-shrink-0">
           <button
             onClick={() => toggleSidebarPanel("grader")}
             className={`w-12 h-12 flex items-center justify-center border-b border-gray-200 transition-colors ${

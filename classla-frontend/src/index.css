@@ -411,3 +411,36 @@
     font-size: 1em;
   }
 }
+
+/* Allotment Customization */
+:root {
+  --focus-border: #9333ea; /* Purple-600 to match theme */
+  --separator-border: #d1d5db; /* Gray-300 */
+}
+
+/* Make the sash more visible and easier to grab */
+.split-view .sash {
+  background-color: transparent;
+}
+
+.split-view .sash:hover,
+.split-view .sash-hover {
+  background-color: rgba(147, 51, 234, 0.1); /* Purple with opacity */
+}
+
+.split-view .sash-active {
+  background-color: rgba(147, 51, 234, 0.2); /* Darker purple when dragging */
+}
+
+/* Increase the hit area for better UX */
+.split-view-horizontal > .sash-container > .sash {
+  width: 8px;
+  margin-left: -4px;
+  margin-right: -4px;
+}
+
+.split-view-vertical > .sash-container > .sash {
+  height: 8px;
+  margin-top: -4px;
+  margin-bottom: -4px;
+}
