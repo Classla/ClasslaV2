@@ -4,6 +4,8 @@ import CourseSummaryPage from "./CourseSummaryPage";
 import StudentsPage from "./StudentsPage";
 import AssignmentPage from "./AssignmentPage";
 import CourseSettingsPage from "./CourseSettingsPage";
+import GradebookPage from "./GradebookPage";
+import StudentGradesPage from "./StudentGradesPage";
 import SubmissionsList from "../components/SubmissionsList";
 
 interface CoursePageProps {
@@ -46,12 +48,10 @@ const CoursePage: React.FC<CoursePageProps> = (props) => {
         return <CourseSummaryPage {...props} />;
       case "students":
         return <StudentsPage {...props} />;
+      case "gradebook":
+        return <GradebookPage {...props} />;
       case "grades":
-        return (
-          <div className="p-8 text-center text-gray-600">
-            Grades coming soon...
-          </div>
-        );
+        return <StudentGradesPage />;
       case "settings":
         return <CourseSettingsPage {...props} />;
       default:

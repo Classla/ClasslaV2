@@ -1,4 +1,12 @@
 import axios, { AxiosError, AxiosResponse } from "axios";
+import type {
+  SubmissionWithStudent,
+  GradebookData,
+  StudentGradesData,
+  Grader,
+  CreateGraderWithSubmissionRequest,
+  CreateGraderWithSubmissionResponse,
+} from "../types";
 
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL || "http://localhost:3001/api";
@@ -238,6 +246,10 @@ export const apiClient = {
   getSubmission: (id: string) => api.get(`/submission/${id}`),
   getSubmissionsByAssignment: (assignmentId: string) =>
     api.get(`/submissions/by-assignment/${assignmentId}`),
+  getSubmissionsWithStudents: (
+    assignmentId: string
+  ): Promise<AxiosResponse<SubmissionWithStudent[]>> =>
+    api.get(`/submissions/by-assignment/${assignmentId}/with-students`),
   createOrUpdateSubmission: (data: {
     assignment_id: string;
     values: Record<string, any>;
@@ -248,6 +260,39 @@ export const apiClient = {
   submitSubmission: (id: string) => api.post(`/submission/${id}/submit`),
   gradeSubmission: (id: string, grade: number, grader_id?: string) =>
     api.put(`/submission/${id}/grade`, { grade, grader_id }),
+
+  // Grader endpoints
+  autoSaveGrader: (
+    graderId: string,
+    updates: Partial<Grader>
+  ): Promise<AxiosResponse<Grader>> =>
+    api.put(`/grader/${graderId}/auto-save`, updates),
+  updateGrader: (
+    graderId: string,
+    updates: Partial<Grader>
+  ): Promise<AxiosResponse<Grader>> => api.put(`/grader/${graderId}`, updates),
+  createGrader: (data: {
+    feedback: string;
+    rubric_id?: string;
+    raw_assignment_score: number;
+    raw_rubric_score: number;
+    score_modifier: string;
+    submission_id: string;
+  }) => api.post("/grader", data),
+  createGraderWithSubmission: (
+    data: CreateGraderWithSubmissionRequest
+  ): Promise<AxiosResponse<CreateGraderWithSubmissionResponse>> =>
+    api.post("/grader/create-with-submission", data),
+
+  // Gradebook endpoints
+  getCourseGradebook: (
+    courseId: string
+  ): Promise<AxiosResponse<GradebookData>> =>
+    api.get(`/course/${courseId}/gradebook`),
+  getStudentGrades: (
+    courseId: string
+  ): Promise<AxiosResponse<StudentGradesData>> =>
+    api.get(`/course/${courseId}/grades/student`),
 
   // Block autograding endpoints
   autogradeBlocks: (

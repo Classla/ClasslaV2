@@ -11,6 +11,9 @@ import {
   CreateSubmissionRequest,
   UpdateSubmissionRequest,
   GradeSubmissionRequest,
+  SubmissionWithStudent,
+  GradebookData,
+  StudentGradesData,
 } from "../types/api";
 
 const router = Router();
@@ -19,20 +22,42 @@ const router = Router();
  * Check if user can access a specific submission
  * Students can only access their own submissions
  * Instructors/TAs can access all submissions in their courses
+ * Requirements: 2.1, 2.2, 2.3, 2.4, 2.5, 2.6
  */
 const canAccessSubmission = async (
   userId: string,
   submission: Submission,
   isAdmin: boolean = false
-): Promise<{ canAccess: boolean; message?: string }> => {
+): Promise<{ canAccess: boolean; message?: string; role?: UserRole }> => {
   // Admins can access everything
   if (isAdmin) {
-    return { canAccess: true };
+    return { canAccess: true, role: UserRole.ADMIN };
   }
 
-  // Students can only access their own submissions
+  // Check if this is the student's own submission
   if (submission.student_id === userId) {
-    return { canAccess: true };
+    return { canAccess: true, role: UserRole.STUDENT };
+  }
+
+  // Get user's role in the course
+  const userRole = await getUserCourseRole(userId, submission.course_id);
+
+  // If user is not enrolled in the course, deny access
+  if (!userRole) {
+    return {
+      canAccess: false,
+      message: "Not enrolled in the course containing this submission",
+    };
+  }
+
+  // Explicitly check role-based access
+  // Students and Audit users can ONLY access their own submissions
+  if (userRole === UserRole.STUDENT || userRole === UserRole.AUDIT) {
+    return {
+      canAccess: false,
+      message: "Students can only access their own submissions",
+      role: userRole,
+    };
   }
 
   // Check if user has grading permissions in the course
@@ -42,13 +67,15 @@ const canAccessSubmission = async (
     isAdmin
   );
 
+  // Instructors and TAs with grading permissions can access all submissions
   if (permissions.canGrade || permissions.canManage) {
-    return { canAccess: true };
+    return { canAccess: true, role: userRole };
   }
 
   return {
     canAccess: false,
-    message: "Can only access own submissions or need grading permissions",
+    message: "Insufficient permissions to access this submission",
+    role: userRole,
   };
 };
 
@@ -173,15 +200,31 @@ router.get(
         return;
       }
 
+      // Get user's role in the course
+      const userRole = await getUserCourseRole(userId, assignment.course_id);
+
+      // Verify user is enrolled in the course
+      if (!userRole && !isAdmin) {
+        res.status(403).json({
+          error: {
+            code: "NOT_ENROLLED",
+            message: "Not enrolled in the course containing this assignment",
+            timestamp: new Date().toISOString(),
+            path: req.path,
+          },
+        });
+        return;
+      }
+
       // Check course permissions
       const permissions = await getCoursePermissions(
         userId,
         assignment.course_id,
         isAdmin
       );
-      const userRole = await getUserCourseRole(userId, assignment.course_id);
 
-      // Students can only see their own submissions
+      // Students and Audit users can ONLY see their own submissions
+      // Requirement 2.1, 2.5
       if (userRole === UserRole.STUDENT || userRole === UserRole.AUDIT) {
         const { data: submissions, error: submissionsError } = await supabase
           .from("submissions")
@@ -216,7 +259,8 @@ router.get(
         return;
       }
 
-      // Instructors and TAs can see all submissions
+      // Instructors and TAs can see all submissions in their courses
+      // Requirement 2.2, 2.4, 2.6
       if (permissions.canGrade || permissions.canManage) {
         const { data: submissions, error: submissionsError } = await supabase
           .from("submissions")
@@ -232,6 +276,8 @@ router.get(
         return;
       }
 
+      // Deny access if no valid permissions
+      // Requirement 2.3
       res.status(403).json({
         error: {
           code: "INSUFFICIENT_PERMISSIONS",
@@ -246,6 +292,163 @@ router.get(
         error: {
           code: "INTERNAL_SERVER_ERROR",
           message: "Failed to retrieve submissions",
+          timestamp: new Date().toISOString(),
+          path: req.path,
+        },
+      });
+    }
+  }
+);
+
+/**
+ * GET /submissions/by-assignment/:assignmentId/with-students
+ * Get all enrolled students with their submission information and grader data
+ * Returns all students regardless of submission status (null if no submission)
+ * Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 2.7, 2.8
+ */
+router.get(
+  "/submissions/by-assignment/:assignmentId/with-students",
+  authenticateToken,
+  async (req: Request, res: Response): Promise<void> => {
+    try {
+      const { assignmentId } = req.params;
+      const { id: userId, isAdmin } = req.user!;
+
+      // Get the assignment to check course permissions
+      const { data: assignment, error: assignmentError } = await supabase
+        .from("assignments")
+        .select("course_id")
+        .eq("id", assignmentId)
+        .single();
+
+      if (assignmentError || !assignment) {
+        res.status(404).json({
+          error: {
+            code: "ASSIGNMENT_NOT_FOUND",
+            message: "Assignment not found",
+            timestamp: new Date().toISOString(),
+            path: req.path,
+          },
+        });
+        return;
+      }
+
+      // Check course permissions - require canGrade or canManage (Requirement 2.7)
+      const permissions = await getCoursePermissions(
+        userId,
+        assignment.course_id,
+        isAdmin
+      );
+
+      if (!permissions.canGrade && !permissions.canManage) {
+        res.status(403).json({
+          error: {
+            code: "INSUFFICIENT_PERMISSIONS",
+            message: "Not authorized to access submissions for this assignment",
+            timestamp: new Date().toISOString(),
+            path: req.path,
+          },
+        });
+        return;
+      }
+
+      // Fetch all enrolled students in the course (Requirement 2.1, 2.2)
+      // Only include users with 'student' role, not instructors or TAs
+      const { data: enrollments, error: enrollmentsError } = await supabase
+        .from("course_enrollments")
+        .select(
+          `
+          user_id,
+          section_id,
+          user:users!course_enrollments_user_id_fkey(id, first_name, last_name, email),
+          section:sections(id, name, slug)
+        `
+        )
+        .eq("course_id", assignment.course_id)
+        .eq("role", "student")
+        .order("user(last_name)", { ascending: true });
+
+      if (enrollmentsError) {
+        throw enrollmentsError;
+      }
+
+      // Fetch all submissions for this assignment (Requirement 2.3)
+      const { data: submissionsData, error: submissionsError } = await supabase
+        .from("submissions")
+        .select(
+          `
+          *,
+          grader:graders(*)
+        `
+        )
+        .eq("assignment_id", assignmentId);
+
+      if (submissionsError) {
+        throw submissionsError;
+      }
+
+      // Create a map of student_id to submission data for quick lookup
+      // If a student has multiple submissions, keep only the most recent one
+      const submissionMap = new Map();
+      submissionsData?.forEach((submission: any) => {
+        const existingEntry = submissionMap.get(submission.student_id);
+
+        // If no existing entry or this submission is more recent, use it
+        if (
+          !existingEntry ||
+          new Date(submission.timestamp) >
+            new Date(existingEntry.submission.timestamp)
+        ) {
+          submissionMap.set(submission.student_id, {
+            submission: {
+              id: submission.id,
+              assignment_id: submission.assignment_id,
+              timestamp: submission.timestamp,
+              values: submission.values,
+              course_id: submission.course_id,
+              student_id: submission.student_id,
+              grader_id: submission.grader_id,
+              grade: submission.grade,
+              status: submission.status,
+              created_at: submission.created_at,
+              updated_at: submission.updated_at,
+            },
+            grader: submission.grader?.[0] || null,
+          });
+        }
+      });
+
+      // Format the response - one entry per enrolled student (Requirement 2.8)
+      const formattedData = (enrollments || []).map((enrollment: any) => {
+        const submissionData = submissionMap.get(enrollment.user_id);
+
+        return {
+          // Requirement 2.4: null submission if student hasn't submitted
+          submission: submissionData?.submission || null,
+          // Requirement 2.2: include enrollment information (name, section)
+          student: enrollment.user
+            ? {
+                id: enrollment.user.id,
+                firstName: enrollment.user.first_name,
+                lastName: enrollment.user.last_name,
+                email: enrollment.user.email,
+              }
+            : null,
+          // Requirement 2.5, 2.6: include grader if exists, null otherwise
+          grader: submissionData?.grader || null,
+          sectionId: enrollment.section_id,
+          sectionName: enrollment.section?.name || null,
+          sectionSlug: enrollment.section?.slug || null,
+        };
+      });
+
+      res.json(formattedData);
+    } catch (error) {
+      console.error("Error retrieving submissions with students:", error);
+      res.status(500).json({
+        error: {
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Failed to retrieve submissions with student information",
           timestamp: new Date().toISOString(),
           path: req.path,
         },

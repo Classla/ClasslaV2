@@ -1,10 +1,10 @@
 // User roles enum
 export enum UserRole {
   INSTRUCTOR = "instructor",
-  ADMIN = "admin", 
+  ADMIN = "admin",
   TEACHING_ASSISTANT = "teaching_assistant",
   STUDENT = "student",
-  AUDIT = "audit"
+  AUDIT = "audit",
 }
 
 // Submission status enum
@@ -12,5 +12,6 @@ export enum SubmissionStatus {
   SUBMITTED = "submitted",
   GRADED = "graded",
   RETURNED = "returned",
-  IN_PROGRESS = "in-progress"
+  IN_PROGRESS = "in-progress",
+  NOT_STARTED = "not-started",
 }

@@ -5,6 +5,14 @@ This directory contains SQL migration files for the Classla database schema.
 ## Files
 
 - `001_initial_schema.sql` - Initial database schema with all core tables, enums, and indexes
+- `002_add_workos_user_id.sql` - Add WorkOS user ID field for authentication
+- `003_add_course_description.sql` - Add description field to courses
+- `004_add_join_links.sql` - Add join links table for course enrollment
+- `005_remove_user_roles.sql` - Remove deprecated user roles array
+- `006_add_section_id_to_enrollments.sql` - Add section assignment to enrollments
+- `007_replace_name_with_first_last_name.sql` - Split user name into first and last name
+- `008_add_folders_and_assignment_ordering.sql` - Add folder support and assignment ordering
+- `009_add_grading_performance_indexes.sql` - Add performance indexes for grading and gradebook features
 
 ## Setup Instructions
 

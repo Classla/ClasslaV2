@@ -11,6 +11,7 @@ import { Assignment, UserRole } from "../types";
 import PublishAssignmentModal from "../components/PublishAssignmentModal";
 import DueDatesModal from "../components/DueDatesModal";
 import AssignmentSettingsPanel from "../components/AssignmentSettingsPanel";
+import GradingSidebar from "../components/GradingSidebar";
 import { Popover } from "../components/ui/popover";
 import PublishedStudentsList from "../components/PublishedStudentsList";
 import AssignmentEditor from "../components/AssignmentEditor";
@@ -49,6 +50,9 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
   const [isDueDatesModalOpen, setIsDueDatesModalOpen] = useState(false);
   const [activeSidebarPanel, setActiveSidebarPanel] = useState<
     "grader" | "settings" | null
+  >(null);
+  const [selectedGradingStudent, setSelectedGradingStudent] = useState<
+    any | null
   >(null);
   const [submissionId, setSubmissionId] = useState<string | undefined>(
     undefined
@@ -223,7 +227,12 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
   };
 
   const toggleSidebarPanel = (panel: "grader" | "settings") => {
-    setActiveSidebarPanel(activeSidebarPanel === panel ? null : panel);
+    const newPanel = activeSidebarPanel === panel ? null : panel;
+    setActiveSidebarPanel(newPanel);
+    // Reset selected student when closing grader panel
+    if (newPanel !== "grader") {
+      setSelectedGradingStudent(null);
+    }
   };
 
   const handleAssignmentUpdated = (updatedAssignment: Assignment) => {
@@ -444,11 +453,26 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
             {assignment && (
               <>
                 {effectiveIsInstructor ? (
-                  <AssignmentEditor
-                    assignment={assignment}
-                    onAssignmentUpdated={handleAssignmentUpdated}
-                    isReadOnly={false}
-                  />
+                  selectedGradingStudent ? (
+                    <AssignmentViewer
+                      assignment={assignment}
+                      submissionId={selectedGradingStudent.latestSubmission?.id}
+                      submissionStatus={
+                        selectedGradingStudent.latestSubmission?.status
+                      }
+                      submissionTimestamp={
+                        selectedGradingStudent.latestSubmission?.timestamp
+                      }
+                      isStudent={false}
+                      studentId={selectedGradingStudent.userId}
+                    />
+                  ) : (
+                    <AssignmentEditor
+                      assignment={assignment}
+                      onAssignmentUpdated={handleAssignmentUpdated}
+                      isReadOnly={false}
+                    />
+                  )
                 ) : submissionId ? (
                   <AssignmentViewer
                     assignment={assignment}
@@ -526,13 +550,15 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
       </div>
 
       {/* Sidebar Panel */}
-      {hasInstructionalPrivileges && activeSidebarPanel && (
+      {hasInstructionalPrivileges && activeSidebarPanel && assignment && (
         <div className="w-80 bg-white border-l border-gray-200 shadow-xl">
           <div className="h-full flex flex-col">
             <div className="p-4 border-b bg-gray-50">
               <div className="flex items-center justify-between">
                 <h3 className="text-lg font-semibold capitalize">
-                  {activeSidebarPanel}
+                  {activeSidebarPanel === "grader"
+                    ? "Grading"
+                    : activeSidebarPanel}
                 </h3>
                 <Button
                   variant="ghost"
@@ -546,16 +572,18 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
             </div>
             <div className="flex-1 overflow-y-auto">
               {activeSidebarPanel === "grader" ? (
-                <div className="text-gray-600 text-center py-12 p-4">
-                  <p className="text-lg">Grader Panel</p>
-                  <p className="text-sm mt-2">Content coming soon...</p>
-                </div>
-              ) : activeSidebarPanel === "settings" && assignment ? (
+                <GradingSidebar
+                  assignment={assignment}
+                  courseId={assignment.course_id}
+                  onStudentSelect={setSelectedGradingStudent}
+                  selectedStudent={selectedGradingStudent}
+                />
+              ) : (
                 <AssignmentSettingsPanel
                   assignment={assignment}
                   onAssignmentUpdated={handleAssignmentUpdated}
                 />
-              ) : null}
+              )}
             </div>
           </div>
         </div>

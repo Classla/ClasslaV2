@@ -110,6 +110,12 @@ interface Assignment {
  *   "550e8400-e29b-41d4-a716-446655440000": ["opt-uuid-1", "opt-uuid-2"],
  *   "6ba7b810-9dad-11d1-80b4-00c04fd430c8": ["opt-uuid-3"]
  * }
+ *
+ * Status values:
+ * - "in-progress": Student has started but not submitted (or auto-created for grading)
+ * - "submitted": Student has submitted their work
+ * - "graded": Teacher has graded the submission
+ * - "returned": Graded submission has been returned to student
  */
 interface Submission {
   id: string;

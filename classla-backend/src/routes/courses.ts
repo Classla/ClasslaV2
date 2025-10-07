@@ -7,6 +7,7 @@ import {
 } from "../middleware/authorization";
 import { UserRole } from "../types/enums";
 import { Course } from "../types/entities";
+import { GradebookData, StudentGradesData } from "../types/api";
 
 /**
  * Generate a unique 6-character alphanumeric join code
@@ -899,6 +900,253 @@ router.get(
         error: {
           code: "INTERNAL_SERVER_ERROR",
           message: "Failed to retrieve course sections",
+          timestamp: new Date().toISOString(),
+          path: req.path,
+        },
+      });
+    }
+  }
+);
+
+/**
+ * GET /course/:id/gradebook
+ * Get all gradebook data for a course (teacher/TA only)
+ * Requirements: 3.1, 3.2, 3.3, 3.8, 2.2, 2.4, 2.6
+ */
+router.get(
+  "/course/:id/gradebook",
+  authenticateToken,
+  async (req: Request, res: Response): Promise<void> => {
+    try {
+      const { id: courseId } = req.params;
+      const { id: userId, isAdmin } = req.user!;
+
+      // Check course permissions - require canGrade or canManage
+      const permissions = await getCoursePermissions(userId, courseId, isAdmin);
+
+      if (!permissions.canGrade && !permissions.canManage) {
+        res.status(403).json({
+          error: {
+            code: "INSUFFICIENT_PERMISSIONS",
+            message: "Not authorized to access gradebook for this course",
+            timestamp: new Date().toISOString(),
+            path: req.path,
+          },
+        });
+        return;
+      }
+
+      // Fetch all students enrolled in the course with section information
+      const { data: enrollments, error: enrollmentsError } = await supabase
+        .from("course_enrollments")
+        .select(
+          `
+          user_id,
+          section_id,
+          users!course_enrollments_user_id_fkey(id, first_name, last_name, email),
+          sections(id, name, slug)
+        `
+        )
+        .eq("course_id", courseId)
+        .eq("role", UserRole.STUDENT);
+
+      if (enrollmentsError) {
+        throw enrollmentsError;
+      }
+
+      // Fetch all assignments for the course
+      const { data: assignments, error: assignmentsError } = await supabase
+        .from("assignments")
+        .select("*")
+        .eq("course_id", courseId)
+        .order("order_index");
+
+      if (assignmentsError) {
+        throw assignmentsError;
+      }
+
+      // Fetch all submissions for the course with grader data
+      const { data: submissions, error: submissionsError } = await supabase
+        .from("submissions")
+        .select(
+          `
+          *,
+          graders(*)
+        `
+        )
+        .eq("course_id", courseId);
+
+      if (submissionsError) {
+        throw submissionsError;
+      }
+
+      // Format students data
+      const students = (enrollments || []).map((enrollment: any) => ({
+        userId: enrollment.users?.id,
+        firstName: enrollment.users?.first_name,
+        lastName: enrollment.users?.last_name,
+        email: enrollment.users?.email,
+        sectionId: enrollment.section_id,
+        sectionName: enrollment.sections?.name || null,
+        sectionSlug: enrollment.sections?.slug || null,
+      }));
+
+      // Format submissions data
+      const formattedSubmissions = (submissions || []).map(
+        (submission: any) => ({
+          id: submission.id,
+          assignment_id: submission.assignment_id,
+          timestamp: submission.timestamp,
+          values: submission.values,
+          course_id: submission.course_id,
+          student_id: submission.student_id,
+          grader_id: submission.grader_id,
+          grade: submission.grade,
+          status: submission.status,
+          created_at: submission.created_at,
+          updated_at: submission.updated_at,
+        })
+      );
+
+      // Format graders data
+      const graders = (submissions || [])
+        .filter(
+          (submission: any) =>
+            submission.graders && submission.graders.length > 0
+        )
+        .map((submission: any) => submission.graders[0]);
+
+      res.json({
+        students,
+        assignments: assignments || [],
+        submissions: formattedSubmissions,
+        graders: graders || [],
+      });
+    } catch (error) {
+      console.error("Error retrieving gradebook data:", error);
+      res.status(500).json({
+        error: {
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Failed to retrieve gradebook data",
+          timestamp: new Date().toISOString(),
+          path: req.path,
+        },
+      });
+    }
+  }
+);
+
+/**
+ * GET /course/:id/grades/student
+ * Get student's own grades for a course
+ * Requirements: 4.1, 4.2, 4.3, 4.4, 4.5, 4.6, 4.7, 4.8
+ */
+router.get(
+  "/course/:id/grades/student",
+  authenticateToken,
+  requireCoursePermission("canRead", "id"),
+  async (req: Request, res: Response): Promise<void> => {
+    try {
+      const { id: courseId } = req.params;
+      const { id: userId } = req.user!;
+
+      // Fetch all assignments published to the student
+      const { data: assignments, error: assignmentsError } = await supabase
+        .from("assignments")
+        .select("*")
+        .eq("course_id", courseId)
+        .order("order_index");
+
+      if (assignmentsError) {
+        throw assignmentsError;
+      }
+
+      // Get student's enrollment to check section
+      const { data: enrollment, error: enrollmentError } = await supabase
+        .from("course_enrollments")
+        .select("section_id")
+        .eq("user_id", userId)
+        .eq("course_id", courseId)
+        .single();
+
+      if (enrollmentError || !enrollment) {
+        res.status(403).json({
+          error: {
+            code: "NOT_ENROLLED",
+            message: "Not enrolled in this course",
+            timestamp: new Date().toISOString(),
+            path: req.path,
+          },
+        });
+        return;
+      }
+
+      // Filter assignments to only those published to the student
+      const publishedAssignments = (assignments || []).filter(
+        (assignment: any) => {
+          const publishedTo = assignment.published_to || [];
+          // Check if published to course or student's section
+          return (
+            publishedTo.includes(courseId) ||
+            (enrollment.section_id &&
+              publishedTo.includes(enrollment.section_id))
+          );
+        }
+      );
+
+      // Fetch student's submissions with grader data
+      const { data: submissions, error: submissionsError } = await supabase
+        .from("submissions")
+        .select(
+          `
+          *,
+          graders(*)
+        `
+        )
+        .eq("course_id", courseId)
+        .eq("student_id", userId)
+        .order("timestamp", { ascending: false });
+
+      if (submissionsError) {
+        throw submissionsError;
+      }
+
+      // Format submissions data
+      const formattedSubmissions = (submissions || []).map(
+        (submission: any) => ({
+          id: submission.id,
+          assignment_id: submission.assignment_id,
+          timestamp: submission.timestamp,
+          values: submission.values,
+          course_id: submission.course_id,
+          student_id: submission.student_id,
+          grader_id: submission.grader_id,
+          grade: submission.grade,
+          status: submission.status,
+          created_at: submission.created_at,
+          updated_at: submission.updated_at,
+        })
+      );
+
+      // Format graders data
+      const graders = (submissions || [])
+        .filter(
+          (submission: any) =>
+            submission.graders && submission.graders.length > 0
+        )
+        .map((submission: any) => submission.graders[0]);
+
+      res.json({
+        assignments: publishedAssignments,
+        submissions: formattedSubmissions,
+        graders: graders || [],
+      });
+    } catch (error) {
+      console.error("Error retrieving student grades:", error);
+      res.status(500).json({
+        error: {
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Failed to retrieve student grades",
           timestamp: new Date().toISOString(),
           path: req.path,
         },

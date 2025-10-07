@@ -150,3 +150,73 @@ export interface ModuleTreeNode {
   assignments: Assignment[];
   children: ModuleTreeNode[];
 }
+
+// Grading and Gradebook Types
+
+// Student submission info for grading panel
+// Note: latestSubmission and grader can be null for students who haven't submitted yet
+export interface StudentSubmissionInfo {
+  userId: string;
+  firstName: string;
+  lastName: string;
+  sectionId: string | null;
+  sectionName: string | null;
+  submissions: Submission[];
+  latestSubmission: Submission | null;
+  grader: Grader | null;
+}
+
+// Submission with student information (API response)
+// Note: submission can be null for students who haven't submitted yet
+export interface SubmissionWithStudent {
+  submission: Submission | null;
+  student: {
+    id: string;
+    firstName: string;
+    lastName: string;
+    email: string;
+  };
+  grader: Grader | null;
+  sectionId: string | null;
+  sectionName: string | null;
+}
+
+// Student info for gradebook
+export interface StudentGradebookInfo {
+  userId: string;
+  firstName: string;
+  lastName: string;
+  sectionId: string | null;
+}
+
+// Gradebook data (API response)
+export interface GradebookData {
+  students: StudentGradebookInfo[];
+  assignments: Assignment[];
+  submissions: Submission[];
+  graders: Grader[];
+}
+
+// Student grades data (API response)
+export interface StudentGradesData {
+  assignments: Assignment[];
+  submissions: Submission[];
+  graders: Grader[];
+}
+
+// Create grader with submission request
+export interface CreateGraderWithSubmissionRequest {
+  assignmentId: string;
+  studentId: string;
+  courseId: string;
+}
+
+// Create grader with submission response
+export interface CreateGraderWithSubmissionResponse {
+  submission: Submission;
+  grader: Grader;
+  created: {
+    submission: boolean;
+    grader: boolean;
+  };
+}

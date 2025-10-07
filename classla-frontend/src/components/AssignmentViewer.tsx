@@ -4,6 +4,7 @@ import React, {
   useCallback,
   useMemo,
   useRef,
+  startTransition,
 } from "react";
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
@@ -24,6 +25,7 @@ import {
   Send,
   ChevronDown,
   Clock,
+  Loader2,
 } from "lucide-react";
 
 import { Assignment } from "../types";
@@ -40,7 +42,7 @@ import AssignmentContentSkeleton from "./AssignmentContentSkeleton";
 interface AssignmentViewerProps {
   assignment: Assignment;
   onAnswerChange?: (blockId: string, answer: any) => void;
-  submissionId?: string;
+  submissionId?: string | null; // Can be null when no submission exists
   submissionStatus?: string | null;
   submissionTimestamp?: Date | string | null;
   onSubmissionCreated?: (submissionId: string) => void;
@@ -84,7 +86,7 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
   const [answerState, setAnswerState] = useState<AnswerState>({});
   const [contentError, setContentError] = useState<string | null>(null);
   const [isRecovering, setIsRecovering] = useState(false);
-  const [submissionId, setSubmissionId] = useState<string | undefined>(
+  const [submissionId, setSubmissionId] = useState<string | null | undefined>(
     initialSubmissionId
   );
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -95,6 +97,9 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
   const [submissionTimestamp, setSubmissionTimestamp] = useState<
     Date | string | null
   >(initialSubmissionTimestamp || null);
+
+  // Track if submission exists
+  const hasSubmission = !!submissionId;
 
   // Update internal state when props change
   useEffect(() => {
@@ -118,6 +123,7 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
 
   // All submissions are read-only when viewing them
   // Only allow editing when actively working on a new/in-progress submission
+  // Also read-only when there's no submission
   const isReadOnly = true; // Always read-only when viewing submissions
 
   // Performance optimization: Use refs to avoid unnecessary re-renders
@@ -128,8 +134,10 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
   useEffect(() => {
     const fetchSubmissionData = async () => {
       if (!submissionId) {
-        setAnswerState({});
-        setIsLoadingSubmission(false);
+        startTransition(() => {
+          setAnswerState({});
+          setIsLoadingSubmission(false);
+        });
         return;
       }
 
@@ -144,10 +152,6 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
           values: submission.values,
         });
 
-        // Update status and timestamp
-        setSubmissionStatus(submission.status);
-        setSubmissionTimestamp(submission.timestamp);
-
         // Always use server data
         const newAnswerState: AnswerState = {};
         if (submission.values && typeof submission.values === "object") {
@@ -160,11 +164,19 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
         }
 
         console.log("[AssignmentViewer] Setting answer state:", newAnswerState);
-        setAnswerState(newAnswerState);
+
+        // Wrap state updates in startTransition to avoid flushSync warnings
+        startTransition(() => {
+          setSubmissionStatus(submission.status);
+          setSubmissionTimestamp(submission.timestamp);
+          setAnswerState(newAnswerState);
+          setIsLoadingSubmission(false);
+        });
       } catch (error) {
         console.error("Failed to fetch submission data:", error);
-      } finally {
-        setIsLoadingSubmission(false);
+        startTransition(() => {
+          setIsLoadingSubmission(false);
+        });
       }
     };
 
@@ -404,6 +416,7 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
       (editor.storage as any).mcqAnswerCallback = handleMCQAnswerChange;
       (editor.storage as any).getBlockAnswerState = getBlockAnswerState;
       (editor.storage as any).isReadOnly = isReadOnly;
+      (editor.storage as any).hasSubmission = hasSubmission;
     },
     // No onUpdate handler since this is read-only
     // No onSelectionUpdate handler since we don't need editing features
@@ -556,9 +569,16 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
       (editor.storage as any).mcqAnswerCallback = handleMCQAnswerChange;
       (editor.storage as any).getBlockAnswerState = getBlockAnswerState;
       (editor.storage as any).isReadOnly = isReadOnly;
+      (editor.storage as any).hasSubmission = hasSubmission;
       editor.setEditable(!isReadOnly);
     }
-  }, [editor, handleMCQAnswerChange, getBlockAnswerState, isReadOnly]);
+  }, [
+    editor,
+    handleMCQAnswerChange,
+    getBlockAnswerState,
+    isReadOnly,
+    hasSubmission,
+  ]);
 
   // Force editor to re-render when answer state changes (for submission switching)
   useEffect(() => {
@@ -596,7 +616,14 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
   }, []);
 
   if (!editor) {
-    return null;
+    return (
+      <div className="flex items-center justify-center p-12">
+        <div className="text-center">
+          <Loader2 className="h-8 w-8 animate-spin text-purple-600 mx-auto mb-4" />
+          <p className="text-gray-600">Loading assignment...</p>
+        </div>
+      </div>
+    );
   }
 
   const handleRecoverContent = useCallback(async () => {
@@ -704,8 +731,20 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
 
   return (
     <div className="h-full flex flex-col bg-white relative">
+      {/* No Submission Banner */}
+      {!hasSubmission && (
+        <div className="bg-yellow-50 border-b border-yellow-200 px-4 py-3">
+          <div className="max-w-4xl mx-auto flex items-center justify-center gap-2">
+            <AlertTriangle className="w-5 h-5 text-yellow-600" />
+            <span className="font-medium text-yellow-800">
+              No submission yet - This student has not submitted this assignment
+            </span>
+          </div>
+        </div>
+      )}
+
       {/* Submitted Banner */}
-      {isStudent && submissionStatus === "submitted" && (
+      {isStudent && submissionStatus === "submitted" && hasSubmission && (
         <div className="bg-green-600 text-white px-4 py-3 border-b border-green-700">
           <div className="max-w-4xl mx-auto flex items-center justify-center gap-2">
             <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
@@ -725,7 +764,7 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
       )}
 
       {/* Graded Banner */}
-      {isStudent && submissionStatus === "graded" && (
+      {isStudent && submissionStatus === "graded" && hasSubmission && (
         <div className="bg-purple-600 text-white px-4 py-3 border-b border-purple-700">
           <div className="max-w-4xl mx-auto flex items-center justify-center gap-2">
             <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
@@ -743,7 +782,7 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
       )}
 
       {/* Submission Selector Header */}
-      {isStudent && allSubmissions.length > 1 && (
+      {isStudent && hasSubmission && allSubmissions.length > 1 && (
         <div className="bg-gray-50 border-b border-gray-200 px-4 py-2">
           <div className="max-w-4xl mx-auto flex items-center justify-end">
             <div className="flex items-center gap-2">
@@ -952,7 +991,7 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
             <div className="relative editor-container">
               <EditorContent
                 editor={editor}
-                className="assignment-viewer-content prose prose-lg max-w-none focus:outline-none min-h-[500px] [&_.ProseMirror]:cursor-default [&_ul]:list-disc [&_ol]:list-decimal [&_ul]:ml-8 [&_ol]:ml-8 [&_ul]:pl-4 [&_ol]:pl-4 [&_li]:pl-2"
+                className="assignment-viewer-content prose prose-lg max-w-none focus:outline-none min-h-[200px] [&_.ProseMirror]:cursor-default [&_.ProseMirror]:min-h-[200px] [&_ul]:list-disc [&_ol]:list-decimal [&_ul]:ml-8 [&_ol]:ml-8 [&_ul]:pl-4 [&_ol]:pl-4 [&_li]:pl-2"
               />
             </div>
           </div>

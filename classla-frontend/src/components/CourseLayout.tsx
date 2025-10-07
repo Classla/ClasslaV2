@@ -102,7 +102,16 @@ const CourseLayout: React.FC<CourseLayoutProps> = ({ children }) => {
       icon: Users,
       path: "students",
     },
-    { id: "grades", label: "Grades", icon: BarChart3, path: "grades" },
+    ...(isInstructor
+      ? [
+          {
+            id: "gradebook",
+            label: "Gradebook",
+            icon: BarChart3,
+            path: "gradebook",
+          },
+        ]
+      : [{ id: "grades", label: "Grades", icon: BarChart3, path: "grades" }]),
     ...(isInstructor
       ? [
           {
