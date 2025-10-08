@@ -203,6 +203,55 @@ export const GradingControls: React.FC<GradingControlsProps> = React.memo(
       }
     };
 
+    // Show skeleton loader while creating grader
+    if (isCreating) {
+      return (
+        <div className="space-y-6 p-6 border border-gray-200 rounded-lg bg-white shadow-sm animate-pulse">
+          <div className="flex items-center justify-between border-b border-gray-200 pb-4">
+            <div className="h-6 bg-gray-200 rounded w-40"></div>
+            <div className="flex items-center">
+              <Loader2 className="h-4 w-4 animate-spin text-purple-600 mr-2" />
+              <span className="text-sm text-purple-600 font-medium">
+                Initializing grading...
+              </span>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <div className="h-4 bg-gray-200 rounded w-32"></div>
+              <div className="h-10 bg-gray-100 rounded"></div>
+            </div>
+            <div className="space-y-2">
+              <div className="h-4 bg-gray-200 rounded w-32"></div>
+              <div className="h-10 bg-gray-100 rounded"></div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <div className="h-4 bg-gray-200 rounded w-28"></div>
+              <div className="h-10 bg-gray-100 rounded"></div>
+            </div>
+            <div className="space-y-2">
+              <div className="h-4 bg-gray-200 rounded w-24"></div>
+              <div className="h-10 bg-gray-100 rounded"></div>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <div className="h-4 bg-gray-200 rounded w-20"></div>
+            <div className="h-24 bg-gray-100 rounded"></div>
+          </div>
+
+          <div className="flex items-center space-x-2">
+            <div className="h-4 w-4 bg-gray-200 rounded"></div>
+            <div className="h-4 bg-gray-200 rounded w-48"></div>
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div className="space-y-6 p-6 border border-gray-200 rounded-lg bg-white shadow-sm">
         <div className="flex items-center justify-between border-b border-gray-200 pb-4">
@@ -214,16 +263,6 @@ export const GradingControls: React.FC<GradingControlsProps> = React.memo(
             </div>
           )}
         </div>
-
-        {/* Loading indicator during grader creation */}
-        {isCreating && (
-          <div className="flex items-center justify-center p-4 bg-purple-50 rounded-md border border-purple-200">
-            <Loader2 className="h-5 w-5 animate-spin text-purple-600 mr-2" />
-            <span className="text-sm text-purple-900 font-medium">
-              Initializing grading...
-            </span>
-          </div>
-        )}
 
         <div className="grid grid-cols-2 gap-4">
           {/* Autograded Score (read-only) */}
