@@ -296,3 +296,21 @@ export interface StudentGradesData {
   submissions: Submission[];
   graders: Grader[];
 }
+
+// Autograding API types
+
+/**
+ * Autograding API Response
+ *
+ * Response format varies based on score visibility settings:
+ * - If showScoreAfterSubmission is enabled (or requester is instructor/TA):
+ *   Returns full grader object with scores
+ * - If showScoreAfterSubmission is disabled (and requester is student):
+ *   Returns only success status without score data
+ */
+export interface AutogradeResponse {
+  success: boolean;
+  grader?: Grader; // Present when scores are visible
+  totalPossiblePoints?: number; // Present when scores are visible
+  message?: string; // Present when scores are hidden
+}

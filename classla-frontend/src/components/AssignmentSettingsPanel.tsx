@@ -22,6 +22,8 @@ const AssignmentSettingsPanel: React.FC<AssignmentSettingsPanelProps> = ({
     allowResubmissions: assignment.settings?.allowResubmissions ?? false,
     showResponsesAfterSubmission:
       assignment.settings?.showResponsesAfterSubmission ?? false,
+    showScoreAfterSubmission:
+      assignment.settings?.showScoreAfterSubmission ?? false,
   });
 
   const handleToggle = async (key: keyof typeof settings) => {
@@ -154,6 +156,41 @@ const AssignmentSettingsPanel: React.FC<AssignmentSettingsPanelProps> = ({
             <span
               className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
                 settings.showResponsesAfterSubmission
+                  ? "translate-x-5"
+                  : "translate-x-0"
+              }`}
+            />
+          </button>
+        </div>
+
+        {/* Show Score After Submission */}
+        <div className="space-y-2">
+          <div className="flex items-start gap-2">
+            <HelpCircle className="w-4 h-4 text-purple-600 mt-0.5 flex-shrink-0" />
+            <div className="flex-1">
+              <h3 className="text-sm font-medium text-gray-900 mb-1">
+                Show Score After Submission
+              </h3>
+              <p className="text-xs text-gray-600 mb-2">
+                When enabled, students will see their autograded score
+                immediately after submitting. When disabled, scores are hidden
+                until you manually release them.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => handleToggle("showScoreAfterSubmission")}
+            className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 ${
+              settings.showScoreAfterSubmission
+                ? "bg-purple-600"
+                : "bg-gray-200"
+            }`}
+            role="switch"
+            aria-checked={settings.showScoreAfterSubmission ? "true" : "false"}
+          >
+            <span
+              className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                settings.showScoreAfterSubmission
                   ? "translate-x-5"
                   : "translate-x-0"
               }`}

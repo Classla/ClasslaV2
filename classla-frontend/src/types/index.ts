@@ -55,6 +55,7 @@ export interface AssignmentSettings {
   allowLateSubmissions?: boolean;
   allowResubmissions?: boolean;
   showResponsesAfterSubmission?: boolean;
+  showScoreAfterSubmission?: boolean; // Show autograded score to students after submission
   [key: string]: any;
 }
 
@@ -88,6 +89,14 @@ export interface Submission {
   status: "submitted" | "graded" | "returned" | "in-progress";
 }
 
+/**
+ * Block Score - represents the score for a single MCQ block
+ */
+export interface BlockScore {
+  awarded: number; // Points awarded for this block
+  possible: number; // Total possible points for this block
+}
+
 // Grader entity (feedback and grading info)
 export interface Grader {
   id: string;
@@ -98,6 +107,7 @@ export interface Grader {
   score_modifier: string;
   reviewed_at?: Date;
   submission_id: string;
+  block_scores?: Record<string, BlockScore>; // Block ID (UUID) -> score details
 }
 
 // Rubric instance (actual scores for a submission)
@@ -219,4 +229,22 @@ export interface CreateGraderWithSubmissionResponse {
     submission: boolean;
     grader: boolean;
   };
+}
+
+// Autograding API types
+
+/**
+ * Autograding API Response
+ *
+ * Response format varies based on score visibility settings:
+ * - If showScoreAfterSubmission is enabled (or requester is instructor/TA):
+ *   Returns full grader object with scores
+ * - If showScoreAfterSubmission is disabled (and requester is student):
+ *   Returns only success status without score data
+ */
+export interface AutogradeResponse {
+  success: boolean;
+  grader?: Grader; // Present when scores are visible
+  totalPossiblePoints?: number; // Present when scores are visible
+  message?: string; // Present when scores are hidden
 }

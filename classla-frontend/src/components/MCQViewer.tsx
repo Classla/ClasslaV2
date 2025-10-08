@@ -101,6 +101,24 @@ const MCQViewer: React.FC<MCQViewerProps> = memo(
       return () => clearInterval(interval);
     }, [editor, mcqData.id]);
 
+    // Watch for block scores updates
+    const [blockScoresVersion, setBlockScoresVersion] = useState(0);
+    useEffect(() => {
+      if (!editor) return;
+
+      const updateHandler = ({ transaction }: any) => {
+        if (transaction.getMeta("blockScoresUpdate")) {
+          setBlockScoresVersion((v) => v + 1);
+        }
+      };
+
+      editor.on("transaction", updateHandler);
+
+      return () => {
+        editor.off("transaction", updateHandler);
+      };
+    }, [editor]);
+
     const handleOptionSelect = useCallback(
       (optionId: string) => {
         // Check if editor is read-only
@@ -147,6 +165,23 @@ const MCQViewer: React.FC<MCQViewerProps> = memo(
       (optionId: string) => selectedOptions.includes(optionId),
       [selectedOptions]
     );
+
+    // Get block score from editor storage (for instructor view)
+    // Use blockScoresVersion to trigger re-render when scores change
+    const blockScores = useMemo(() => {
+      return (editor?.storage as any)?.blockScores || {};
+    }, [editor, blockScoresVersion]);
+
+    const blockScore = blockScores[mcqData.id];
+    const hasScore = blockScore !== undefined;
+
+    console.log("[MCQViewer] Block scores:", {
+      blockId: mcqData.id,
+      blockScores,
+      blockScore,
+      hasScore,
+      blockScoresVersion,
+    });
 
     return (
       <NodeViewWrapper
@@ -299,7 +334,21 @@ const MCQViewer: React.FC<MCQViewerProps> = memo(
                   ? `${selectedCount} selected`
                   : "No selection"}
               </span>
-              <span>{mcqData.points} points</span>
+              {hasScore ? (
+                <span
+                  className={`px-3 py-1 rounded-md font-bold text-white ${
+                    blockScore.awarded === blockScore.possible
+                      ? "bg-green-600"
+                      : blockScore.awarded > 0
+                      ? "bg-yellow-600"
+                      : "bg-red-600"
+                  }`}
+                >
+                  {blockScore.awarded} / {blockScore.possible} pts
+                </span>
+              ) : (
+                <span>{mcqData.points} points</span>
+              )}
             </div>
           </div>
         </div>

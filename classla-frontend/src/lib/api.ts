@@ -6,6 +6,7 @@ import type {
   Grader,
   CreateGraderWithSubmissionRequest,
   CreateGraderWithSubmissionResponse,
+  AutogradeResponse,
 } from "../types";
 
 const API_BASE_URL =
@@ -301,6 +302,12 @@ export const apiClient = {
   ) => api.post(`/blocks/autograde/${assignmentId}`, { submissionValues }),
   extractBlocks: (assignmentId: string) =>
     api.get(`/blocks/extract/${assignmentId}`),
+
+  // Autograding endpoint
+  autogradeSubmission: (
+    submissionId: string
+  ): Promise<AxiosResponse<AutogradeResponse>> =>
+    api.post(`/autograder/grade/${submissionId}`),
 };
 
 export default api;

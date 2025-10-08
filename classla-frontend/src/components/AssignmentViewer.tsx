@@ -53,6 +53,8 @@ interface AssignmentViewerProps {
   allSubmissions?: any[]; // All submissions for this student
   selectedSubmissionId?: string; // Currently selected submission
   onSubmissionSelect?: (submissionId: string) => void; // Callback when submission is selected
+  locked?: boolean; // If true, viewer is read-only (for viewing submitted work)
+  grader?: any; // Grader object with block_scores for displaying scores on blocks
 }
 
 // Answer state management for MCQ blocks
@@ -81,10 +83,16 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
   allSubmissions = [],
   selectedSubmissionId,
   onSubmissionSelect,
+  locked = false,
+  grader,
 }) => {
   const { toast } = useToast();
   const [answerState, setAnswerState] = useState<AnswerState>({});
   const [contentError, setContentError] = useState<string | null>(null);
+
+  // Debug: Log grader prop
+  console.log("[AssignmentViewer] Grader prop:", grader);
+  console.log("[AssignmentViewer] Grader block_scores:", grader?.block_scores);
   const [isRecovering, setIsRecovering] = useState(false);
   const [submissionId, setSubmissionId] = useState<string | null | undefined>(
     initialSubmissionId
@@ -97,6 +105,8 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
   const [submissionTimestamp, setSubmissionTimestamp] = useState<
     Date | string | null
   >(initialSubmissionTimestamp || null);
+  const [autogradingFailed, setAutogradingFailed] = useState(false);
+  const [isRetryingAutograde, setIsRetryingAutograde] = useState(false);
 
   // Track if submission exists
   const hasSubmission = !!submissionId;
@@ -121,10 +131,13 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
     assignment.settings?.showResponsesAfterSubmission ?? false;
   const allowResubmissions = assignment.settings?.allowResubmissions ?? false;
 
-  // All submissions are read-only when viewing them
-  // Only allow editing when actively working on a new/in-progress submission
-  // Also read-only when there's no submission
-  const isReadOnly = true; // Always read-only when viewing submissions
+  // Viewer is read-only when:
+  // 1. Explicitly locked (viewing submitted work or instructor viewing student work)
+  // 2. Submission is submitted/graded and resubmissions are not allowed
+  const isReadOnly =
+    locked ||
+    (!allowResubmissions &&
+      (submissionStatus === "submitted" || submissionStatus === "graded"));
 
   // Performance optimization: Use refs to avoid unnecessary re-renders
   const editorRef = useRef<any>(null);
@@ -225,18 +238,16 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
   const autoSaveSubmission = useCallback(
     async (values: Record<string, string[]>) => {
       if (!isStudent) return; // Only students can save submissions
+      if (isReadOnly) return; // Don't auto-save when read-only
 
       // Clear existing timeout
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current);
       }
 
-      // Auto-save disabled - submissions are read-only
       // Set new timeout for auto-save
       saveTimeoutRef.current = setTimeout(async () => {
         try {
-          // setIsSaving(true); // Removed - read-only mode
-
           if (submissionId) {
             // Update existing submission
             await apiClient.updateSubmissionValues(submissionId, values);
@@ -260,13 +271,12 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
               "Your answers could not be saved automatically. Please try submitting manually.",
             variant: "destructive",
           });
-        } finally {
-          // setIsSaving(false); // Removed - read-only mode
         }
       }, 2000); // Auto-save after 2 seconds of inactivity
     },
     [
       isStudent,
+      isReadOnly,
       submissionId,
       assignment.id,
       assignment.course_id,
@@ -417,6 +427,11 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
       (editor.storage as any).getBlockAnswerState = getBlockAnswerState;
       (editor.storage as any).isReadOnly = isReadOnly;
       (editor.storage as any).hasSubmission = hasSubmission;
+      (editor.storage as any).blockScores = grader?.block_scores || {};
+      console.log(
+        "[AssignmentViewer] onCreate - blockScores:",
+        grader?.block_scores
+      );
     },
     // No onUpdate handler since this is read-only
     // No onSelectionUpdate handler since we don't need editing features
@@ -570,7 +585,17 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
       (editor.storage as any).getBlockAnswerState = getBlockAnswerState;
       (editor.storage as any).isReadOnly = isReadOnly;
       (editor.storage as any).hasSubmission = hasSubmission;
+      (editor.storage as any).blockScores = grader?.block_scores || {};
+      console.log(
+        "[AssignmentViewer] useEffect - blockScores:",
+        grader?.block_scores
+      );
       editor.setEditable(!isReadOnly);
+
+      // Force editor to re-render when block scores change
+      const tr = editor.state.tr;
+      tr.setMeta("blockScoresUpdate", true);
+      editor.view.dispatch(tr);
     }
   }, [
     editor,
@@ -578,6 +603,7 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
     getBlockAnswerState,
     isReadOnly,
     hasSubmission,
+    grader,
   ]);
 
   // Force editor to re-render when answer state changes (for submission switching)
@@ -683,6 +709,66 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
     toast,
   ]);
 
+  const handleRetryAutograde = useCallback(async () => {
+    if (!submissionId) {
+      return;
+    }
+
+    try {
+      setIsRetryingAutograde(true);
+
+      const autogradeResponse = await apiClient.autogradeSubmission(
+        submissionId
+      );
+
+      if (
+        autogradeResponse.data.grader &&
+        autogradeResponse.data.totalPossiblePoints !== undefined
+      ) {
+        // Score visibility is enabled, show the score
+        const score = autogradeResponse.data.grader.raw_assignment_score;
+        const totalPoints = autogradeResponse.data.totalPossiblePoints;
+
+        toast({
+          title: "Autograding Successful",
+          description: `Your score: ${score} / ${totalPoints} points`,
+        });
+
+        // Update submission status to graded
+        setSubmissionStatus("graded");
+        onSubmissionStatusChange?.("graded");
+      } else {
+        // Score visibility is disabled
+        toast({
+          title: "Autograding Successful",
+          description: "Your assignment has been automatically graded.",
+        });
+      }
+
+      // Clear autograding failure state
+      setAutogradingFailed(false);
+    } catch (error: any) {
+      console.error("Retry autograding failed:", error);
+
+      // Log detailed error information for debugging
+      if (error.response) {
+        console.error("Retry autograding error response:", {
+          status: error.response.status,
+          data: error.response.data,
+        });
+      }
+
+      toast({
+        title: "Autograding Failed",
+        description:
+          "Automatic grading failed again. Your instructor will grade your submission manually.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsRetryingAutograde(false);
+    }
+  }, [submissionId, toast, onSubmissionStatusChange]);
+
   const handleSubmit = useCallback(async () => {
     if (!submissionId) {
       toast({
@@ -704,10 +790,87 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
 
     try {
       setIsSubmitting(true);
+
+      // Step 1: Ensure latest answers are saved before submitting
+      if (isStudent && !isReadOnly) {
+        const submissionValues: Record<string, string[]> = {};
+        Object.keys(answerState).forEach((key) => {
+          submissionValues[key] = answerState[key].selectedOptions;
+        });
+
+        // Save immediately before submitting
+        if (Object.keys(submissionValues).length > 0) {
+          await apiClient.updateSubmissionValues(
+            submissionId,
+            submissionValues
+          );
+        }
+      }
+
+      // Step 2: Submit the assignment
       await apiClient.submitSubmission(submissionId);
       setSubmissionStatus("submitted");
       onSubmissionStatusChange?.("submitted");
-      setShowSuccessModal(true);
+
+      // Step 2: Trigger autograding
+      try {
+        const autogradeResponse = await apiClient.autogradeSubmission(
+          submissionId
+        );
+
+        if (
+          autogradeResponse.data.grader &&
+          autogradeResponse.data.totalPossiblePoints !== undefined
+        ) {
+          // Score visibility is enabled, show the score
+          const score = autogradeResponse.data.grader.raw_assignment_score;
+          const totalPoints = autogradeResponse.data.totalPossiblePoints;
+
+          toast({
+            title: "Assignment Submitted & Graded",
+            description: `Your score: ${score} / ${totalPoints} points`,
+          });
+
+          // Update submission status to graded
+          setSubmissionStatus("graded");
+          onSubmissionStatusChange?.("graded");
+        } else {
+          // Score visibility is disabled, show success without scores
+          toast({
+            title: "Assignment Submitted",
+            description:
+              autogradeResponse.data.message ||
+              "Your assignment has been submitted successfully.",
+          });
+        }
+
+        // Clear any previous autograding failure state
+        setAutogradingFailed(false);
+        setShowSuccessModal(true);
+      } catch (autogradeError: any) {
+        console.error("Autograding failed:", autogradeError);
+
+        // Log detailed error information for debugging
+        if (autogradeError.response) {
+          console.error("Autograding error response:", {
+            status: autogradeError.response.status,
+            data: autogradeError.response.data,
+          });
+        }
+
+        // Mark autograding as failed
+        setAutogradingFailed(true);
+
+        // Submission still succeeded, just show a warning about autograding
+        toast({
+          title: "Assignment Submitted",
+          description:
+            "Your assignment was submitted, but automatic grading encountered an issue. Your instructor will grade it manually.",
+          variant: "default",
+        });
+
+        setShowSuccessModal(true);
+      }
     } catch (error: any) {
       console.error("Failed to submit assignment:", error);
 
@@ -727,7 +890,15 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
     } finally {
       setIsSubmitting(false);
     }
-  }, [submissionId, submissionStatus, toast, onSubmissionStatusChange]);
+  }, [
+    submissionId,
+    submissionStatus,
+    toast,
+    onSubmissionStatusChange,
+    isStudent,
+    isReadOnly,
+    answerState,
+  ]);
 
   return (
     <div className="h-full flex flex-col bg-white relative">
@@ -1016,8 +1187,35 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
               {submissionStatus === "in-progress" && (
                 <div className="text-sm text-gray-600">In Progress</div>
               )}
+              {autogradingFailed && submissionStatus === "submitted" && (
+                <div className="flex items-center gap-2 text-sm text-amber-600">
+                  <AlertTriangle className="w-4 h-4" />
+                  <span>Autograding failed</span>
+                </div>
+              )}
             </div>
             <div className="flex items-center gap-3">
+              {autogradingFailed && submissionStatus === "submitted" && (
+                <Button
+                  onClick={handleRetryAutograde}
+                  disabled={isRetryingAutograde}
+                  variant="outline"
+                  size="lg"
+                  className="border-amber-600 text-amber-600 hover:bg-amber-50"
+                >
+                  {isRetryingAutograde ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                      Retrying...
+                    </>
+                  ) : (
+                    <>
+                      <RefreshCw className="w-4 h-4 mr-2" />
+                      Retry Autograding
+                    </>
+                  )}
+                </Button>
+              )}
               {allowResubmissions && submissionStatus === "submitted" && (
                 <Button
                   onClick={handleResubmit}

@@ -14,6 +14,7 @@ interface GradingControlsProps {
   studentId: string;
   courseId: string;
   onUpdate: (updates: Partial<Grader>) => void;
+  onGraderCreated?: (grader: Grader) => void;
   autoSave?: boolean;
 }
 
@@ -24,6 +25,7 @@ export const GradingControls: React.FC<GradingControlsProps> = React.memo(
     studentId,
     courseId,
     onUpdate,
+    onGraderCreated,
     autoSave = true,
   }) => {
     const { toast } = useToast();
@@ -37,6 +39,18 @@ export const GradingControls: React.FC<GradingControlsProps> = React.memo(
       courseId,
       initialGrader
     );
+
+    // Notify parent when grader is created/updated
+    useEffect(() => {
+      if (grader && onGraderCreated) {
+        console.log("[GradingControls] Notifying parent of grader:", {
+          grader,
+          hasBlockScores: !!grader.block_scores,
+          blockScores: grader.block_scores,
+        });
+        onGraderCreated(grader);
+      }
+    }, [grader, onGraderCreated]);
 
     // Local state for form fields
     const [scoreModifier, setScoreModifier] = useState(

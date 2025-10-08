@@ -44,6 +44,16 @@ export const StudentSubmissionView: React.FC<StudentSubmissionViewProps> = ({
   // State for tracking if we're saving before navigation
   const [isSavingBeforeNav, setIsSavingBeforeNav] = useState(false);
 
+  // State for the current grader (may be updated by GradingControls)
+  const [currentGrader, setCurrentGrader] = useState<any>(student.grader);
+
+  // Debug logging
+  console.log("[StudentSubmissionView] Student grader:", {
+    grader: student.grader,
+    hasBlockScores: !!student.grader?.block_scores,
+    blockScores: student.grader?.block_scores,
+  });
+
   // Ref to track pending grader updates
   const pendingUpdatesRef = useRef<Partial<Grader> | null>(null);
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -53,16 +63,19 @@ export const StudentSubmissionView: React.FC<StudentSubmissionViewProps> = ({
     setSelectedSubmissionId(student.latestSubmission?.id || "");
   }, [student.userId, student.latestSubmission?.id]);
 
+  // Update current grader when student.grader changes
+  useEffect(() => {
+    setCurrentGrader(student.grader);
+  }, [student.grader]);
+
   // Get the currently selected submission
   const selectedSubmission = student.submissions.find(
     (sub) => sub.id === selectedSubmissionId
   );
 
   // Get grader for selected submission
-  const selectedGrader =
-    selectedSubmission?.grader_id === student.grader?.id
-      ? student.grader
-      : null;
+  // Note: For autograded submissions, grader_id may be null, so we use currentGrader
+  const selectedGrader = currentGrader;
 
   // Handle grader updates with debouncing
   const handleGraderUpdate = async (updates: Partial<Grader>) => {
@@ -266,6 +279,8 @@ export const StudentSubmissionView: React.FC<StudentSubmissionViewProps> = ({
               submissionTimestamp={selectedSubmission?.timestamp || null}
               isStudent={false}
               studentId={student.userId}
+              locked={true}
+              grader={selectedGrader}
             />
           </div>
 
@@ -276,6 +291,7 @@ export const StudentSubmissionView: React.FC<StudentSubmissionViewProps> = ({
             studentId={student.userId}
             courseId={courseId}
             onUpdate={handleGraderUpdate}
+            onGraderCreated={setCurrentGrader}
             autoSave={false}
           />
         </div>

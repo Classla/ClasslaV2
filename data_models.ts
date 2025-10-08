@@ -79,6 +79,7 @@ interface AssignmentSettings {
   allowLateSubmissions?: boolean; // Allow submissions after due date
   allowResubmissions?: boolean; // Allow students to resubmit (creates new submission)
   showResponsesAfterSubmission?: boolean; // Show student their answers after submitting
+  showScoreAfterSubmission?: boolean; // Show autograded score to students after submission
   [key: string]: any; // Allow other settings
 }
 
@@ -131,6 +132,14 @@ interface Submission {
   updated_at: Date;
 }
 
+/**
+ * Block Score - represents the score for a single MCQ block
+ */
+interface BlockScore {
+  awarded: number; // Points awarded for this block
+  possible: number; // Total possible points for this block
+}
+
 // Grader entity (feedback and grading info)
 interface Grader {
   id: string;
@@ -141,6 +150,7 @@ interface Grader {
   score_modifier: string;
   reviewed_at?: Date;
   submission_id: string;
+  block_scores?: Record<string, BlockScore>; // Block ID (UUID) -> score details
 }
 
 // Rubric instance (actual scores for a submission)
@@ -186,6 +196,22 @@ interface JoinLink {
   created_at: Date;
 }
 
+/**
+ * Autograding API Response
+ *
+ * Response format varies based on score visibility settings:
+ * - If showScoreAfterSubmission is enabled (or requester is instructor/TA):
+ *   Returns full grader object with scores
+ * - If showScoreAfterSubmission is disabled (and requester is student):
+ *   Returns only success status without score data
+ */
+interface AutogradeResponse {
+  success: boolean;
+  grader?: Grader; // Present when scores are visible
+  totalPossiblePoints?: number; // Present when scores are visible
+  message?: string; // Present when scores are hidden
+}
+
 // Export all types
 export {
   UserRole,
@@ -198,8 +224,10 @@ export {
   AssignmentSettings,
   Submission,
   Grader,
+  BlockScore,
   Rubric,
   RubricSchema,
   RubricItem,
   JoinLink,
+  AutogradeResponse,
 };

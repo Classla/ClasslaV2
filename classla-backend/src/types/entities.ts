@@ -80,6 +80,14 @@ export interface Submission {
   status: SubmissionStatus;
 }
 
+/**
+ * Block Score - represents the score for a single MCQ block
+ */
+export interface BlockScore {
+  awarded: number; // Points awarded for this block
+  possible: number; // Total possible points for this block
+}
+
 // Grader entity (feedback and grading info)
 export interface Grader {
   id: string;
@@ -90,6 +98,7 @@ export interface Grader {
   score_modifier: string;
   reviewed_at?: Date;
   submission_id: string;
+  block_scores?: Record<string, BlockScore>; // Block ID (UUID) -> score details
 }
 
 // Rubric instance (actual scores for a submission)

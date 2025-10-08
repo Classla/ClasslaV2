@@ -13,6 +13,7 @@ This directory contains SQL migration files for the Classla database schema.
 - `007_replace_name_with_first_last_name.sql` - Split user name into first and last name
 - `008_add_folders_and_assignment_ordering.sql` - Add folder support and assignment ordering
 - `009_add_grading_performance_indexes.sql` - Add performance indexes for grading and gradebook features
+- `010_add_block_scores_to_graders.sql` - Add block_scores JSONB column for autograding system
 
 ## Setup Instructions
 

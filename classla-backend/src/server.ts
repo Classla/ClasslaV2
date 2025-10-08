@@ -86,6 +86,7 @@ import graderRoutes from "./routes/graders";
 import rubricRoutes from "./routes/rubrics";
 import joinLinksRoutes from "./routes/joinLinks";
 import blocksRoutes from "./routes/blocks";
+import autograderRoutes from "./routes/autograder";
 
 // Auth routes (mounted at root for WorkOS callback compatibility)
 app.use("/", authRoutes);
@@ -103,6 +104,7 @@ app.use("/api", graderRoutes);
 app.use("/api", rubricRoutes);
 app.use("/api/join-links", joinLinksRoutes);
 app.use("/api", blocksRoutes);
+app.use("/api", autograderRoutes);
 
 // Error handling - must be after all routes
 app.use(errorHandler);

@@ -216,4 +216,209 @@ describe("GradingControls", () => {
     const feedbackTextarea = screen.getByLabelText("Feedback");
     expect(feedbackTextarea).toHaveValue("");
   });
+
+  describe("Block Scores Display", () => {
+    it("displays block scores section when block_scores exist", () => {
+      const graderWithBlockScores: Grader = {
+        ...mockGrader,
+        block_scores: {
+          "550e8400-e29b-41d4-a716-446655440000": {
+            awarded: 5,
+            possible: 5,
+          },
+          "6ba7b810-9dad-11d1-80b4-00c04fd430c8": {
+            awarded: 0,
+            possible: 3,
+          },
+          "7c9e6679-7425-40de-944b-e07fc1f90ae7": {
+            awarded: 2,
+            possible: 2,
+          },
+        },
+      };
+
+      render(
+        <GradingControls
+          grader={graderWithBlockScores}
+          assignmentId={mockAssignmentId}
+          studentId={mockStudentId}
+          courseId={mockCourseId}
+          onUpdate={mockOnUpdate}
+          autoSave={false}
+        />
+      );
+
+      expect(
+        screen.getByText("Question Scores (Autograded)")
+      ).toBeInTheDocument();
+      expect(screen.getByText("Question 1")).toBeInTheDocument();
+      expect(screen.getByText("Question 2")).toBeInTheDocument();
+      expect(screen.getByText("Question 3")).toBeInTheDocument();
+    });
+
+    it("displays correct scores for each block", () => {
+      const graderWithBlockScores: Grader = {
+        ...mockGrader,
+        raw_assignment_score: 7,
+        block_scores: {
+          "550e8400-e29b-41d4-a716-446655440000": {
+            awarded: 5,
+            possible: 5,
+          },
+          "6ba7b810-9dad-11d1-80b4-00c04fd430c8": {
+            awarded: 0,
+            possible: 3,
+          },
+          "7c9e6679-7425-40de-944b-e07fc1f90ae7": {
+            awarded: 2,
+            possible: 2,
+          },
+        },
+      };
+
+      render(
+        <GradingControls
+          grader={graderWithBlockScores}
+          assignmentId={mockAssignmentId}
+          studentId={mockStudentId}
+          courseId={mockCourseId}
+          onUpdate={mockOnUpdate}
+          autoSave={false}
+        />
+      );
+
+      expect(screen.getByText("5 / 5 pts")).toBeInTheDocument();
+      expect(screen.getByText("0 / 3 pts")).toBeInTheDocument();
+      expect(screen.getByText("2 / 2 pts")).toBeInTheDocument();
+    });
+
+    it("displays total raw assignment score in block scores section", () => {
+      const graderWithBlockScores: Grader = {
+        ...mockGrader,
+        raw_assignment_score: 7,
+        block_scores: {
+          "550e8400-e29b-41d4-a716-446655440000": {
+            awarded: 5,
+            possible: 5,
+          },
+          "6ba7b810-9dad-11d1-80b4-00c04fd430c8": {
+            awarded: 2,
+            possible: 3,
+          },
+        },
+      };
+
+      render(
+        <GradingControls
+          grader={graderWithBlockScores}
+          assignmentId={mockAssignmentId}
+          studentId={mockStudentId}
+          courseId={mockCourseId}
+          onUpdate={mockOnUpdate}
+          autoSave={false}
+        />
+      );
+
+      expect(
+        screen.getByText("Total Raw Assignment Score:")
+      ).toBeInTheDocument();
+      expect(screen.getByText("7 pts")).toBeInTheDocument();
+    });
+
+    it("displays shortened block IDs", () => {
+      const graderWithBlockScores: Grader = {
+        ...mockGrader,
+        block_scores: {
+          "550e8400-e29b-41d4-a716-446655440000": {
+            awarded: 5,
+            possible: 5,
+          },
+        },
+      };
+
+      render(
+        <GradingControls
+          grader={graderWithBlockScores}
+          assignmentId={mockAssignmentId}
+          studentId={mockStudentId}
+          courseId={mockCourseId}
+          onUpdate={mockOnUpdate}
+          autoSave={false}
+        />
+      );
+
+      expect(screen.getByText("(550e8400...)")).toBeInTheDocument();
+    });
+
+    it("does not display block scores section when block_scores is undefined", () => {
+      render(
+        <GradingControls
+          grader={mockGrader}
+          assignmentId={mockAssignmentId}
+          studentId={mockStudentId}
+          courseId={mockCourseId}
+          onUpdate={mockOnUpdate}
+          autoSave={false}
+        />
+      );
+
+      expect(
+        screen.queryByText("Question Scores (Autograded)")
+      ).not.toBeInTheDocument();
+    });
+
+    it("does not display block scores section when block_scores is empty", () => {
+      const graderWithEmptyBlockScores: Grader = {
+        ...mockGrader,
+        block_scores: {},
+      };
+
+      render(
+        <GradingControls
+          grader={graderWithEmptyBlockScores}
+          assignmentId={mockAssignmentId}
+          studentId={mockStudentId}
+          courseId={mockCourseId}
+          onUpdate={mockOnUpdate}
+          autoSave={false}
+        />
+      );
+
+      expect(
+        screen.queryByText("Question Scores (Autograded)")
+      ).not.toBeInTheDocument();
+    });
+
+    it("displays multiple block scores in order", () => {
+      const graderWithBlockScores: Grader = {
+        ...mockGrader,
+        block_scores: {
+          "block-1": { awarded: 1, possible: 1 },
+          "block-2": { awarded: 2, possible: 2 },
+          "block-3": { awarded: 3, possible: 3 },
+          "block-4": { awarded: 4, possible: 4 },
+        },
+      };
+
+      render(
+        <GradingControls
+          grader={graderWithBlockScores}
+          assignmentId={mockAssignmentId}
+          studentId={mockStudentId}
+          courseId={mockCourseId}
+          onUpdate={mockOnUpdate}
+          autoSave={false}
+        />
+      );
+
+      expect(screen.getByText("Question 1")).toBeInTheDocument();
+      expect(screen.getByText("Question 2")).toBeInTheDocument();
+      expect(screen.getByText("Question 3")).toBeInTheDocument();
+      expect(screen.getByText("Question 4")).toBeInTheDocument();
+      expect(screen.getByText("1 / 1 pts")).toBeInTheDocument();
+      expect(screen.getByText("2 / 2 pts")).toBeInTheDocument();
+      expect(screen.getByText("3 / 3 pts")).toBeInTheDocument();
+      expect(screen.getByText("4 / 4 pts")).toBeInTheDocument();
+    });
+  });
 });

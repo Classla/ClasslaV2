@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import { apiClient } from "../lib/api";
@@ -18,6 +18,7 @@ import AssignmentEditor from "../components/AssignmentEditor";
 import AssignmentViewer from "../components/AssignmentViewer";
 import { Allotment } from "allotment";
 import "allotment/dist/style.css";
+import { calculateAssignmentPoints } from "../utils/assignmentPoints";
 
 interface AssignmentPageProps {
   userRole?: UserRole;
@@ -260,10 +261,11 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
     });
   };
 
-  const getTotalPoints = () => {
-    // TODO: Calculate from assignment content/settings
-    return 0;
-  };
+  // Calculate total points from assignment content using memoization
+  const totalPoints = useMemo(() => {
+    if (!assignment?.content) return 0;
+    return calculateAssignmentPoints(assignment.content);
+  }, [assignment?.content]);
 
   const handleStartAssignment = async () => {
     if (!assignment || !user?.id) return;
@@ -443,7 +445,7 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
                     {/* Points */}
                     <div className="flex items-center space-x-2">
                       <span className="text-lg font-semibold">
-                        Points: {getTotalPoints()}
+                        Total Points: {totalPoints}
                       </span>
                     </div>
                   </div>
@@ -471,6 +473,8 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
                           }
                           isStudent={false}
                           studentId={selectedGradingStudent.userId}
+                          locked={true}
+                          grader={selectedGradingStudent.grader}
                         />
                       ) : (
                         <AssignmentEditor
@@ -490,6 +494,10 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
                         studentId={user?.id}
                         allSubmissions={allSubmissions}
                         selectedSubmissionId={selectedSubmissionId}
+                        locked={
+                          submissionStatus === "submitted" ||
+                          submissionStatus === "graded"
+                        }
                         onSubmissionSelect={(id) => {
                           const selected = allSubmissions.find(
                             (s) => s.id === id

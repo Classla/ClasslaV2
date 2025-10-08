@@ -15,6 +15,7 @@ import {
   GradebookData,
   StudentGradesData,
 } from "../types/api";
+import { autogradeSubmission } from "./autograder";
 
 const router = Router();
 
@@ -375,17 +376,39 @@ router.get(
       // Fetch all submissions for this assignment (Requirement 2.3)
       const { data: submissionsData, error: submissionsError } = await supabase
         .from("submissions")
-        .select(
-          `
-          *,
-          grader:graders(*)
-        `
-        )
+        .select("*")
         .eq("assignment_id", assignmentId);
 
       if (submissionsError) {
         throw submissionsError;
       }
+
+      // Fetch all graders for these submissions
+      const submissionIds = submissionsData?.map((s) => s.id) || [];
+      const { data: gradersData, error: gradersError } = await supabase
+        .from("graders")
+        .select("*")
+        .in("submission_id", submissionIds);
+
+      if (gradersError) {
+        console.error("Error fetching graders:", gradersError);
+        // Don't throw - continue without graders
+      }
+
+      // Create a map of submission_id to grader
+      const graderMap = new Map();
+      gradersData?.forEach((grader: any) => {
+        graderMap.set(grader.submission_id, grader);
+      });
+
+      // Debug logging
+      console.log("[submissions/with-students] Fetched data:", {
+        submissionsCount: submissionsData?.length,
+        gradersCount: gradersData?.length,
+        graderMapSize: graderMap.size,
+        sampleGrader: gradersData?.[0],
+        hasBlockScores: !!gradersData?.[0]?.block_scores,
+      });
 
       // Create a map of student_id to submission data for quick lookup
       // If a student has multiple submissions, keep only the most recent one
@@ -399,6 +422,17 @@ router.get(
           new Date(submission.timestamp) >
             new Date(existingEntry.submission.timestamp)
         ) {
+          // Get grader from the graderMap
+          const graderData = graderMap.get(submission.id) || null;
+
+          console.log("[submissions/with-students] Setting submission data:", {
+            submissionId: submission.id,
+            studentId: submission.student_id,
+            hasGrader: !!graderData,
+            hasBlockScores: !!graderData?.block_scores,
+            blockScores: graderData?.block_scores,
+          });
+
           submissionMap.set(submission.student_id, {
             submission: {
               id: submission.id,
@@ -413,7 +447,7 @@ router.get(
               created_at: submission.created_at,
               updated_at: submission.updated_at,
             },
-            grader: submission.grader?.[0] || null,
+            grader: graderData,
           });
         }
       });
@@ -724,10 +758,8 @@ router.put(
         updateData.values = values;
       }
 
-      // If student is updating their own submission, set status to submitted
-      if (existingSubmission.student_id === userId) {
-        updateData.status = SubmissionStatus.SUBMITTED;
-      }
+      // Note: Status is NOT changed here - only the /submit endpoint changes status
+      // This allows auto-save to work without marking the submission as submitted
 
       // Update the submission
       const { data: updatedSubmission, error: updateError } = await supabase
@@ -759,7 +791,8 @@ router.put(
 /**
  * POST /submission/:id/submit
  * Submit a submission (change status from in-progress to submitted)
- * Requirements: 4.1, 4.2, 7.2
+ * Triggers autograding asynchronously after submission is saved
+ * Requirements: 4.1, 4.2, 7.2, 9.1, 9.2, 9.3, 9.4, 9.5, 9.6, 9.7, 9.8
  */
 router.post(
   "/submission/:id/submit",
@@ -841,7 +874,7 @@ router.post(
         return;
       }
 
-      // Update submission status to submitted
+      // Update submission status to submitted (Requirement 9.2)
       const { data: updatedSubmission, error: updateError } = await supabase
         .from("submissions")
         .update({
@@ -856,6 +889,24 @@ router.post(
         throw updateError;
       }
 
+      // Trigger autograding asynchronously (Requirements 9.1, 9.2, 9.3, 9.4)
+      // Don't block the response on autograding completion
+      autogradeSubmission(id)
+        .then(() => {
+          console.log(
+            `Autograding completed successfully for submission ${id}`
+          );
+        })
+        .catch((error) => {
+          // Log error but don't fail the submission (Requirements 9.3, 9.4, 9.5)
+          console.error("Autograding failed:", {
+            submissionId: id,
+            error: error instanceof Error ? error.message : "Unknown error",
+            stack: error instanceof Error ? error.stack : undefined,
+          });
+        });
+
+      // Return submission immediately without waiting for autograding (Requirement 9.2)
       res.json(updatedSubmission);
     } catch (error) {
       console.error("Error submitting submission:", error);

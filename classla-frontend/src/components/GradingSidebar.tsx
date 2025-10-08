@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import { Assignment } from "../types";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
@@ -77,6 +77,15 @@ const GradingSidebar: React.FC<GradingSidebarProps> = ({
       const studentId = item.student?.id;
       if (!studentId) return;
 
+      console.log("[GradingSidebar] Processing submission item:", {
+        studentId,
+        hasSubmission: !!item.submission,
+        hasGrader: !!item.grader,
+        grader: item.grader,
+        hasBlockScores: !!item.grader?.block_scores,
+        blockScores: item.grader?.block_scores,
+      });
+
       // Create entry for every student, even if submission is null
       if (!studentMap.has(studentId)) {
         studentMap.set(studentId, {
@@ -100,6 +109,12 @@ const GradingSidebar: React.FC<GradingSidebarProps> = ({
         if (!studentInfo.latestSubmission) {
           studentInfo.latestSubmission = item.submission;
           studentInfo.grader = item.grader;
+          console.log("[GradingSidebar] Setting grader for student:", {
+            studentId,
+            grader: item.grader,
+            hasBlockScores: !!item.grader?.block_scores,
+            blockScores: item.grader?.block_scores,
+          });
         }
       }
     });
@@ -108,6 +123,45 @@ const GradingSidebar: React.FC<GradingSidebarProps> = ({
   }, [submissionsData]);
 
   const sections = sectionsData || [];
+
+  // Update selected student when students data changes (e.g., after grader is created or updated)
+  useEffect(() => {
+    if (selectedStudent && students.length > 0) {
+      const updatedStudent = students.find(
+        (s) => s.userId === selectedStudent.userId
+      );
+      if (updatedStudent) {
+        // Check if grader changed from null to a value
+        const hadNoGrader = !selectedStudent.grader;
+        const nowHasGrader = !!updatedStudent.grader;
+
+        // Check if grader ID changed
+        const graderIdChanged =
+          selectedStudent.grader?.id !== updatedStudent.grader?.id;
+
+        // Check if block_scores were added (for autograding)
+        const hadNoBlockScores = !selectedStudent.grader?.block_scores;
+        const nowHasBlockScores = !!updatedStudent.grader?.block_scores;
+        const blockScoresAdded = hadNoBlockScores && nowHasBlockScores;
+
+        if (
+          (hadNoGrader && nowHasGrader) ||
+          graderIdChanged ||
+          blockScoresAdded
+        ) {
+          console.log(
+            "[GradingSidebar] Updating selected student with new grader:",
+            {
+              grader: updatedStudent.grader,
+              hasBlockScores: !!updatedStudent.grader?.block_scores,
+              blockScores: updatedStudent.grader?.block_scores,
+            }
+          );
+          onStudentSelect(updatedStudent);
+        }
+      }
+    }
+  }, [students, selectedStudent, onStudentSelect]);
 
   // Filter students
   const filteredStudents = useMemo(() => {
