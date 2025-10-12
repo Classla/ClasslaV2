@@ -2,7 +2,7 @@
 
 ## Introduction
 
-This document outlines the requirements for deploying the Classla LMS application to AWS with a production-ready architecture. The backend (Express.js with WebSocket support) will run on ECS Fargate behind an Application Load Balancer and CloudFront CDN. The frontend (React/Vite) will be hosted on AWS Amplify. All infrastructure will be defined as code using AWS CDK (TypeScript), and CI/CD pipelines will be established for automated deployments.
+This document outlines the requirements for deploying the Classla LMS application to AWS with a production-ready architecture. The backend (Express.js with WebSocket support) will run on ECS Fargate behind an Application Load Balancer with HTTPS. The frontend (React/Vite) will be hosted on AWS Amplify. All infrastructure will be defined as code using Terraform, and CI/CD pipelines will be established for automated deployments.
 
 ## Requirements
 
@@ -12,11 +12,11 @@ This document outlines the requirements for deploying the Classla LMS applicatio
 
 #### Acceptance Criteria
 
-1. WHEN the infrastructure is provisioned THEN the system SHALL create an ECS Fargate cluster with 2-4 tasks running the Express.js application
+1. WHEN the infrastructure is provisioned THEN the system SHALL create an ECS Fargate cluster with 1 task running the Express.js application
 2. WHEN WebSocket connections are established THEN the Application Load Balancer SHALL maintain connections with a 3600-second idle timeout
-3. WHEN traffic arrives THEN CloudFront CDN SHALL distribute requests globally and provide DDoS protection
-4. WHEN the backend needs to scale THEN ECS SHALL support auto-scaling based on CPU/memory metrics
-5. IF a task fails THEN ECS SHALL automatically restart the task to maintain availability
+3. WHEN the backend needs to scale THEN ECS SHALL support auto-scaling to 2 tasks based on CPU/memory metrics
+4. IF a task fails THEN ECS SHALL automatically restart the task to maintain availability
+5. WHEN users access the backend THEN the ALB SHALL provide HTTPS connections with SSL/TLS termination
 
 ### Requirement 2: Frontend Hosting on AWS Amplify
 
@@ -29,17 +29,18 @@ This document outlines the requirements for deploying the Classla LMS applicatio
 3. WHEN new commits are pushed THEN Amplify SHALL automatically trigger builds and deployments
 4. WHEN the build completes THEN Amplify SHALL validate that the build was successful before deploying
 
-### Requirement 3: Infrastructure as Code with AWS CDK
+### Requirement 3: Infrastructure as Code with Terraform
 
-**User Story:** As a DevOps engineer, I want all infrastructure defined using AWS CDK in TypeScript, so that infrastructure changes are version-controlled and reproducible.
+**User Story:** As a DevOps engineer, I want all infrastructure defined using Terraform, so that infrastructure changes are version-controlled and reproducible.
 
 #### Acceptance Criteria
 
-1. WHEN infrastructure is defined THEN the system SHALL use AWS CDK with TypeScript for all resources
-2. WHEN infrastructure changes are needed THEN developers SHALL modify CDK code and deploy via CDK CLI
-3. WHEN CDK stacks are deployed THEN the system SHALL create VPC, subnets, security groups, ECS cluster, ALB, CloudFront, RDS, and all necessary resources
-4. WHEN resources are created THEN CDK SHALL output important values like ALB DNS, CloudFront domain, and RDS endpoint
-5. IF infrastructure already exists THEN CDK SHALL update resources without downtime where possible
+1. WHEN infrastructure is defined THEN the system SHALL use Terraform for all resources
+2. WHEN infrastructure changes are needed THEN developers SHALL modify Terraform code and deploy via Terraform CLI
+3. WHEN Terraform is applied THEN the system SHALL create VPC, subnets, security groups, ECS cluster, ALB, CloudFront, RDS, and all necessary resources
+4. WHEN resources are created THEN Terraform SHALL output important values like ALB DNS, CloudFront domain, and RDS endpoint
+5. IF infrastructure already exists THEN Terraform SHALL update resources without downtime where possible
+6. WHEN Terraform state is managed THEN it SHALL be stored in S3 with state locking via DynamoDB
 
 ### Requirement 4: Database Infrastructure
 
@@ -113,7 +114,32 @@ This document outlines the requirements for deploying the Classla LMS applicatio
 4. WHEN metrics are collected THEN CloudWatch SHALL track ECS CPU/memory, ALB request counts, and error rates
 5. IF errors occur THEN CloudWatch alarms SHALL notify the operations team
 
-### Requirement 10: Documentation and Configuration Guide
+### Requirement 10: Build Artifacts and Git Ignore Configuration
+
+**User Story:** As a developer, I want Terraform state files and large build artifacts excluded from version control, so that the repository remains clean and secure.
+
+#### Acceptance Criteria
+
+1. WHEN Terraform is initialized THEN .terraform directories SHALL be excluded from git
+2. WHEN Terraform state is created THEN _.tfstate and _.tfstate.backup files SHALL be excluded from git
+3. WHEN Terraform variables are used THEN \*.tfvars files containing secrets SHALL be excluded from git
+4. WHEN Docker builds occur THEN node_modules and dist directories SHALL be excluded from git
+5. WHEN the .gitignore is configured THEN it SHALL include all Terraform-specific and build artifact patterns
+
+### Requirement 11: AWS Account Setup and Prerequisites
+
+**User Story:** As a developer without AWS setup, I want step-by-step instructions for AWS account configuration, so that I can prepare my environment for deployment.
+
+#### Acceptance Criteria
+
+1. WHEN setting up AWS THEN documentation SHALL provide instructions for creating an AWS account
+2. WHEN configuring AWS CLI THEN documentation SHALL explain how to install and configure AWS credentials
+3. WHEN setting up Terraform THEN documentation SHALL provide installation instructions for Terraform
+4. WHEN preparing for deployment THEN documentation SHALL list all required IAM permissions and policies
+5. WHEN configuring GitHub Actions THEN documentation SHALL explain how to set up AWS credentials as GitHub secrets
+6. IF using Amplify THEN documentation SHALL explain how to connect the GitHub repository to Amplify
+
+### Requirement 12: Documentation and Configuration Guide
 
 **User Story:** As a developer, I want clear documentation on what values to configure, so that I can successfully deploy the application to my AWS account.
 
