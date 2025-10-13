@@ -22,6 +22,7 @@ make build
 docker run -d \
   -p 8080:8080 \
   -p 6080:6080 \
+  -p 3000:3000 \
   -e VNC_PASSWORD=myvnc123 \
   -e ENABLE_INACTIVITY_SHUTDOWN=false \
   --name dev-container \
@@ -41,6 +42,8 @@ Wait 10-15 seconds for services to start, then open:
   - Opens instantly, no password required! ✨
 - **GUI Desktop (noVNC):** http://localhost:6080
   - Auto-connects and scales to your browser window! ✨
+- **Run Server API:** http://localhost:3000
+  - POST to `/run` to execute code remotely! ✨
 
 ## 4. Test It Out
 
@@ -73,6 +76,53 @@ EOF
 1. With http://localhost:6080 open, resize your browser window
 2. The VNC desktop automatically scales to fit! ✨
 3. No scrollbars needed - perfect fit every time
+
+### Test Run Server API
+
+The Run Server allows you to remotely execute code in a tmux terminal session:
+
+**Setup:**
+
+1. Open VS Code at http://localhost:8080
+2. Open a terminal in VS Code (Terminal → New Terminal)
+3. **The terminal automatically attaches to the tmux session!** ✨
+
+**Test the API:**
+
+```bash
+# Create a test Python file
+docker exec -it dev-container bash -c "echo 'print(\"Hello from API!\")' > /workspace/test.py"
+
+# Run it via API
+curl -X POST http://localhost:3000/run \
+  -H "Content-Type: application/json" \
+  -d '{"filename": "test.py", "language": "python"}'
+
+# Response:
+# {
+#   "status": "success",
+#   "message": "Executed: python3 test.py",
+#   "command": "python3 test.py",
+#   "tmux_session": "code_runner"
+# }
+
+# You'll see the output in the tmux terminal!
+# Any previously running process is killed with Ctrl+C first
+```
+
+**Tmux Quick Commands:**
+
+- Detach from session: Press `Ctrl+B` then `D`
+- Reattach manually: `tmux attach -t code_runner` (if needed)
+- The session persists even when detached
+- New terminals automatically attach to the same session
+
+**Supported languages:**
+
+- `python` or `python3` → runs with `python3`
+- `node`, `nodejs`, or `javascript` → runs with `node`
+- `java` → runs with `java`
+- `bash` or `sh` → runs with `bash` or `sh`
 
 ### Test Python with pip
 

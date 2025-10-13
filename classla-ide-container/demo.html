@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Run Server API Demo</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        
+        .container {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            max-width: 800px;
+            width: 100%;
+            padding: 40px;
+        }
+        
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 28px;
+        }
+        
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+        
+        .form-group {
+            margin-bottom: 20px;
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: #333;
+            font-weight: 500;
+            font-size: 14px;
+        }
+        
+        input, select {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 6px;
+            font-size: 14px;
+            transition: border-color 0.3s;
+        }
+        
+        input:focus, select:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        
+        .button-group {
+            display: flex;
+            gap: 10px;
+            margin-top: 30px;
+        }
+        
+        button {
+            flex: 1;
+            padding: 14px 24px;
+            border: none;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.4);
+        }
+        
+        .btn-secondary {
+            background: #f5f5f5;
+            color: #333;
+        }
+        
+        .btn-secondary:hover {
+            background: #e0e0e0;
+        }
+        
+        .response {
+            margin-top: 30px;
+            padding: 20px;
+            border-radius: 6px;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            display: none;
+        }
+        
+        .response.success {
+            background: #d4edda;
+            border: 2px solid #c3e6cb;
+            color: #155724;
+            display: block;
+        }
+        
+        .response.error {
+            background: #f8d7da;
+            border: 2px solid #f5c6cb;
+            color: #721c24;
+            display: block;
+        }
+        
+        .examples {
+            margin-top: 30px;
+            padding-top: 30px;
+            border-top: 2px solid #e0e0e0;
+        }
+        
+        .examples h2 {
+            color: #333;
+            font-size: 18px;
+            margin-bottom: 15px;
+        }
+        
+        .example-buttons {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 10px;
+        }
+        
+        .example-btn {
+            padding: 10px;
+            background: #f5f5f5;
+            border: 2px solid #e0e0e0;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-size: 13px;
+        }
+        
+        .example-btn:hover {
+            background: #667eea;
+            color: white;
+            border-color: #667eea;
+        }
+        
+        .status {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 600;
+            margin-left: 10px;
+        }
+        
+        .status.online {
+            background: #d4edda;
+            color: #155724;
+        }
+        
+        .status.offline {
+            background: #f8d7da;
+            color: #721c24;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>
+            Run Server API Demo
+            <span id="status" class="status">Checking...</span>
+        </h1>
+        <p class="subtitle">Execute code remotely in your IDE container</p>
+        
+        <form id="runForm">
+            <div class="form-group">
+                <label for="filename">Filename (relative to /workspace)</label>
+                <input type="text" id="filename" placeholder="e.g., main.py" required>
+            </div>
+            
+            <div class="form-group">
+                <label for="language">Language</label>
+                <select id="language" required>
+                    <option value="">Select a language...</option>
+                    <option value="python">Python</option>
+                    <option value="node">Node.js</option>
+                    <option value="java">Java</option>
+                    <option value="bash">Bash</option>
+                </select>
+            </div>
+            
+            <div class="button-group">
+                <button type="submit" class="btn-primary">▶ Run Code</button>
+                <button type="button" class="btn-secondary" onclick="checkHealth()">🔍 Check Health</button>
+            </div>
+        </form>
+        
+        <div id="response" class="response"></div>
+        
+        <div class="examples">
+            <h2>Quick Examples</h2>
+            <div class="example-buttons">
+                <button class="example-btn" onclick="loadExample('hello.py', 'python')">
+                    🐍 Python Hello
+                </button>
+                <button class="example-btn" onclick="loadExample('hello.js', 'node')">
+                    📦 Node.js Hello
+                </button>
+                <button class="example-btn" onclick="loadExample('Hello', 'java')">
+                    ☕ Java Hello
+                </button>
+                <button class="example-btn" onclick="loadExample('script.sh', 'bash')">
+                    🐚 Bash Script
+                </button>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        const API_URL = 'http://localhost:3000';
+        
+        // Check health on load
+        window.addEventListener('load', checkHealth);
+        
+        async function checkHealth() {
+            const statusEl = document.getElementById('status');
+            statusEl.textContent = 'Checking...';
+            statusEl.className = 'status';
+            
+            try {
+                const response = await fetch(`${API_URL}/health`);
+                const data = await response.json();
+                
+                if (data.status === 'ok') {
+                    statusEl.textContent = 'Online';
+                    statusEl.className = 'status online';
+                    showResponse('Health check passed! Server is ready.', 'success');
+                } else {
+                    throw new Error('Unexpected response');
+                }
+            } catch (error) {
+                statusEl.textContent = 'Offline';
+                statusEl.className = 'status offline';
+                showResponse(`Server is offline. Make sure the container is running.\n\nError: ${error.message}`, 'error');
+            }
+        }
+        
+        document.getElementById('runForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const filename = document.getElementById('filename').value;
+            const language = document.getElementById('language').value;
+            
+            showResponse('Executing...', 'success');
+            
+            try {
+                const response = await fetch(`${API_URL}/run`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ filename, language }),
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    showResponse(
+                        `✅ Success!\n\n` +
+                        `Command: ${data.command}\n` +
+                        `Message: ${data.message}\n` +
+                        `Script: ${data.script_path}\n\n` +
+                        `Check the VS Code terminal at http://localhost:8080 to see the output.`,
+                        'success'
+                    );
+                } else {
+                    showResponse(
+                        `❌ Error\n\n${data.error}`,
+                        'error'
+                    );
+                }
+            } catch (error) {
+                showResponse(
+                    `❌ Network Error\n\n${error.message}\n\n` +
+                    `Make sure the container is running and accessible at ${API_URL}`,
+                    'error'
+                );
+            }
+        });
+        
+        function showResponse(message, type) {
+            const responseEl = document.getElementById('response');
+            responseEl.textContent = message;
+            responseEl.className = `response ${type}`;
+        }
+        
+        function loadExample(filename, language) {
+            document.getElementById('filename').value = filename;
+            document.getElementById('language').value = language;
+            
+            // Scroll to form
+            document.getElementById('runForm').scrollIntoView({ behavior: 'smooth' });
+        }
+    </script>
+</body>
+</html>

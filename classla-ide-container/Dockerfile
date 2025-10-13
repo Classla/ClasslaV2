@@ -61,6 +61,7 @@ RUN apt-get update && apt-get install -y \
     python3-tk \
     python3-dev \
     python3-numpy \
+    python3-psutil \
     # Python GUI dependencies
     libsdl2-2.0-0 \
     libsdl2-image-2.0-0 \
@@ -77,6 +78,11 @@ RUN apt-get update && apt-get install -y \
     fonts-liberation \
     # websockify for noVNC
     python3-websockify \
+    # Flask for run server
+    python3-flask \
+    python3-flask-cors \
+    # tmux for terminal management
+    tmux \
     # Clean up to reduce image size
     && rm -rf /var/lib/apt/lists/*
 
@@ -145,6 +151,18 @@ RUN echo '# Set DISPLAY for GUI applications' >> /home/user/.bashrc && \
     echo '' >> /home/user/.bashrc && \
     echo '# Add local bin to PATH' >> /home/user/.bashrc && \
     echo 'export PATH="$HOME/.local/bin:$PATH"' >> /home/user/.bashrc && \
+    echo '' >> /home/user/.bashrc && \
+    echo '# Auto-attach to tmux session for code execution' >> /home/user/.bashrc && \
+    echo 'if [ -z "$TMUX" ] && [ -n "$TERM_PROGRAM" ]; then' >> /home/user/.bashrc && \
+    echo '    # Check if code_runner session exists' >> /home/user/.bashrc && \
+    echo '    if tmux has-session -t code_runner 2>/dev/null; then' >> /home/user/.bashrc && \
+    echo '        # Attach to existing session' >> /home/user/.bashrc && \
+    echo '        exec tmux attach -t code_runner' >> /home/user/.bashrc && \
+    echo '    else' >> /home/user/.bashrc && \
+    echo '        # Create new session' >> /home/user/.bashrc && \
+    echo '        exec tmux new-session -s code_runner -c /workspace' >> /home/user/.bashrc && \
+    echo '    fi' >> /home/user/.bashrc && \
+    echo 'fi' >> /home/user/.bashrc && \
     chown user:user /home/user/.bashrc
 
 # ============================================================================
@@ -165,13 +183,12 @@ RUN mkdir -p /home/user/.local/share/code-server/User && \
 RUN mkdir -p /home/user/.vnc && \
     chown -R user:user /home/user/.vnc
 
-# Create VNC startup script with IceWM
+# Create VNC startup script with IceWM (black background, no terminal)
 RUN echo '#!/bin/bash' > /home/user/.vnc/xstartup && \
     echo 'xhost +local:' >> /home/user/.vnc/xstartup && \
     echo '[ -r $HOME/.Xresources ] && xrdb $HOME/.Xresources' >> /home/user/.vnc/xstartup && \
     echo 'export DISPLAY=:1' >> /home/user/.vnc/xstartup && \
-    echo 'xsetroot -solid grey &' >> /home/user/.vnc/xstartup && \
-    echo 'xterm -geometry 80x24+10+10 &' >> /home/user/.vnc/xstartup && \
+    echo 'xsetroot -solid black &' >> /home/user/.vnc/xstartup && \
     echo 'exec icewm-session' >> /home/user/.vnc/xstartup && \
     chmod +x /home/user/.vnc/xstartup
 
@@ -180,6 +197,23 @@ RUN echo 'geometry=1920x1080' > /home/user/.vnc/config && \
     echo 'depth=24' >> /home/user/.vnc/config && \
     echo 'dpi=96' >> /home/user/.vnc/config && \
     chown user:user /home/user/.vnc/config
+
+# ============================================================================
+# CONFIGURE TMUX
+# ============================================================================
+RUN mkdir -p /home/user && \
+    echo '# Disable status bar' > /home/user/.tmux.conf && \
+    echo 'set -g status off' >> /home/user/.tmux.conf && \
+    echo '' >> /home/user/.tmux.conf && \
+    echo '# Set default terminal' >> /home/user/.tmux.conf && \
+    echo 'set -g default-terminal "screen-256color"' >> /home/user/.tmux.conf && \
+    echo '' >> /home/user/.tmux.conf && \
+    echo '# Start windows at 1 instead of 0' >> /home/user/.tmux.conf && \
+    echo 'set -g base-index 1' >> /home/user/.tmux.conf && \
+    echo '' >> /home/user/.tmux.conf && \
+    echo '# Enable mouse support' >> /home/user/.tmux.conf && \
+    echo 'set -g mouse on' >> /home/user/.tmux.conf && \
+    chown user:user /home/user/.tmux.conf
 
 # ============================================================================
 # CREATE RCLONE CONFIGURATION FOR S3 SYNC
@@ -196,6 +230,157 @@ RUN mkdir -p /home/user/.config/rclone && \
 # ============================================================================
 # CREATE BACKGROUND SCRIPTS
 # ============================================================================
+
+# Code Runner Web Server with tmux integration and PID tracking
+RUN echo '#!/usr/bin/env python3' > /usr/local/bin/run-server.py && \
+    echo 'from flask import Flask, request, jsonify' >> /usr/local/bin/run-server.py && \
+    echo 'from flask_cors import CORS' >> /usr/local/bin/run-server.py && \
+    echo 'import subprocess' >> /usr/local/bin/run-server.py && \
+    echo 'import os' >> /usr/local/bin/run-server.py && \
+    echo 'import signal' >> /usr/local/bin/run-server.py && \
+    echo 'import time' >> /usr/local/bin/run-server.py && \
+    echo 'import psutil' >> /usr/local/bin/run-server.py && \
+    echo '' >> /usr/local/bin/run-server.py && \
+    echo 'app = Flask(__name__)' >> /usr/local/bin/run-server.py && \
+    echo 'CORS(app)' >> /usr/local/bin/run-server.py && \
+    echo '' >> /usr/local/bin/run-server.py && \
+    echo 'TMUX_SESSION = "code_runner"' >> /usr/local/bin/run-server.py && \
+    echo 'current_pid = None' >> /usr/local/bin/run-server.py && \
+    echo '' >> /usr/local/bin/run-server.py && \
+    echo 'LANGUAGE_COMMANDS = {' >> /usr/local/bin/run-server.py && \
+    echo '    "python": "python3",' >> /usr/local/bin/run-server.py && \
+    echo '    "python3": "python3",' >> /usr/local/bin/run-server.py && \
+    echo '    "node": "node",' >> /usr/local/bin/run-server.py && \
+    echo '    "nodejs": "node",' >> /usr/local/bin/run-server.py && \
+    echo '    "javascript": "node",' >> /usr/local/bin/run-server.py && \
+    echo '    "java": "java",' >> /usr/local/bin/run-server.py && \
+    echo '    "bash": "bash",' >> /usr/local/bin/run-server.py && \
+    echo '    "sh": "sh",' >> /usr/local/bin/run-server.py && \
+    echo '}' >> /usr/local/bin/run-server.py && \
+    echo '' >> /usr/local/bin/run-server.py && \
+    echo 'def ensure_tmux_session():' >> /usr/local/bin/run-server.py && \
+    echo '    """Ensure tmux session exists"""' >> /usr/local/bin/run-server.py && \
+    echo '    result = subprocess.run(' >> /usr/local/bin/run-server.py && \
+    echo '        ["tmux", "has-session", "-t", TMUX_SESSION],' >> /usr/local/bin/run-server.py && \
+    echo '        capture_output=True' >> /usr/local/bin/run-server.py && \
+    echo '    )' >> /usr/local/bin/run-server.py && \
+    echo '    if result.returncode != 0:' >> /usr/local/bin/run-server.py && \
+    echo '        subprocess.run([' >> /usr/local/bin/run-server.py && \
+    echo '            "tmux", "new-session", "-d", "-s", TMUX_SESSION,' >> /usr/local/bin/run-server.py && \
+    echo '            "-c", "/workspace"' >> /usr/local/bin/run-server.py && \
+    echo '        ])' >> /usr/local/bin/run-server.py && \
+    echo '        time.sleep(0.1)' >> /usr/local/bin/run-server.py && \
+    echo '    # Set DISPLAY environment variable in tmux session' >> /usr/local/bin/run-server.py && \
+    echo '    subprocess.run([' >> /usr/local/bin/run-server.py && \
+    echo '        "tmux", "set-environment", "-t", TMUX_SESSION, "DISPLAY", ":1"' >> /usr/local/bin/run-server.py && \
+    echo '    ])' >> /usr/local/bin/run-server.py && \
+    echo '' >> /usr/local/bin/run-server.py && \
+    echo 'def kill_running_process():' >> /usr/local/bin/run-server.py && \
+    echo '    """Kill the currently running process by PID"""' >> /usr/local/bin/run-server.py && \
+    echo '    global current_pid' >> /usr/local/bin/run-server.py && \
+    echo '    if current_pid:' >> /usr/local/bin/run-server.py && \
+    echo '        try:' >> /usr/local/bin/run-server.py && \
+    echo '            process = psutil.Process(current_pid)' >> /usr/local/bin/run-server.py && \
+    echo '            # Kill process and all children silently' >> /usr/local/bin/run-server.py && \
+    echo '            for child in process.children(recursive=True):' >> /usr/local/bin/run-server.py && \
+    echo '                try:' >> /usr/local/bin/run-server.py && \
+    echo '                    child.kill()' >> /usr/local/bin/run-server.py && \
+    echo '                except psutil.NoSuchProcess:' >> /usr/local/bin/run-server.py && \
+    echo '                    pass' >> /usr/local/bin/run-server.py && \
+    echo '            process.kill()' >> /usr/local/bin/run-server.py && \
+    echo '            process.wait(timeout=1)' >> /usr/local/bin/run-server.py && \
+    echo '        except (psutil.NoSuchProcess, Exception):' >> /usr/local/bin/run-server.py && \
+    echo '            pass' >> /usr/local/bin/run-server.py && \
+    echo '        current_pid = None' >> /usr/local/bin/run-server.py && \
+    echo '' >> /usr/local/bin/run-server.py && \
+    echo 'def clear_terminal():' >> /usr/local/bin/run-server.py && \
+    echo '    """Clear the tmux terminal"""' >> /usr/local/bin/run-server.py && \
+    echo '    subprocess.run([' >> /usr/local/bin/run-server.py && \
+    echo '        "tmux", "send-keys", "-t", TMUX_SESSION, "clear", "Enter"' >> /usr/local/bin/run-server.py && \
+    echo '    ])' >> /usr/local/bin/run-server.py && \
+    echo '    time.sleep(0.1)' >> /usr/local/bin/run-server.py && \
+    echo '' >> /usr/local/bin/run-server.py && \
+    echo 'def send_command(command):' >> /usr/local/bin/run-server.py && \
+    echo '    """Execute command in tmux pane"""' >> /usr/local/bin/run-server.py && \
+    echo '    global current_pid' >> /usr/local/bin/run-server.py && \
+    echo '    # Send command (DISPLAY is already set in tmux environment)' >> /usr/local/bin/run-server.py && \
+    echo '    subprocess.run([' >> /usr/local/bin/run-server.py && \
+    echo '        "tmux", "send-keys", "-t", TMUX_SESSION,' >> /usr/local/bin/run-server.py && \
+    echo '        command, "Enter"' >> /usr/local/bin/run-server.py && \
+    echo '    ])' >> /usr/local/bin/run-server.py && \
+    echo '    time.sleep(0.3)' >> /usr/local/bin/run-server.py && \
+    echo '    # Find the PID of the command (child of shell)' >> /usr/local/bin/run-server.py && \
+    echo '    result = subprocess.run(' >> /usr/local/bin/run-server.py && \
+    echo '        ["tmux", "display-message", "-t", TMUX_SESSION, "-p", "#{pane_pid}"],' >> /usr/local/bin/run-server.py && \
+    echo '        capture_output=True, text=True' >> /usr/local/bin/run-server.py && \
+    echo '    )' >> /usr/local/bin/run-server.py && \
+    echo '    try:' >> /usr/local/bin/run-server.py && \
+    echo '        shell_pid = int(result.stdout.strip())' >> /usr/local/bin/run-server.py && \
+    echo '        # Find child process of the shell' >> /usr/local/bin/run-server.py && \
+    echo '        time.sleep(0.2)' >> /usr/local/bin/run-server.py && \
+    echo '        for proc in psutil.process_iter(["pid", "ppid", "name"]):' >> /usr/local/bin/run-server.py && \
+    echo '            if proc.info["ppid"] == shell_pid and proc.info["name"] != "bash":' >> /usr/local/bin/run-server.py && \
+    echo '                current_pid = proc.info["pid"]' >> /usr/local/bin/run-server.py && \
+    echo '                break' >> /usr/local/bin/run-server.py && \
+    echo '        else:' >> /usr/local/bin/run-server.py && \
+    echo '            current_pid = None' >> /usr/local/bin/run-server.py && \
+    echo '    except Exception:' >> /usr/local/bin/run-server.py && \
+    echo '        current_pid = None' >> /usr/local/bin/run-server.py && \
+    echo '' >> /usr/local/bin/run-server.py && \
+    echo '@app.route("/health", methods=["GET"])' >> /usr/local/bin/run-server.py && \
+    echo 'def health():' >> /usr/local/bin/run-server.py && \
+    echo '    return jsonify({"status": "ok"}), 200' >> /usr/local/bin/run-server.py && \
+    echo '' >> /usr/local/bin/run-server.py && \
+    echo '@app.route("/run", methods=["POST"])' >> /usr/local/bin/run-server.py && \
+    echo 'def run_code():' >> /usr/local/bin/run-server.py && \
+    echo '    try:' >> /usr/local/bin/run-server.py && \
+    echo '        data = request.get_json()' >> /usr/local/bin/run-server.py && \
+    echo '        if not data:' >> /usr/local/bin/run-server.py && \
+    echo '            return jsonify({"error": "No JSON data provided"}), 400' >> /usr/local/bin/run-server.py && \
+    echo '        ' >> /usr/local/bin/run-server.py && \
+    echo '        filename = data.get("filename")' >> /usr/local/bin/run-server.py && \
+    echo '        language = data.get("language", "").lower()' >> /usr/local/bin/run-server.py && \
+    echo '        ' >> /usr/local/bin/run-server.py && \
+    echo '        if not filename:' >> /usr/local/bin/run-server.py && \
+    echo '            return jsonify({"error": "filename is required"}), 400' >> /usr/local/bin/run-server.py && \
+    echo '        if not language:' >> /usr/local/bin/run-server.py && \
+    echo '            return jsonify({"error": "language is required"}), 400' >> /usr/local/bin/run-server.py && \
+    echo '        ' >> /usr/local/bin/run-server.py && \
+    echo '        # Get command for language' >> /usr/local/bin/run-server.py && \
+    echo '        cmd = LANGUAGE_COMMANDS.get(language)' >> /usr/local/bin/run-server.py && \
+    echo '        if not cmd:' >> /usr/local/bin/run-server.py && \
+    echo '            return jsonify({"error": f"Unsupported language: {language}"}), 400' >> /usr/local/bin/run-server.py && \
+    echo '        ' >> /usr/local/bin/run-server.py && \
+    echo '        # Build full path' >> /usr/local/bin/run-server.py && \
+    echo '        filepath = os.path.join("/workspace", filename)' >> /usr/local/bin/run-server.py && \
+    echo '        if not os.path.exists(filepath):' >> /usr/local/bin/run-server.py && \
+    echo '            return jsonify({"error": f"File not found: {filename}"}), 404' >> /usr/local/bin/run-server.py && \
+    echo '        ' >> /usr/local/bin/run-server.py && \
+    echo '        # Ensure tmux session exists' >> /usr/local/bin/run-server.py && \
+    echo '        ensure_tmux_session()' >> /usr/local/bin/run-server.py && \
+    echo '        ' >> /usr/local/bin/run-server.py && \
+    echo '        # Kill any running process' >> /usr/local/bin/run-server.py && \
+    echo '        kill_running_process()' >> /usr/local/bin/run-server.py && \
+    echo '        ' >> /usr/local/bin/run-server.py && \
+    echo '        # Clear terminal' >> /usr/local/bin/run-server.py && \
+    echo '        clear_terminal()' >> /usr/local/bin/run-server.py && \
+    echo '        ' >> /usr/local/bin/run-server.py && \
+    echo '        # Build and send command' >> /usr/local/bin/run-server.py && \
+    echo '        command = f"{cmd} {filename}"' >> /usr/local/bin/run-server.py && \
+    echo '        send_command(command)' >> /usr/local/bin/run-server.py && \
+    echo '        ' >> /usr/local/bin/run-server.py && \
+    echo '        return jsonify({' >> /usr/local/bin/run-server.py && \
+    echo '            "status": "success",' >> /usr/local/bin/run-server.py && \
+    echo '            "message": f"Executed: {command}",' >> /usr/local/bin/run-server.py && \
+    echo '            "command": command,' >> /usr/local/bin/run-server.py && \
+    echo '            "tmux_session": TMUX_SESSION' >> /usr/local/bin/run-server.py && \
+    echo '        }), 200' >> /usr/local/bin/run-server.py && \
+    echo '    except Exception as e:' >> /usr/local/bin/run-server.py && \
+    echo '        return jsonify({"error": str(e)}), 500' >> /usr/local/bin/run-server.py && \
+    echo '' >> /usr/local/bin/run-server.py && \
+    echo 'if __name__ == "__main__":' >> /usr/local/bin/run-server.py && \
+    echo '    app.run(host="0.0.0.0", port=3000, debug=False)' >> /usr/local/bin/run-server.py && \
+    chmod +x /usr/local/bin/run-server.py
 
 # Rclone Bidirectional S3 Sync Loop
 RUN echo '#!/bin/bash' > /usr/local/bin/rclone-sync-loop.sh && \
@@ -282,6 +467,10 @@ RUN echo '#!/bin/bash' > /usr/local/bin/entrypoint.sh && \
     echo '    sed -i "s/region = .*/region = $S3_REGION/" /home/user/.config/rclone/rclone.conf' >> /usr/local/bin/entrypoint.sh && \
     echo 'fi' >> /usr/local/bin/entrypoint.sh && \
     echo '' >> /usr/local/bin/entrypoint.sh && \
+    echo '# Start run server' >> /usr/local/bin/entrypoint.sh && \
+    echo 'echo "Starting run server on port 3000..."' >> /usr/local/bin/entrypoint.sh && \
+    echo 'su - user -c "python3 /usr/local/bin/run-server.py" &' >> /usr/local/bin/entrypoint.sh && \
+    echo '' >> /usr/local/bin/entrypoint.sh && \
     echo '# Start code-server FIRST (fastest to start)' >> /usr/local/bin/entrypoint.sh && \
     echo 'echo "Starting code-server on port 8080..."' >> /usr/local/bin/entrypoint.sh && \
     echo 'su - user -c "cd /workspace && code-server --bind-addr 0.0.0.0:8080 --auth none --disable-telemetry /workspace" &' >> /usr/local/bin/entrypoint.sh && \
@@ -321,6 +510,7 @@ RUN echo '#!/bin/bash' > /usr/local/bin/entrypoint.sh && \
     echo 'echo ""' >> /usr/local/bin/entrypoint.sh && \
     echo 'echo "  VS Code:     http://localhost:8080"' >> /usr/local/bin/entrypoint.sh && \
     echo 'echo "  GUI Desktop: http://localhost:6080"' >> /usr/local/bin/entrypoint.sh && \
+    echo 'echo "  Run Server:  http://localhost:3000"' >> /usr/local/bin/entrypoint.sh && \
     echo 'echo ""' >> /usr/local/bin/entrypoint.sh && \
     echo 'echo "Languages available:"' >> /usr/local/bin/entrypoint.sh && \
     echo 'echo "  Python 3.10 with tkinter and pip"' >> /usr/local/bin/entrypoint.sh && \
@@ -336,7 +526,7 @@ RUN echo '#!/bin/bash' > /usr/local/bin/entrypoint.sh && \
 # ============================================================================
 # EXPOSE PORTS
 # ============================================================================
-EXPOSE 8080 6080
+EXPOSE 8080 6080 3000
 
 # ============================================================================
 # SET WORKING DIRECTORY

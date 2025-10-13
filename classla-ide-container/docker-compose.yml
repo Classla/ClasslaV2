@@ -1,4 +1,4 @@
-version: '3.8'
+version: "3.8"
 
 services:
   # Main development container
@@ -9,41 +9,42 @@ services:
     image: fargate-dev-container:latest
     container_name: fargate-dev-container
     ports:
-      - "8080:8080"  # code-server
-      - "6080:6080"  # noVNC
+      - "8080:8080" # code-server
+      - "6080:6080" # noVNC
+      - "3000:3000" # run server
     environment:
       # Code-server and VNC passwords
       - PASSWORD=code-server-password
       - VNC_PASSWORD=vncpassword
-      
+
       # S3 configuration (comment out if not using S3)
       # - S3_BUCKET=your-bucket-name
       # - S3_REGION=us-east-1
-      
+
       # For local testing with AWS credentials (not recommended for production)
       # - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
       # - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
-      
+
       # Disable inactivity shutdown for local development
       - ENABLE_INACTIVITY_SHUTDOWN=false
-    
+
     # Optional: mount a local directory for persistent development
     # volumes:
     #   - ./workspace:/workspace
-    
+
     # Resource limits (adjust as needed)
     deploy:
       resources:
         limits:
-          cpus: '2'
+          cpus: "2"
           memory: 4G
         reservations:
-          cpus: '1'
+          cpus: "1"
           memory: 2G
-    
+
     # Restart policy
     restart: unless-stopped
-    
+
     # Health check
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080"]
@@ -57,8 +58,8 @@ services:
     image: quay.io/minio/minio:latest
     container_name: minio
     ports:
-      - "9000:9000"  # S3 API
-      - "9001:9001"  # Web Console
+      - "9000:9000" # S3 API
+      - "9001:9001" # Web Console
     environment:
       - MINIO_ROOT_USER=minioadmin
       - MINIO_ROOT_PASSWORD=minioadmin
@@ -67,14 +68,13 @@ services:
       - minio-data:/data
     restart: unless-stopped
     profiles:
-      - with-s3  # Only start when 'with-s3' profile is active
+      - with-s3 # Only start when 'with-s3' profile is active
 
 volumes:
   minio-data:
     driver: local
-
 # Usage examples:
-# 
+#
 # Start without S3:
 #   docker-compose up -d
 #
