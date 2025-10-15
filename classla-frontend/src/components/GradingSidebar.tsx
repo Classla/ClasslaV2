@@ -250,6 +250,7 @@ const GradingSidebar: React.FC<GradingSidebarProps> = ({
             assignmentId={assignment.id}
             studentId={selectedStudent.userId}
             courseId={courseId}
+            submissionId={selectedStudent.latestSubmission?.id}
             onUpdate={handleGraderUpdate}
             autoSave={true}
           />

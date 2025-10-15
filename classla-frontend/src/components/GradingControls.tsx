@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import { Grader } from "../types";
+import { Grader, RubricSchema, Rubric } from "../types";
 import { Input } from "./ui/input";
 import { Textarea } from "./ui/textarea";
 import { Checkbox } from "./ui/checkbox";
@@ -7,12 +7,15 @@ import { Label } from "./ui/label";
 import { useToast } from "../hooks/use-toast";
 import { useEnsureGrader } from "../hooks/useEnsureGrader";
 import { Loader2 } from "lucide-react";
+import { apiClient } from "../lib/api";
+import RubricGrading from "./RubricGrading";
 
 interface GradingControlsProps {
   grader: Grader | null;
   assignmentId: string;
   studentId: string;
   courseId: string;
+  submissionId?: string;
   onUpdate: (updates: Partial<Grader>) => void;
   onGraderCreated?: (grader: Grader) => void;
   autoSave?: boolean;
@@ -24,6 +27,7 @@ export const GradingControls: React.FC<GradingControlsProps> = React.memo(
     assignmentId,
     studentId,
     courseId,
+    submissionId,
     onUpdate,
     onGraderCreated,
     autoSave = true,
@@ -31,6 +35,9 @@ export const GradingControls: React.FC<GradingControlsProps> = React.memo(
     const { toast } = useToast();
     const [isSaving, setIsSaving] = useState(false);
     const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+    const [rubricSchema, setRubricSchema] = useState<RubricSchema | null>(null);
+    const [rubric, setRubric] = useState<Rubric | null>(null);
+    const [isLoadingRubric, setIsLoadingRubric] = useState(true);
 
     // Use the ensureGrader hook for auto-creation
     const { grader, isCreating, ensureGrader } = useEnsureGrader(
@@ -66,6 +73,54 @@ export const GradingControls: React.FC<GradingControlsProps> = React.memo(
       setIsReviewed(!!grader?.reviewed_at);
     }, [grader]);
 
+    // Load rubric schema and rubric instance
+    useEffect(() => {
+      const loadRubric = async () => {
+        try {
+          setIsLoadingRubric(true);
+          // Load rubric schema
+          const schemaResponse = await apiClient.getRubricSchema(assignmentId);
+          const schema = schemaResponse.data;
+          setRubricSchema(schema);
+
+          // Load rubric instance if submission exists
+          if (submissionId) {
+            try {
+              const rubricResponse = await apiClient.getRubric(submissionId);
+              const rubricData = rubricResponse.data;
+              setRubric(rubricData);
+
+              // Calculate and update raw_rubric_score if grader exists
+              if (grader && rubricData.values) {
+                const rubricScore = rubricData.values.reduce(
+                  (sum: number, val: number) => sum + val,
+                  0
+                );
+                // Only update if the score is different
+                if (grader.raw_rubric_score !== rubricScore) {
+                  await onUpdate({ raw_rubric_score: rubricScore });
+                }
+              }
+            } catch (error: any) {
+              // 404 is expected if no rubric instance exists yet
+              if (error.statusCode !== 404) {
+                console.error("Failed to load rubric:", error);
+              }
+            }
+          }
+        } catch (error: any) {
+          // 404 is expected if no rubric schema exists
+          if (error.statusCode !== 404) {
+            console.error("Failed to load rubric schema:", error);
+          }
+        } finally {
+          setIsLoadingRubric(false);
+        }
+      };
+
+      loadRubric();
+    }, [assignmentId, submissionId, grader, onUpdate]);
+
     // Cleanup timeout on unmount
     useEffect(() => {
       return () => {
@@ -74,6 +129,15 @@ export const GradingControls: React.FC<GradingControlsProps> = React.memo(
         }
       };
     }, []);
+
+    // Calculate rubric score from values
+    const calculateRubricScore = useCallback(
+      (values: number[]): number => {
+        if (!rubricSchema) return 0;
+        return values.reduce((sum, val) => sum + val, 0);
+      },
+      [rubricSchema]
+    );
 
     // Calculate final grade
     const calculateFinalGrade = useCallback(
@@ -150,6 +214,39 @@ export const GradingControls: React.FC<GradingControlsProps> = React.memo(
         });
       } finally {
         setIsSaving(false);
+      }
+    };
+
+    const handleRubricUpdate = async (values: number[]) => {
+      if (!rubricSchema || !submissionId) return;
+
+      try {
+        const rubricScore = calculateRubricScore(values);
+
+        if (rubric) {
+          // Update existing rubric
+          await apiClient.updateRubric(rubric.id, { values });
+        } else {
+          // Create new rubric
+          const response = await apiClient.createRubric({
+            submission_id: submissionId,
+            rubric_schema_id: rubricSchema.id,
+            values,
+          });
+          setRubric(response.data);
+        }
+
+        // Update grader's raw_rubric_score
+        if (grader) {
+          await onUpdate({ raw_rubric_score: rubricScore });
+        }
+      } catch (error) {
+        console.error("Error updating rubric:", error);
+        toast({
+          title: "Error",
+          description: "Failed to update rubric scores",
+          variant: "destructive",
+        });
       }
     };
 
@@ -321,6 +418,18 @@ export const GradingControls: React.FC<GradingControlsProps> = React.memo(
             </div>
           </div>
         </div>
+
+        {/* Rubric Grading */}
+        {!isLoadingRubric && rubricSchema && (
+          <div className="pt-4">
+            <RubricGrading
+              rubricSchema={rubricSchema}
+              rubric={rubric}
+              onUpdate={handleRubricUpdate}
+              disabled={isCreating}
+            />
+          </div>
+        )}
 
         {/* Feedback textarea */}
         <div className="space-y-2">

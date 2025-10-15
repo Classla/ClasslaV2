@@ -1,8 +1,9 @@
-import React, { useState } from "react";
-import { HelpCircle } from "lucide-react";
-import { Assignment, AssignmentSettings } from "../types";
+import React, { useState, useEffect } from "react";
+import { HelpCircle, ChevronDown, ChevronRight } from "lucide-react";
+import { Assignment, AssignmentSettings, RubricSchema } from "../types";
 import { apiClient } from "../lib/api";
 import { useToast } from "../hooks/use-toast";
+import RubricEditor from "./RubricEditor";
 
 interface AssignmentSettingsPanelProps {
   assignment: Assignment;
@@ -15,6 +16,9 @@ const AssignmentSettingsPanel: React.FC<AssignmentSettingsPanelProps> = ({
 }) => {
   const { toast } = useToast();
   const [isSaving, setIsSaving] = useState(false);
+  const [rubricSchema, setRubricSchema] = useState<RubricSchema | null>(null);
+  const [isLoadingRubric, setIsLoadingRubric] = useState(true);
+  const [showRubricSection, setShowRubricSection] = useState(false);
 
   // Initialize settings with defaults
   const [settings, setSettings] = useState<AssignmentSettings>({
@@ -25,6 +29,26 @@ const AssignmentSettingsPanel: React.FC<AssignmentSettingsPanelProps> = ({
     showScoreAfterSubmission:
       assignment.settings?.showScoreAfterSubmission ?? false,
   });
+
+  // Load rubric schema
+  useEffect(() => {
+    const loadRubricSchema = async () => {
+      try {
+        setIsLoadingRubric(true);
+        const response = await apiClient.getRubricSchema(assignment.id);
+        setRubricSchema(response.data);
+      } catch (error: any) {
+        // 404 is expected if no rubric exists
+        if (error.statusCode !== 404) {
+          console.error("Failed to load rubric schema:", error);
+        }
+      } finally {
+        setIsLoadingRubric(false);
+      }
+    };
+
+    loadRubricSchema();
+  }, [assignment.id]);
 
   const handleToggle = async (key: keyof typeof settings) => {
     const newValue = !settings[key];
@@ -61,6 +85,66 @@ const AssignmentSettingsPanel: React.FC<AssignmentSettingsPanelProps> = ({
       });
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const handleSaveRubric = async (schema: Partial<RubricSchema>) => {
+    try {
+      if (rubricSchema) {
+        // Update existing rubric
+        const response = await apiClient.updateRubricSchema(
+          rubricSchema.id,
+          schema
+        );
+        setRubricSchema(response.data);
+        toast({
+          title: "Rubric updated",
+          description: "Rubric has been updated successfully.",
+        });
+      } else {
+        // Create new rubric
+        const response = await apiClient.createRubricSchema({
+          assignment_id: assignment.id,
+          title: schema.title!,
+          type: schema.type!,
+          use_for_grading: schema.use_for_grading,
+          items: schema.items!,
+        });
+        setRubricSchema(response.data);
+        toast({
+          title: "Rubric created",
+          description: "Rubric has been created successfully.",
+        });
+      }
+    } catch (error: any) {
+      console.error("Failed to save rubric:", error);
+      toast({
+        title: "Error saving rubric",
+        description: error.message || "Failed to save rubric",
+        variant: "destructive",
+      });
+      throw error;
+    }
+  };
+
+  const handleDeleteRubric = async () => {
+    if (!rubricSchema) return;
+
+    try {
+      await apiClient.deleteRubricSchema(rubricSchema.id);
+      setRubricSchema(null);
+      toast({
+        title: "Rubric deleted",
+        description: "Rubric has been deleted successfully.",
+      });
+    } catch (error: any) {
+      console.error("Failed to delete rubric:", error);
+      toast({
+        title: "Error deleting rubric",
+        description: error.message || "Failed to delete rubric",
+        variant: "destructive",
+      });
+      throw error;
     }
   };
 
@@ -196,6 +280,45 @@ const AssignmentSettingsPanel: React.FC<AssignmentSettingsPanelProps> = ({
               }`}
             />
           </button>
+        </div>
+
+        {/* Rubric Configuration */}
+        <div className="space-y-2 pt-4 border-t border-gray-200">
+          <button
+            onClick={() => setShowRubricSection(!showRubricSection)}
+            className="w-full flex items-center justify-between text-left"
+          >
+            <div className="flex items-start gap-2">
+              <HelpCircle className="w-4 h-4 text-purple-600 mt-0.5 flex-shrink-0" />
+              <div className="flex-1">
+                <h3 className="text-sm font-medium text-gray-900 mb-1">
+                  Grading Rubric
+                </h3>
+                <p className="text-xs text-gray-600">
+                  Configure criteria and point values for manual grading
+                </p>
+              </div>
+            </div>
+            {showRubricSection ? (
+              <ChevronDown className="w-5 h-5 text-gray-400" />
+            ) : (
+              <ChevronRight className="w-5 h-5 text-gray-400" />
+            )}
+          </button>
+
+          {showRubricSection && (
+            <div className="pl-6 pt-2">
+              {isLoadingRubric ? (
+                <div className="text-sm text-gray-600">Loading rubric...</div>
+              ) : (
+                <RubricEditor
+                  rubricSchema={rubricSchema}
+                  onSave={handleSaveRubric}
+                  onDelete={rubricSchema ? handleDeleteRubric : undefined}
+                />
+              )}
+            </div>
+          )}
         </div>
       </div>
 

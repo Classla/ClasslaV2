@@ -118,11 +118,18 @@ export interface Rubric {
   values: number[]; // Scores for each rubric item
 }
 
+// Rubric type enum
+export enum RubricType {
+  CHECKBOX = "checkbox", // All or nothing - checkbox for each criterion
+  NUMERICAL = "numerical", // Scale-based - numerical input for each criterion
+}
+
 // Rubric schema (template/definition)
 export interface RubricSchema {
   id: string;
   assignment_id: string;
   title: string;
+  type: RubricType; // Type of rubric (checkbox or numerical)
   use_for_grading: boolean;
   items: RubricItem[];
 }
@@ -130,7 +137,8 @@ export interface RubricSchema {
 // Individual rubric item
 export interface RubricItem {
   title: string;
-  points: number;
+  points: number; // Can be negative for checkbox rubrics
+  isExtraCredit?: boolean; // If true, not counted towards total assignment points
 }
 
 // Course Enrollment entity (handles course-specific roles)

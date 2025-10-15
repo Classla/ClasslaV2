@@ -308,6 +308,35 @@ export const apiClient = {
     submissionId: string
   ): Promise<AxiosResponse<AutogradeResponse>> =>
     api.post(`/autograder/grade/${submissionId}`),
+
+  // Rubric endpoints
+  getRubricSchema: (assignmentId: string) =>
+    api.get(`/rubric-schema/${assignmentId}`),
+  createRubricSchema: (data: {
+    assignment_id: string;
+    title: string;
+    type: string;
+    use_for_grading?: boolean;
+    items: Array<{ title: string; points: number }>;
+  }) => api.post("/rubric-schema", data),
+  updateRubricSchema: (
+    id: string,
+    data: {
+      title?: string;
+      type?: string;
+      use_for_grading?: boolean;
+      items?: Array<{ title: string; points: number }>;
+    }
+  ) => api.put(`/rubric-schema/${id}`, data),
+  deleteRubricSchema: (id: string) => api.delete(`/rubric-schema/${id}`),
+  getRubric: (submissionId: string) => api.get(`/rubric/${submissionId}`),
+  createRubric: (data: {
+    submission_id: string;
+    rubric_schema_id: string;
+    values: number[];
+  }) => api.post("/rubric", data),
+  updateRubric: (id: string, data: { values: number[] }) =>
+    api.put(`/rubric/${id}`, data),
 };
 
 export default api;

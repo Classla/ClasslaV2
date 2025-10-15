@@ -7,7 +7,7 @@ import { Card } from "../components/ui/card";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Calendar, Users, Eye, Settings } from "lucide-react";
-import { Assignment, UserRole } from "../types";
+import { Assignment, UserRole, RubricSchema } from "../types";
 import PublishAssignmentModal from "../components/PublishAssignmentModal";
 import DueDatesModal from "../components/DueDatesModal";
 import AssignmentSettingsPanel from "../components/AssignmentSettingsPanel";
@@ -69,6 +69,7 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
   const [selectedSubmissionId, setSelectedSubmissionId] = useState<
     string | undefined
   >(undefined);
+  const [rubricSchema, setRubricSchema] = useState<RubricSchema | null>(null);
 
   // Wait for user role to be determined before making API calls
   const effectiveIsStudent = isStudent ?? false;
@@ -261,11 +262,30 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
     });
   };
 
-  // Calculate total points from assignment content using memoization
+  // Load rubric schema
+  useEffect(() => {
+    const loadRubricSchema = async () => {
+      if (!assignmentId) return;
+
+      try {
+        const response = await apiClient.getRubricSchema(assignmentId);
+        setRubricSchema(response.data);
+      } catch (error: any) {
+        // 404 is expected if no rubric exists
+        if (error.statusCode !== 404) {
+          console.error("Failed to load rubric schema:", error);
+        }
+      }
+    };
+
+    loadRubricSchema();
+  }, [assignmentId]);
+
+  // Calculate total points from assignment content and rubric using memoization
   const totalPoints = useMemo(() => {
     if (!assignment?.content) return 0;
-    return calculateAssignmentPoints(assignment.content);
-  }, [assignment?.content]);
+    return calculateAssignmentPoints(assignment.content, rubricSchema);
+  }, [assignment?.content, rubricSchema]);
 
   const handleStartAssignment = async () => {
     if (!assignment || !user?.id) return;

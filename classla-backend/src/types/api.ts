@@ -195,6 +195,7 @@ export interface CreateGraderWithSubmissionResponse {
 export interface CreateRubricSchemaRequest {
   assignment_id: string;
   title: string;
+  type: string; // RubricType enum value
   use_for_grading?: boolean;
   items: Array<{
     title: string;

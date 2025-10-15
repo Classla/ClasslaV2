@@ -166,14 +166,22 @@ interface RubricSchema {
   id: string;
   assignment_id: string;
   title: string;
+  type: RubricType; // Type of rubric (checkbox or numerical)
   use_for_grading: boolean;
   items: RubricItem[];
+}
+
+// Rubric type enum
+enum RubricType {
+  CHECKBOX = "checkbox", // All or nothing - checkbox for each criterion
+  NUMERICAL = "numerical", // Scale-based - numerical input for each criterion
 }
 
 // Individual rubric item
 interface RubricItem {
   title: string;
-  points: number;
+  points: number; // Can be negative for checkbox rubrics
+  isExtraCredit?: boolean; // If true, not counted towards total assignment points
 }
 
 // Course Enrollment entity (handles course-specific roles)
@@ -227,6 +235,7 @@ export {
   BlockScore,
   Rubric,
   RubricSchema,
+  RubricType,
   RubricItem,
   JoinLink,
   AutogradeResponse,
