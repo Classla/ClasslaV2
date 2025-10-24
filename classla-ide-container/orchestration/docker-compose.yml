@@ -1,0 +1,111 @@
+version: "3.8"
+
+services:
+  traefik:
+    image: traefik:v2.10
+    command:
+      - "--api.dashboard=true"
+      - "--api.insecure=false"
+      - "--providers.docker.swarmMode=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--providers.docker.network=ide-network"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.web.http.redirections.entryPoint.to=websecure"
+      - "--entrypoints.web.http.redirections.entryPoint.scheme=https"
+      - "--entrypoints.websecure.address=:443"
+      # TLS Configuration
+      - "--entrypoints.websecure.http.tls.options=default@file"
+      # Security Headers
+      - "--entrypoints.websecure.http.middlewares=security-headers@docker"
+      - "--certificatesresolvers.letsencrypt.acme.httpchallenge=true"
+      - "--certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web"
+      - "--certificatesresolvers.letsencrypt.acme.email=${ACME_EMAIL}"
+      - "--certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json"
+      # Enable file provider for TLS options
+      - "--providers.file.directory=/etc/traefik/dynamic"
+      - "--providers.file.watch=true"
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - traefik-certs:/letsencrypt
+      - ./traefik-dynamic.yml:/etc/traefik/dynamic/traefik-dynamic.yml:ro
+    networks:
+      - ide-network
+    deploy:
+      placement:
+        constraints:
+          - node.role == manager
+      labels:
+        - "traefik.enable=true"
+        # Traefik Dashboard
+        - "traefik.http.routers.traefik-dashboard.rule=Host(`traefik.${DOMAIN}`)"
+        - "traefik.http.routers.traefik-dashboard.entrypoints=websecure"
+        - "traefik.http.routers.traefik-dashboard.tls.certresolver=letsencrypt"
+        - "traefik.http.routers.traefik-dashboard.service=api@internal"
+        - "traefik.http.services.traefik-dashboard.loadbalancer.server.port=8080"
+
+  management-api:
+    image: ${REGISTRY:-local}/ide-orchestration-api:${VERSION:-latest}
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      - NODE_ENV=production
+      - PORT=3001
+      - API_KEYS=${API_KEYS}
+      - DOMAIN=${DOMAIN}
+      - AWS_REGION=${AWS_REGION:-us-east-1}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - DATABASE_PATH=/app/data/containers.db
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - RESOURCE_CPU_LIMIT=${RESOURCE_CPU_LIMIT:-2}
+      - RESOURCE_MEMORY_LIMIT=${RESOURCE_MEMORY_LIMIT:-4294967296}
+      - RESOURCE_CPU_THRESHOLD=${RESOURCE_CPU_THRESHOLD:-90}
+      - RESOURCE_MEMORY_THRESHOLD=${RESOURCE_MEMORY_THRESHOLD:-90}
+      - HEALTH_CHECK_INTERVAL=${HEALTH_CHECK_INTERVAL:-30000}
+      - HEALTH_CHECK_TIMEOUT=${HEALTH_CHECK_TIMEOUT:-5000}
+      - HEALTH_CHECK_RETRIES=${HEALTH_CHECK_RETRIES:-3}
+      - CONTAINER_RESTART_POLICY=${CONTAINER_RESTART_POLICY:-on-failure}
+      - CONTAINER_RESTART_MAX_ATTEMPTS=${CONTAINER_RESTART_MAX_ATTEMPTS:-3}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - api-data:/app/data
+    networks:
+      - ide-network
+    deploy:
+      placement:
+        constraints:
+          - node.role == manager
+      labels:
+        - "traefik.enable=true"
+        # Management API
+        - "traefik.http.routers.management-api.rule=Host(`api.${DOMAIN}`)"
+        - "traefik.http.routers.management-api.entrypoints=websecure"
+        - "traefik.http.routers.management-api.tls.certresolver=letsencrypt"
+        - "traefik.http.services.management-api.loadbalancer.server.port=3001"
+        # Dashboard UI
+        - "traefik.http.routers.dashboard.rule=Host(`dashboard.${DOMAIN}`)"
+        - "traefik.http.routers.dashboard.entrypoints=websecure"
+        - "traefik.http.routers.dashboard.tls.certresolver=letsencrypt"
+        - "traefik.http.services.dashboard.loadbalancer.server.port=3001"
+
+networks:
+  ide-network:
+    driver: overlay
+    attachable: true
+    driver_opts:
+      # Enable encryption for network traffic between nodes
+      encrypted: "true"
+    ipam:
+      config:
+        # Use a dedicated subnet for IDE containers
+        - subnet: 10.10.0.0/16
+
+volumes:
+  traefik-certs:
+    driver: local
+  api-data:
+    driver: local

@@ -426,12 +426,19 @@ RUN echo '#!/bin/bash' > /usr/local/bin/inactivity-monitor.sh && \
     echo '    echo "No file changes detected for ${TIMEOUT_SECONDS} seconds"' >> /usr/local/bin/inactivity-monitor.sh && \
     echo '    echo "Performing final S3 sync before shutdown..."' >> /usr/local/bin/inactivity-monitor.sh && \
     echo '    echo "========================================="' >> /usr/local/bin/inactivity-monitor.sh && \
+    echo '    # Stop the rclone sync loop first' >> /usr/local/bin/inactivity-monitor.sh && \
+    echo '    pkill -f "rclone-sync-loop.sh" || true' >> /usr/local/bin/inactivity-monitor.sh && \
+    echo '    pkill -f "rclone sync" || true' >> /usr/local/bin/inactivity-monitor.sh && \
+    echo '    sleep 2' >> /usr/local/bin/inactivity-monitor.sh && \
+    echo '    # Perform final sync' >> /usr/local/bin/inactivity-monitor.sh && \
     echo '    if [ -n "$S3_BUCKET" ]; then' >> /usr/local/bin/inactivity-monitor.sh && \
-    echo '        rclone sync "$WORKSPACE_PATH" "s3:${S3_BUCKET}" --progress --verbose' >> /usr/local/bin/inactivity-monitor.sh && \
+    echo '        rclone sync "$WORKSPACE_PATH" "s3:${S3_BUCKET}" --progress --verbose || true' >> /usr/local/bin/inactivity-monitor.sh && \
     echo '        echo "Final sync complete"' >> /usr/local/bin/inactivity-monitor.sh && \
     echo '    fi' >> /usr/local/bin/inactivity-monitor.sh && \
     echo '    echo "Initiating container shutdown..."' >> /usr/local/bin/inactivity-monitor.sh && \
-    echo '    kill 1' >> /usr/local/bin/inactivity-monitor.sh && \
+    echo '    # Kill all processes and exit' >> /usr/local/bin/inactivity-monitor.sh && \
+    echo '    killall5 -9 || true' >> /usr/local/bin/inactivity-monitor.sh && \
+    echo '    exit 0' >> /usr/local/bin/inactivity-monitor.sh && \
     echo '}' >> /usr/local/bin/inactivity-monitor.sh && \
     echo 'while true; do' >> /usr/local/bin/inactivity-monitor.sh && \
     echo '    if ! inotifywait -r -t $TIMEOUT_SECONDS -e modify -e create -e delete -e move "$WORKSPACE_PATH" &>/dev/null; then' >> /usr/local/bin/inactivity-monitor.sh && \
@@ -490,7 +497,7 @@ RUN echo '#!/bin/bash' > /usr/local/bin/entrypoint.sh && \
     echo '# Start rclone sync loop (if S3_BUCKET is set)' >> /usr/local/bin/entrypoint.sh && \
     echo 'if [ -n "$S3_BUCKET" ]; then' >> /usr/local/bin/entrypoint.sh && \
     echo '    echo "Starting rclone sync loop for bucket: $S3_BUCKET..."' >> /usr/local/bin/entrypoint.sh && \
-    echo '    su - user -c "/usr/local/bin/rclone-sync-loop.sh" &' >> /usr/local/bin/entrypoint.sh && \
+    echo '    su user -c "S3_BUCKET=$S3_BUCKET S3_REGION=$S3_REGION AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY /usr/local/bin/rclone-sync-loop.sh" &' >> /usr/local/bin/entrypoint.sh && \
     echo 'else' >> /usr/local/bin/entrypoint.sh && \
     echo '    echo "WARNING: S3_BUCKET not set, skipping rclone sync"' >> /usr/local/bin/entrypoint.sh && \
     echo 'fi' >> /usr/local/bin/entrypoint.sh && \

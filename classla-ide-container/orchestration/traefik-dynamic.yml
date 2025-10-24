@@ -1,0 +1,58 @@
+# Traefik Dynamic Configuration
+# This file configures TLS options and security headers
+
+http:
+  middlewares:
+    # Security headers middleware
+    security-headers:
+      headers:
+        # HSTS (HTTP Strict Transport Security)
+        stsSeconds: 31536000 # 1 year
+        stsIncludeSubdomains: true
+        stsPreload: true
+
+        # Security headers
+        forceSTSHeader: true
+        frameDeny: true
+        contentTypeNosniff: true
+        browserXssFilter: true
+        referrerPolicy: "strict-origin-when-cross-origin"
+
+        # Content Security Policy
+        contentSecurityPolicy: "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' wss: https:; frame-ancestors 'self';"
+
+        # Additional security headers
+        customResponseHeaders:
+          X-Robots-Tag: "noindex, nofollow"
+          X-Content-Type-Options: "nosniff"
+          X-Frame-Options: "SAMEORIGIN"
+          X-XSS-Protection: "1; mode=block"
+          Permissions-Policy: "geolocation=(), microphone=(), camera=()"
+
+tls:
+  options:
+    default:
+      minVersion: VersionTLS12
+      maxVersion: VersionTLS13
+
+      # Secure cipher suites (TLS 1.2)
+      cipherSuites:
+        - TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256
+        - TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384
+        - TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256
+        - TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384
+        - TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305
+        - TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305
+
+      # Prefer server cipher suites
+      preferServerCipherSuites: true
+
+      # Curve preferences
+      curvePreferences:
+        - CurveP521
+        - CurveP384
+
+      # ALPN protocols
+      alpnProtocols:
+        - h2
+        - http/1.1

@@ -1,0 +1,522 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IDE Container Test Page</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: #1a1a1a;
+            color: #e0e0e0;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            color: #4CAF50;
+            margin-bottom: 10px;
+        }
+
+        .subtitle {
+            color: #888;
+            margin-bottom: 30px;
+        }
+
+        .section {
+            background: #2a2a2a;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            border: 1px solid #333;
+        }
+
+        .section h2 {
+            color: #4CAF50;
+            margin-bottom: 15px;
+            font-size: 18px;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+            color: #aaa;
+            font-size: 14px;
+        }
+
+        input, select {
+            width: 100%;
+            padding: 10px;
+            background: #1a1a1a;
+            border: 1px solid #444;
+            border-radius: 4px;
+            color: #e0e0e0;
+            font-size: 14px;
+        }
+
+        input:focus, select:focus {
+            outline: none;
+            border-color: #4CAF50;
+        }
+
+        button {
+            background: #4CAF50;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: background 0.2s;
+        }
+
+        button:hover {
+            background: #45a049;
+        }
+
+        button:disabled {
+            background: #555;
+            cursor: not-allowed;
+        }
+
+        .button-group {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .status {
+            padding: 10px;
+            border-radius: 4px;
+            margin-top: 15px;
+            font-size: 14px;
+        }
+
+        .status.success {
+            background: #1b5e20;
+            border: 1px solid #4CAF50;
+        }
+
+        .status.error {
+            background: #5e1b1b;
+            border: 1px solid #f44336;
+        }
+
+        .status.info {
+            background: #1b3a5e;
+            border: 1px solid #2196F3;
+        }
+
+        .iframe-container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-top: 20px;
+        }
+
+        .iframe-wrapper {
+            background: #1a1a1a;
+            border-radius: 8px;
+            overflow: hidden;
+            border: 1px solid #333;
+        }
+
+        .iframe-header {
+            background: #333;
+            padding: 10px 15px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .iframe-title {
+            font-weight: 500;
+            color: #4CAF50;
+        }
+
+        .iframe-url {
+            font-size: 12px;
+            color: #888;
+            font-family: monospace;
+        }
+
+        iframe {
+            width: 100%;
+            height: 600px;
+            border: none;
+            display: block;
+            background: white;
+        }
+
+        .data-display {
+            background: #1a1a1a;
+            padding: 15px;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            overflow-x: auto;
+            margin-top: 10px;
+        }
+
+        .loading {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid #333;
+            border-top-color: #4CAF50;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin-left: 10px;
+            vertical-align: middle;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .config-section {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+
+        @media (max-width: 1200px) {
+            .iframe-container {
+                grid-template-columns: 1fr;
+            }
+            .config-section {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        code {
+            background: #1a1a1a;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚀 IDE Container Test Page</h1>
+        <p class="subtitle">Test S3 bucket creation and IDE container deployment</p>
+
+        <!-- Configuration Section -->
+        <div class="section">
+            <h2>⚙️ Configuration</h2>
+            <div class="config-section">
+                <div>
+                    <div class="form-group">
+                        <label for="classlaBackendUrl">Classla Backend URL</label>
+                        <input type="text" id="classlaBackendUrl" value="http://localhost:8000" placeholder="http://localhost:8000">
+                    </div>
+                    <div class="form-group">
+                        <label for="orchestrationApiUrl">Orchestration API URL</label>
+                        <input type="text" id="orchestrationApiUrl" value="http://localhost:3001" placeholder="http://localhost:3001">
+                    </div>
+                </div>
+                <div>
+                    <div class="form-group">
+                        <label for="userId">User ID</label>
+                        <input type="text" id="userId" value="test-user-123" placeholder="test-user-123">
+                    </div>
+                    <div class="form-group">
+                        <label for="apiKey">Orchestration API Key</label>
+                        <input type="text" id="apiKey" value="eDg+MU50cATcNK4ap4WlPBewZlEvITW2Cj0LB6WZQJo=" placeholder="Your API key">
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Step 1: Create S3 Bucket -->
+        <div class="section">
+            <h2>📦 Step 1: Create S3 Bucket</h2>
+            <p style="color: #888; margin-bottom: 15px; font-size: 14px;">
+                Create an S3 bucket for the IDE container workspace. This will store the student's files.
+            </p>
+            <div class="form-group">
+                <label for="awsRegion">AWS Region</label>
+                <select id="awsRegion">
+                    <option value="us-east-1">us-east-1 (N. Virginia)</option>
+                    <option value="us-west-2">us-west-2 (Oregon)</option>
+                    <option value="eu-west-1">eu-west-1 (Ireland)</option>
+                </select>
+            </div>
+            <button id="createBucketBtn" onclick="createBucket()">Create S3 Bucket</button>
+            <div id="bucketStatus"></div>
+            <div id="bucketData" class="data-display" style="display: none;"></div>
+        </div>
+
+        <!-- Step 2: Start Container -->
+        <div class="section">
+            <h2>🐳 Step 2: Start IDE Container</h2>
+            <p style="color: #888; margin-bottom: 15px; font-size: 14px;">
+                Start a Docker Swarm container with the S3 bucket attached. The container will sync files to/from S3.
+            </p>
+            <div class="form-group">
+                <label for="bucketName">S3 Bucket Name (from Step 1)</label>
+                <input type="text" id="bucketName" placeholder="classla-ide-test-user-1234567890" readonly>
+            </div>
+            <button id="startContainerBtn" onclick="startContainer()" disabled>Start Container</button>
+            <div id="containerStatus"></div>
+            <div id="containerData" class="data-display" style="display: none;"></div>
+        </div>
+
+        <!-- Step 3: View Container -->
+        <div class="section">
+            <h2>👀 Step 3: View IDE Container</h2>
+            <p style="color: #888; margin-bottom: 15px; font-size: 14px;">
+                Access the running container via noVNC (desktop) and code-server (VS Code).
+            </p>
+            <div class="button-group">
+                <button id="loadVncBtn" onclick="loadVnc()" disabled>Load noVNC</button>
+                <button id="loadCodeBtn" onclick="loadCodeServer()" disabled>Load Code Server</button>
+                <button id="stopContainerBtn" onclick="stopContainer()" disabled>Stop Container</button>
+            </div>
+            <div id="viewStatus"></div>
+        </div>
+
+        <!-- iFrames -->
+        <div class="iframe-container" id="iframeContainer" style="display: none;">
+            <div class="iframe-wrapper">
+                <div class="iframe-header">
+                    <span class="iframe-title">🖥️ noVNC (Desktop)</span>
+                    <span class="iframe-url" id="vncUrl">-</span>
+                </div>
+                <iframe id="vncFrame" src="about:blank"></iframe>
+            </div>
+            <div class="iframe-wrapper">
+                <div class="iframe-header">
+                    <span class="iframe-title">💻 Code Server (VS Code)</span>
+                    <span class="iframe-url" id="codeUrl">-</span>
+                </div>
+                <iframe id="codeFrame" src="about:blank"></iframe>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentBucket = null;
+        let currentContainer = null;
+
+        function showStatus(elementId, message, type = 'info') {
+            const element = document.getElementById(elementId);
+            element.className = `status ${type}`;
+            element.innerHTML = message;
+            element.style.display = 'block';
+        }
+
+        function showData(elementId, data) {
+            const element = document.getElementById(elementId);
+            element.textContent = JSON.stringify(data, null, 2);
+            element.style.display = 'block';
+        }
+
+        async function createBucket() {
+            const btn = document.getElementById('createBucketBtn');
+            btn.disabled = true;
+            btn.innerHTML = 'Creating... <span class="loading"></span>';
+
+            const backendUrl = document.getElementById('classlaBackendUrl').value;
+            const userId = document.getElementById('userId').value;
+            const region = document.getElementById('awsRegion').value;
+
+            try {
+                showStatus('bucketStatus', '⏳ Creating S3 bucket...', 'info');
+
+                const response = await fetch(`${backendUrl}/api/s3buckets`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        user_id: userId,
+                        region: region,
+                    }),
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || 'Failed to create bucket');
+                }
+
+                const bucket = await response.json();
+                currentBucket = bucket;
+
+                showStatus('bucketStatus', `✅ Bucket created successfully: <code>${bucket.bucket_name}</code>`, 'success');
+                showData('bucketData', bucket);
+
+                // Update bucket name input
+                document.getElementById('bucketName').value = bucket.bucket_name;
+
+                // Enable start container button
+                document.getElementById('startContainerBtn').disabled = false;
+
+            } catch (error) {
+                showStatus('bucketStatus', `❌ Error: ${error.message}`, 'error');
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = 'Create S3 Bucket';
+            }
+        }
+
+        async function startContainer() {
+            const btn = document.getElementById('startContainerBtn');
+            btn.disabled = true;
+            btn.innerHTML = 'Starting... <span class="loading"></span>';
+
+            const apiUrl = document.getElementById('orchestrationApiUrl').value;
+            const apiKey = document.getElementById('apiKey').value;
+            const bucketName = document.getElementById('bucketName').value;
+            const region = document.getElementById('awsRegion').value;
+
+            try {
+                showStatus('containerStatus', '⏳ Starting IDE container...', 'info');
+
+                const response = await fetch(`${apiUrl}/api/containers/start`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${apiKey}`,
+                    },
+                    body: JSON.stringify({
+                        s3Bucket: bucketName,
+                        s3Region: region,
+                    }),
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error?.message || 'Failed to start container');
+                }
+
+                const container = await response.json();
+                currentContainer = container;
+
+                showStatus('containerStatus', `✅ Container started: <code>${container.id}</code><br>Status: ${container.status}`, 'success');
+                showData('containerData', container);
+
+                // Enable view buttons
+                document.getElementById('loadVncBtn').disabled = false;
+                document.getElementById('loadCodeBtn').disabled = false;
+                document.getElementById('stopContainerBtn').disabled = false;
+
+                // Wait a bit for container to be ready
+                showStatus('viewStatus', '⏳ Container is starting... Please wait 10-15 seconds before loading views.', 'info');
+
+            } catch (error) {
+                showStatus('containerStatus', `❌ Error: ${error.message}`, 'error');
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = 'Start Container';
+            }
+        }
+
+        function loadVnc() {
+            if (!currentContainer || !currentContainer.urls || !currentContainer.urls.vnc) {
+                showStatus('viewStatus', '❌ No container URLs available', 'error');
+                return;
+            }
+
+            const vncUrl = currentContainer.urls.vnc;
+            document.getElementById('vncUrl').textContent = vncUrl;
+            document.getElementById('vncFrame').src = vncUrl;
+            document.getElementById('iframeContainer').style.display = 'grid';
+            showStatus('viewStatus', '✅ Loading noVNC...', 'success');
+        }
+
+        function loadCodeServer() {
+            if (!currentContainer || !currentContainer.urls || !currentContainer.urls.codeServer) {
+                showStatus('viewStatus', '❌ No container URLs available', 'error');
+                return;
+            }
+
+            const codeUrl = currentContainer.urls.codeServer;
+            document.getElementById('codeUrl').textContent = codeUrl;
+            document.getElementById('codeFrame').src = codeUrl;
+            document.getElementById('iframeContainer').style.display = 'grid';
+            showStatus('viewStatus', '✅ Loading Code Server...', 'success');
+        }
+
+        async function stopContainer() {
+            if (!currentContainer) {
+                showStatus('viewStatus', '❌ No container to stop', 'error');
+                return;
+            }
+
+            const btn = document.getElementById('stopContainerBtn');
+            btn.disabled = true;
+            btn.innerHTML = 'Stopping... <span class="loading"></span>';
+
+            const apiUrl = document.getElementById('orchestrationApiUrl').value;
+            const apiKey = document.getElementById('apiKey').value;
+
+            try {
+                showStatus('viewStatus', '⏳ Stopping container...', 'info');
+
+                const response = await fetch(`${apiUrl}/api/containers/${currentContainer.id}`, {
+                    method: 'DELETE',
+                    headers: {
+                        'Authorization': `Bearer ${apiKey}`,
+                    },
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error?.message || 'Failed to stop container');
+                }
+
+                showStatus('viewStatus', '✅ Container stopped successfully', 'success');
+
+                // Clear iframes
+                document.getElementById('vncFrame').src = 'about:blank';
+                document.getElementById('codeFrame').src = 'about:blank';
+                document.getElementById('iframeContainer').style.display = 'none';
+
+                // Disable buttons
+                document.getElementById('loadVncBtn').disabled = true;
+                document.getElementById('loadCodeBtn').disabled = true;
+                document.getElementById('stopContainerBtn').disabled = true;
+
+                currentContainer = null;
+
+            } catch (error) {
+                showStatus('viewStatus', `❌ Error: ${error.message}`, 'error');
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = 'Stop Container';
+            }
+        }
+
+        // Check API health on load
+        window.addEventListener('load', async () => {
+            const orchestrationUrl = document.getElementById('orchestrationApiUrl').value;
+            try {
+                const response = await fetch(`${orchestrationUrl}/api/health`);
+                if (response.ok) {
+                    console.log('✅ Orchestration API is healthy');
+                }
+            } catch (error) {
+                console.warn('⚠️ Could not connect to Orchestration API:', error.message);
+            }
+        });
+    </script>
+</body>
+</html>
