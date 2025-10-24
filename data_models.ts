@@ -220,6 +220,19 @@ interface AutogradeResponse {
   message?: string; // Present when scores are hidden
 }
 
+// S3 Bucket entity - tracks S3 buckets for IDE containers
+interface S3Bucket {
+  id: string;
+  bucket_name: string; // Unique S3 bucket name
+  region: string; // AWS region (e.g., 'us-east-1')
+  user_id: string; // Owner of the bucket
+  course_id?: string; // Optional - if bucket is associated with a course
+  assignment_id?: string; // Optional - if bucket is for a specific assignment
+  status: "creating" | "active" | "deleting" | "deleted" | "error";
+  created_at: Date;
+  deleted_at?: Date;
+}
+
 // Export all types
 export {
   UserRole,
@@ -239,4 +252,5 @@ export {
   RubricItem,
   JoinLink,
   AutogradeResponse,
+  S3Bucket,
 };

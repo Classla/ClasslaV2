@@ -1,0 +1,115 @@
+import express, { Express, Request, Response } from "express";
+import cors from "cors";
+import helmet from "helmet";
+import morgan from "morgan";
+import config from "./config";
+import { authenticate } from "./middleware/auth";
+import {
+  rateLimitMiddleware,
+  stopCleanupInterval,
+} from "./middleware/rateLimit";
+import { errorHandler } from "./middleware/errorHandler";
+import containersRouter from "./routes/containers";
+import healthRouter from "./routes/health";
+import dashboardRouter from "./routes/dashboard";
+import dashboardApiRouter from "./routes/dashboardApi";
+import { healthMonitor, stateManager } from "./services/serviceInstances";
+
+const app: Express = express();
+
+// Security middleware
+app.use(helmet());
+
+// CORS configuration
+app.use(
+  cors({
+    origin:
+      config.nodeEnv === "production"
+        ? [`https://${config.domain}`, `https://api.${config.domain}`]
+        : "*",
+    credentials: true,
+  })
+);
+
+// Body parsing middleware
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+// Logging middleware
+if (config.nodeEnv === "development") {
+  app.use(morgan("dev"));
+} else {
+  app.use(morgan("combined"));
+}
+
+// Root endpoint
+app.get("/", (_req: Request, res: Response) => {
+  res.json({
+    name: "IDE Orchestration API",
+    version: "1.0.0",
+    status: "running",
+  });
+});
+
+// Mount API routes
+// Inactivity shutdown callback is public (called from within containers)
+app.post("/api/containers/:id/inactivity-shutdown", containersRouter);
+// Container routes require authentication and rate limiting
+app.use("/api/containers", authenticate, rateLimitMiddleware, containersRouter);
+// Health endpoint is public (no authentication required)
+app.use("/api/health", healthRouter);
+// Dashboard API routes (no authentication for now)
+app.use("/api/dashboard", dashboardApiRouter);
+// Dashboard routes (static files, no authentication for now)
+app.use("/dashboard", dashboardRouter);
+
+// 404 handler
+app.use((req: Request, res: Response) => {
+  res.status(404).json({
+    error: {
+      code: "NOT_FOUND",
+      message: "The requested resource was not found",
+    },
+    timestamp: new Date().toISOString(),
+    path: req.path,
+  });
+});
+
+// Centralized error handler (must be last)
+app.use(errorHandler);
+
+// Start health monitoring
+healthMonitor.start();
+
+// Start server
+const server = app.listen(config.port, () => {
+  console.log(`🚀 IDE Orchestration API running on port ${config.port}`);
+  console.log(`📝 Environment: ${config.nodeEnv}`);
+  console.log(`🌐 Domain: ${config.domain}`);
+  console.log(`💚 Health monitoring started`);
+});
+
+// Graceful shutdown
+process.on("SIGTERM", () => {
+  console.log("SIGTERM signal received: closing HTTP server");
+  healthMonitor.stop();
+  stateManager.close();
+  stopCleanupInterval();
+  server.close(() => {
+    console.log("HTTP server closed");
+    process.exit(0);
+  });
+});
+
+process.on("SIGINT", () => {
+  console.log("SIGINT signal received: closing HTTP server");
+  healthMonitor.stop();
+  stateManager.close();
+  stopCleanupInterval();
+  server.close(() => {
+    console.log("HTTP server closed");
+    process.exit(0);
+  });
+});
+
+export default app;

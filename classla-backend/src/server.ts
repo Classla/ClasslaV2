@@ -26,7 +26,28 @@ const PORT = process.env.PORT || 3001;
 app.use(helmet());
 app.use(
   cors({
-    origin: process.env.FRONTEND_URL || "http://localhost:5173",
+    origin: (origin, callback) => {
+      // Allow requests with no origin (like mobile apps, curl, or file://)
+      if (!origin) return callback(null, true);
+
+      // In development, allow all origins
+      if (process.env.NODE_ENV === "development") {
+        return callback(null, true);
+      }
+
+      // In production, only allow specific origins
+      const allowedOrigins = [
+        process.env.FRONTEND_URL || "http://localhost:5173",
+        "http://localhost:3001", // Orchestration API
+        "http://localhost:8000", // Backend itself
+      ];
+
+      if (allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error("Not allowed by CORS"));
+      }
+    },
     credentials: true,
   })
 );
@@ -87,6 +108,7 @@ import rubricRoutes from "./routes/rubrics";
 import joinLinksRoutes from "./routes/joinLinks";
 import blocksRoutes from "./routes/blocks";
 import autograderRoutes from "./routes/autograder";
+import s3bucketsRoutes from "./routes/s3buckets";
 
 // Auth routes (mounted at root for WorkOS callback compatibility)
 app.use("/", authRoutes);
@@ -105,6 +127,7 @@ app.use("/api", rubricRoutes);
 app.use("/api/join-links", joinLinksRoutes);
 app.use("/api", blocksRoutes);
 app.use("/api", autograderRoutes);
+app.use("/api/s3buckets", s3bucketsRoutes);
 
 // Error handling - must be after all routes
 app.use(errorHandler);
