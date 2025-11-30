@@ -1,6 +1,6 @@
 import { Node, mergeAttributes } from "@tiptap/core";
 import { ReactNodeViewRenderer } from "@tiptap/react";
-import MCQEditorComponent from "../MCQEditor";
+import MCQEditorComponent from "../Blocks/MCQ/MCQEditor";
 
 // MCQ data interface as specified in the design document
 export interface MCQOption {

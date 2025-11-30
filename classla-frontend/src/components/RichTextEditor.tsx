@@ -267,7 +267,7 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
       )}
 
       <div className={`${showToolbar ? "px-1 py-0" : "px-1 py-0"}`}>
-        <style jsx>{`
+        <style>{`
           .rich-text-content {
             line-height: 1.3;
           }

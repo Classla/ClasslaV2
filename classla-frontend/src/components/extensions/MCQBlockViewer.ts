@@ -1,6 +1,6 @@
 import { Node, mergeAttributes } from "@tiptap/core";
 import { ReactNodeViewRenderer } from "@tiptap/react";
-import MCQViewerComponent from "../MCQViewer";
+import MCQViewerComponent from "../Blocks/MCQ/MCQViewer";
 import { MCQBlockData, validateMCQData, sanitizeMCQData } from "./MCQBlock";
 
 // Default MCQ data for viewer blocks

@@ -99,6 +99,7 @@ const SignInPage = () => {
                   Email address
                 </label>
                 <div className="relative">
+                  {/* @ts-expect-error - react-icons type issue */}
                   <MdEmail className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
                   <Input
                     type="email"
@@ -121,6 +122,7 @@ const SignInPage = () => {
                   Password
                 </label>
                 <div className="relative">
+                  {/* @ts-expect-error - react-icons type issue */}
                   <MdLock className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
                   <Input
                     type={showPassword ? "text" : "password"}
@@ -137,6 +139,7 @@ const SignInPage = () => {
                     onClick={() => setShowPassword(!showPassword)}
                     className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
                   >
+                    {/* @ts-expect-error - react-icons type issue */}
                     {showPassword ? <FaEyeSlash /> : <FaEye />}
                   </button>
                 </div>
@@ -182,6 +185,7 @@ const SignInPage = () => {
                 </div>
               ) : (
                 <>
+                  {/* @ts-expect-error - react-icons type issue */}
                   <FaGoogle className="mr-2 h-4 w-4" />
                   Sign In with Google
                 </>

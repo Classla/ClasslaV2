@@ -61,6 +61,7 @@ const Logo: React.FC<LogoProps> = ({
           className={`${sizeClasses[size]} bg-purple-600 rounded-full items-center justify-center text-white hidden`}
           style={{ display: "none" }}
         >
+          {/* @ts-expect-error - react-icons type issue */}
           <FaGraduationCap
             className={
               size === "sm"
