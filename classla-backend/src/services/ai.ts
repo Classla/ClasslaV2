@@ -9,6 +9,14 @@ import { AuthenticatedSocket } from "./websocket";
 // Claude Sonnet model ID
 const CLAUDE_MODEL_ID = "us.anthropic.claude-sonnet-4-20250514-v1:0";
 
+// Maximum context window in tokens (200k tokens)
+const MAX_CONTEXT_WINDOW = 200000;
+
+// Estimate tokens by dividing character count by 3.5
+const estimateTokens = (text: string): number => {
+  return Math.ceil(text.length / 3.5);
+};
+
 // Initialize Bedrock client
 let bedrockClient: BedrockRuntimeClient | null = null;
 
@@ -120,6 +128,11 @@ interface GenerateContentOptions {
     name?: string;
     courseName?: string;
   };
+  taggedAssignments?: Array<{
+    id: string;
+    name: string;
+    content: string;
+  }>;
 }
 
 /**
@@ -215,7 +228,7 @@ export const generateContentStream = async (
     assignmentId: string;
   }
 ): Promise<void> => {
-  const { prompt, assignmentContext, socket, requestId, assignmentId } = options;
+  const { prompt, assignmentContext, taggedAssignments, socket, requestId, assignmentId } = options;
 
   try {
     const client = getBedrockClient();
@@ -227,6 +240,43 @@ export const generateContentStream = async (
       }
       if (assignmentContext.courseName) {
         userPrompt = `Course: ${assignmentContext.courseName}\n\n${userPrompt}`;
+      }
+    }
+
+    // Add tagged assignment context
+    if (taggedAssignments && taggedAssignments.length > 0) {
+      // Estimate tokens for system prompt and base user prompt
+      const systemPromptTokens = estimateTokens(SYSTEM_PROMPT);
+      const basePromptTokens = estimateTokens(userPrompt);
+      let availableTokens = MAX_CONTEXT_WINDOW - systemPromptTokens - basePromptTokens - 1000; // Reserve 1000 for response
+      
+      // Add tagged assignments, truncating if needed
+      const contextParts: string[] = [];
+      let totalContextTokens = 0;
+      
+      for (const taggedAssignment of taggedAssignments) {
+        const assignmentText = `\n\n--- Assignment: ${taggedAssignment.name} ---\n${taggedAssignment.content}\n--- End of Assignment: ${taggedAssignment.name} ---`;
+        const assignmentTokens = estimateTokens(assignmentText);
+        
+        if (totalContextTokens + assignmentTokens <= availableTokens) {
+          contextParts.push(assignmentText);
+          totalContextTokens += assignmentTokens;
+        } else {
+          // Truncate this assignment to fit
+          const remainingTokens = availableTokens - totalContextTokens;
+          if (remainingTokens > 100) { // Only add if we have meaningful space
+            const truncatedContent = truncateToTokens(
+              taggedAssignment.content,
+              remainingTokens - estimateTokens(`\n\n--- Assignment: ${taggedAssignment.name} ---\n\n--- End of Assignment: ${taggedAssignment.name} ---`)
+            );
+            contextParts.push(`\n\n--- Assignment: ${taggedAssignment.name} ---\n${truncatedContent}\n--- End of Assignment: ${taggedAssignment.name} ---`);
+          }
+          break; // Stop adding more assignments
+        }
+      }
+      
+      if (contextParts.length > 0) {
+        userPrompt = `Context from other assignments:\n${contextParts.join("")}\n\n${userPrompt}`;
       }
     }
 
@@ -298,9 +348,37 @@ export const generateContentStream = async (
             finalJson = jsonMatch[1];
           }
 
+          // Try to find valid JSON - might have trailing text or incomplete JSON
+          let parsedContent: any = null;
+          let parseError: Error | null = null;
+          
           try {
-            const parsedContent = JSON.parse(finalJson);
-            
+            parsedContent = JSON.parse(finalJson);
+          } catch (e) {
+            // If direct parse fails, try to extract JSON from the text
+            // Look for the first { and try to find matching }
+            const firstBrace = finalJson.indexOf('{');
+            if (firstBrace !== -1) {
+              try {
+                // Use our existing findMatchingBrace function to find the end
+                const jsonEnd = findMatchingBrace(finalJson, firstBrace);
+                if (jsonEnd !== -1) {
+                  const jsonSubstring = finalJson.substring(firstBrace, jsonEnd + 1);
+                  parsedContent = JSON.parse(jsonSubstring);
+                } else {
+                  // JSON might be incomplete - but we already emitted blocks during streaming
+                  // So we can just continue with what we have
+                  parseError = new Error("Incomplete JSON at end of stream");
+                }
+              } catch (e2) {
+                parseError = e2 instanceof Error ? e2 : new Error(String(e2));
+              }
+            } else {
+              parseError = e instanceof Error ? e : new Error(String(e));
+            }
+          }
+
+          if (parsedContent) {
             // Get content array
             let contentArray: any[] = [];
             if (parsedContent.type === "doc" && Array.isArray(parsedContent.content)) {
@@ -314,8 +392,17 @@ export const generateContentStream = async (
             // Emit any remaining blocks that weren't completed during streaming
             contentArray.forEach((block: any, index: number) => {
               if (!completedBlocks.has(index)) {
-                socket.emit("block-complete", { blockIndex: index, block, requestId, assignmentId });
-                completedBlocks.add(index);
+                try {
+                  socket.emit("block-complete", { blockIndex: index, block, requestId, assignmentId });
+                  completedBlocks.add(index);
+                } catch (blockError) {
+                  // Silently skip invalid blocks
+                  logger.warn("Failed to emit block-complete", {
+                    requestId,
+                    blockIndex: index,
+                    error: blockError instanceof Error ? blockError.message : "Unknown",
+                  });
+                }
               }
             });
 
@@ -326,18 +413,33 @@ export const generateContentStream = async (
               socketId: socket.id,
               totalBlocks: contentArray.length,
             });
-          } catch (parseError) {
-            logger.error("Failed to parse final AI response", {
-              requestId,
-              error: parseError instanceof Error ? parseError.message : "Unknown",
-            });
-            
-            socket.emit("stream-error", {
-              message: "Failed to parse AI response",
-              code: "PARSE_ERROR",
-              requestId,
-              assignmentId,
-            });
+          } else {
+            // If we have some completed blocks, just finish successfully
+            // Don't error if we got at least some content
+            if (completedBlocks.size > 0) {
+              logger.info("Stream completed with parse warning (but blocks were emitted)", {
+                requestId,
+                socketId: socket.id,
+                completedBlocks: completedBlocks.size,
+                parseError: parseError?.message,
+              });
+              socket.emit("generation-complete", { success: true, requestId, assignmentId });
+            } else {
+              // Only error if we got no blocks at all
+              logger.error("Failed to parse final AI response and no blocks were generated", {
+                requestId,
+                error: parseError?.message || "Unknown",
+                fullTextLength: fullText.length,
+                fullTextPreview: fullText.substring(0, 200),
+              });
+              
+              socket.emit("stream-error", {
+                message: "Failed to parse AI response",
+                code: "PARSE_ERROR",
+                requestId,
+                assignmentId,
+              });
+            }
           }
           break;
         }
@@ -437,6 +539,19 @@ function parseAndEmitBlocks(
       break;
     }
   }
+}
+
+/**
+ * Truncate text to fit within a token budget
+ */
+function truncateToTokens(text: string, maxTokens: number): string {
+  const maxChars = Math.floor(maxTokens * 3.5);
+  if (text.length <= maxChars) {
+    return text;
+  }
+  
+  // Truncate from the end
+  return text.substring(0, maxChars) + "... [truncated]";
 }
 
 /**

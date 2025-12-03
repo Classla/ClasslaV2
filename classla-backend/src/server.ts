@@ -62,16 +62,17 @@ app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 // Session middleware
 app.use(sessionMiddleware);
 
-// Request logging middleware
+// Request logging middleware (only log errors and important routes)
 app.use((req, res, next) => {
   const requestId = Math.random().toString(36).substring(2, 15);
   req.headers["x-request-id"] = requestId;
 
-  logger.info(`${req.method} ${req.originalUrl}`, {
-    requestId,
-    userAgent: req.get("User-Agent"),
-    ip: req.ip,
-  });
+  // Only log non-GET requests and errors
+  if (req.method !== "GET") {
+    logger.debug(`${req.method} ${req.originalUrl}`, {
+      requestId,
+    });
+  }
 
   next();
 });

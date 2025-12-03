@@ -155,8 +155,8 @@ export function setupAIWebSocket(io: SocketIOServer): void {
       userId: socket.userId,
     });
 
-    socket.on("generate", async (data: { prompt: string; assignmentId: string; requestId?: string }) => {
-      const { prompt, assignmentId, requestId = `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}` } = data;
+    socket.on("generate", async (data: { prompt: string; assignmentId: string; requestId?: string; taggedAssignmentIds?: string[] }) => {
+      const { prompt, assignmentId, requestId = `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`, taggedAssignmentIds = [] } = data;
       const userId = socket.userId;
 
       if (!userId) {
@@ -263,12 +263,38 @@ export function setupAIWebSocket(io: SocketIOServer): void {
           .eq("id", assignment.course_id)
           .single();
 
+        // Fetch tagged assignments if provided
+        let taggedAssignments: Array<{ id: string; name: string; content: string }> = [];
+        if (taggedAssignmentIds && taggedAssignmentIds.length > 0) {
+          // Verify all tagged assignments belong to the same course
+          const { data: taggedAssignmentsData, error: taggedError } = await supabase
+            .from("assignments")
+            .select("id, name, content")
+            .in("id", taggedAssignmentIds)
+            .eq("course_id", assignment.course_id); // Ensure same course
+
+          if (!taggedError && taggedAssignmentsData) {
+            taggedAssignments = taggedAssignmentsData.map(a => ({
+              id: a.id,
+              name: a.name,
+              content: a.content || "",
+            }));
+          } else {
+            logger.warn("Failed to fetch tagged assignments", {
+              taggedAssignmentIds,
+              error: taggedError?.message,
+            });
+          }
+        }
+
         logger.info("Starting AI content generation stream", {
           assignmentId,
           userId,
           promptLength: prompt.length,
           requestId,
           socketId: socket.id,
+          taggedAssignmentsCount: taggedAssignments.length,
+          taggedAssignments: taggedAssignments.map(a => ({ id: a.id, name: a.name })),
         });
 
         // Start streaming generation
@@ -278,6 +304,7 @@ export function setupAIWebSocket(io: SocketIOServer): void {
             name: assignment.name,
             courseName: course?.name,
           },
+          taggedAssignments: taggedAssignments.length > 0 ? taggedAssignments : undefined,
           socket,
           requestId,
           assignmentId,
