@@ -3,12 +3,16 @@ import dotenv from "dotenv";
 dotenv.config();
 
 import express from "express";
+import { createServer } from "http";
 import cors from "cors";
 import helmet from "helmet";
 import { supabase } from "./middleware/auth";
 import { errorHandler, notFoundHandler } from "./middleware/errorHandler";
 import { sessionMiddleware } from "./config/session";
 import { logger } from "./utils/logger";
+import { initializeWebSocket } from "./services/websocket";
+import { setupAIWebSocket } from "./routes/ai";
+import { sessionMiddleware } from "./config/session";
 
 // Validate required environment variables
 const requiredEnvVars = ["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"];
@@ -20,6 +24,7 @@ for (const envVar of requiredEnvVars) {
 }
 
 const app = express();
+const server = createServer(app);
 const PORT = process.env.PORT || 3001;
 
 // Middleware
@@ -109,6 +114,7 @@ import joinLinksRoutes from "./routes/joinLinks";
 import blocksRoutes from "./routes/blocks";
 import autograderRoutes from "./routes/autograder";
 import s3bucketsRoutes from "./routes/s3buckets";
+import aiRoutes from "./routes/ai";
 
 // Auth routes (mounted at root for WorkOS callback compatibility)
 app.use("/", authRoutes);
@@ -128,14 +134,22 @@ app.use("/api/join-links", joinLinksRoutes);
 app.use("/api", blocksRoutes);
 app.use("/api", autograderRoutes);
 app.use("/api/s3buckets", s3bucketsRoutes);
+app.use("/api", aiRoutes);
 
 // Error handling - must be after all routes
 app.use(errorHandler);
 app.use(notFoundHandler);
 
-app.listen(PORT, () => {
+// Initialize WebSocket server (must be after session middleware is set up)
+const io = initializeWebSocket(server, sessionMiddleware);
+
+// Set up AI WebSocket namespace
+setupAIWebSocket(io);
+
+server.listen(PORT, () => {
   logger.info(`Server running on port ${PORT}`);
   logger.info(`Health check: http://localhost:${PORT}/health`);
+  logger.info(`WebSocket server initialized`);
 });
 
 export default app;

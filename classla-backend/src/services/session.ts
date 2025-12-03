@@ -122,15 +122,7 @@ export class SessionManagementService {
    */
   async validateSession(req: Request): Promise<UserSessionData | null> {
     try {
-      console.log('Session validation debug:', {
-        hasSession: !!req.session,
-        sessionID: req.sessionID,
-        hasUser: !!(req.session as any)?.user,
-        sessionKeys: req.session ? Object.keys(req.session) : []
-      });
-
       if (!req.session || !(req.session as any).user) {
-        console.log('No session or user data found');
         return null;
       }
 

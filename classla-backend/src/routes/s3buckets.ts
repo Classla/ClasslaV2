@@ -16,10 +16,10 @@ const router = express.Router();
 const s3Client = new S3Client({
   region: process.env.AWS_REGION || "us-east-1",
   credentials:
-    process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY
+    process.env.IDE_MANAGER_ACCESS_KEY_ID && process.env.IDE_MANAGER_SECRET_ACCESS_KEY
       ? {
-          accessKeyId: process.env.AWS_ACCESS_KEY_ID,
-          secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+          accessKeyId: process.env.IDE_MANAGER_ACCESS_KEY_ID,
+          secretAccessKey: process.env.IDE_MANAGER_SECRET_ACCESS_KEY,
         }
       : undefined,
 });

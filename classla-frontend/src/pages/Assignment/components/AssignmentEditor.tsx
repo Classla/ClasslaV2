@@ -21,6 +21,8 @@ import Gapcursor from "@tiptap/extension-gapcursor";
 
 import { apiClient } from "../../../lib/api";
 import { MCQBlock, validateMCQData } from "../../../components/extensions/MCQBlock";
+import { AIBlock } from "../../../components/extensions/AIBlock";
+import { GeneratingBlock } from "../../../components/extensions/GeneratingBlock";
 import { useToast } from "../../../hooks/use-toast";
 import {
   Tooltip,
@@ -53,6 +55,7 @@ import {
   Link as LinkIcon,
   Strikethrough,
   HelpCircle,
+  Sparkles,
   Columns,
   Rows,
   Merge,
@@ -485,6 +488,18 @@ const AssignmentEditor: React.FC<AssignmentEditorProps> = ({
   const slashCommands: SlashCommandItem[] = useMemo(
     () => [
       {
+        title: "Generate with AI",
+        description: "Use AI to generate assignment content.",
+        icon: (
+          <div className="w-4 h-4 bg-gradient-to-br from-blue-500 to-purple-600 rounded flex items-center justify-center">
+            <Sparkles className="w-3 h-3 text-white" />
+          </div>
+        ),
+        command: (editor) => {
+          editor.chain().focus().insertAIBlock().run();
+        },
+      },
+      {
         title: "Text",
         description: "Just start writing with plain text.",
         icon: <Type className="w-4 h-4" />,
@@ -648,8 +663,12 @@ const AssignmentEditor: React.FC<AssignmentEditorProps> = ({
       }),
       Gapcursor,
       MCQBlock,
+      AIBlock.configure({
+        assignmentId: assignment.id,
+      }),
+      GeneratingBlock,
     ],
-    []
+    [assignment.id]
   );
 
   const editor = useEditor({
@@ -676,33 +695,86 @@ const AssignmentEditor: React.FC<AssignmentEditorProps> = ({
       if (!isReadOnly) {
         const { from, to } = editor.state.selection;
 
-        // Check if selection is within an MCQ block
+        // Check if selection is within an MCQ block or AI block
         const $from = editor.state.doc.resolve(from);
         const $to = editor.state.doc.resolve(to);
 
-        // Check if we're inside an MCQ block by traversing up the node tree
+        // Check if we're inside an MCQ block or AI block by traversing up the node tree
         let isInMCQBlock = false;
+        let isInAIBlock = false;
         for (let depth = $from.depth; depth >= 0; depth--) {
           const node = $from.node(depth);
           if (node.type.name === "mcqBlock") {
             isInMCQBlock = true;
             break;
           }
+          if (node.type.name === "aiBlock") {
+            isInAIBlock = true;
+            break;
+          }
         }
 
         // Also check the end position
-        if (!isInMCQBlock) {
+        if (!isInMCQBlock && !isInAIBlock) {
           for (let depth = $to.depth; depth >= 0; depth--) {
             const node = $to.node(depth);
             if (node.type.name === "mcqBlock") {
               isInMCQBlock = true;
               break;
             }
+            if (node.type.name === "aiBlock") {
+              isInAIBlock = true;
+              break;
+            }
           }
         }
 
-        // Handle floating toolbar for text selection (but not in MCQ blocks)
-        if (from !== to && !isInMCQBlock) {
+        // Handle "++" shortcut detection (only at start of line, not in blocks)
+        if (!isInMCQBlock && !isInAIBlock && from === to) {
+          try {
+            // Get the current position
+            const $pos = editor.state.doc.resolve(from);
+            
+            // Find the start of the current block (paragraph, heading, etc.)
+            let blockStart = from;
+            for (let depth = $pos.depth; depth > 0; depth--) {
+              const node = $pos.node(depth);
+              if (node.type.isBlock) {
+                blockStart = $pos.start(depth);
+                break;
+              }
+            }
+            
+            // Get text from the start of the block to the cursor
+            const textBeforeCursor = editor.state.doc.textBetween(
+              blockStart,
+              from,
+              ""
+            );
+            
+            // Only trigger if "++" is at the very start (no text before it except whitespace)
+            const trimmedBefore = textBeforeCursor.trim();
+            if (trimmedBefore === "" || trimmedBefore === "++") {
+              // Check if the last 2 characters are "++"
+              const lastTwoChars = textBeforeCursor.slice(-2);
+              if (lastTwoChars === "++") {
+                // Delete "++" and insert AI block
+                editor
+                  .chain()
+                  .focus()
+                  .deleteRange({ from: from - 2, to: from })
+                  .insertAIBlock()
+                  .run();
+                return;
+              }
+            }
+          } catch (error) {
+            // Silently fail if detection fails
+          }
+        }
+
+        // Handle floating toolbar for text selection (but not in MCQ blocks or AI blocks)
+        if (from !== to && !isInMCQBlock && !isInAIBlock) {
           // Text is selected and not in MCQ block
           try {
             const coords = editor.view.coordsAtPos(from);
@@ -723,8 +795,8 @@ const AssignmentEditor: React.FC<AssignmentEditorProps> = ({
           // No text selected or in MCQ block
           setShowFloatingToolbar(false);
 
-          // Handle slash command detection with throttling for performance (but not in MCQ blocks)
-          if (!isInMCQBlock) {
+          // Handle slash command detection with throttling for performance (but not in MCQ blocks or AI blocks)
+          if (!isInMCQBlock && !isInAIBlock) {
             try {
               const text = editor.state.doc.textBetween(from - 10, to, " ");
               const slashIndex = text.lastIndexOf("/");
@@ -748,7 +820,7 @@ const AssignmentEditor: React.FC<AssignmentEditorProps> = ({
               setShowSlashMenu(false);
             }
           } else {
-            // Hide slash menu when in MCQ block
+            // Hide slash menu when in MCQ block or AI block
             setShowSlashMenu(false);
           }
         }
@@ -776,6 +848,7 @@ const AssignmentEditor: React.FC<AssignmentEditorProps> = ({
       saveTimeoutRef.current = setTimeout(async () => {
         if (content === assignment.content) return;
 
+        isSavingRef.current = true;
         setIsSaving(true);
         try {
           // Optimized validation: only validate if content has MCQ blocks
@@ -838,6 +911,9 @@ const AssignmentEditor: React.FC<AssignmentEditorProps> = ({
             content: content,
           });
 
+          // Mark this content as the last saved to prevent sync loop
+          lastSavedContentRef.current = content;
+          
           const updatedAssignment = { ...assignment, content: content };
           onAssignmentUpdated(updatedAssignment);
           setLastSaved(new Date());
@@ -894,6 +970,7 @@ const AssignmentEditor: React.FC<AssignmentEditorProps> = ({
             variant: "destructive",
           });
         } finally {
+          isSavingRef.current = false;
           setIsSaving(false);
         }
       }, 2000);
@@ -901,10 +978,23 @@ const AssignmentEditor: React.FC<AssignmentEditorProps> = ({
     [assignment, onAssignmentUpdated, toast]
   );
 
+  // Track if we're currently saving to prevent sync loop
+  const isSavingRef = useRef(false);
+  const lastSavedContentRef = useRef<string | null>(null);
+
   useEffect(() => {
     if (editor && assignment.content) {
       const currentContent = JSON.stringify(editor.getJSON());
-      if (assignment.content !== currentContent) {
+      
+      // Only sync if:
+      // 1. Content actually changed
+      // 2. We're not currently saving (to prevent overwriting user edits)
+      // 3. The new content is different from what we just saved
+      if (
+        assignment.content !== currentContent &&
+        !isSavingRef.current &&
+        assignment.content !== lastSavedContentRef.current
+      ) {
         measureRenderTime(() => {
           try {
             // Try to parse as JSON first (new format)

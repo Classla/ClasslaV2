@@ -40,4 +40,8 @@ export const sessionMiddleware = session({
   store,
 });
 
+// Export store for WebSocket authentication
+// Access the store from the middleware instance (works for both Redis and MemoryStore)
+export const sessionStore = (sessionMiddleware as any).store as session.Store | undefined;
+
 export default sessionMiddleware;

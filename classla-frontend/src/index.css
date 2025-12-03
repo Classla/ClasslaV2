@@ -444,3 +444,27 @@
   margin-top: -4px;
   margin-bottom: -4px;
 }
+
+/* AI Generating Block Styling */
+.generating-block-content {
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: linear-gradient(135deg, rgba(147, 51, 234, 0.05) 0%, rgba(59, 130, 246, 0.05) 100%);
+}
+
+.ai-generating-text {
+  animation: ai-pulse 1.5s ease-in-out infinite;
+  color: rgb(147, 51, 234);
+  font-weight: 500;
+}
+
+@keyframes ai-pulse {
+  0%, 100% {
+    color: rgb(147, 51, 234);
+    opacity: 1;
+  }
+  50% {
+    color: rgb(168, 85, 247);
+    opacity: 0.8;
+  }
+}

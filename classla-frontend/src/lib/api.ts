@@ -50,9 +50,68 @@ export class ApiError extends Error {
 // Create axios instance configured for session-based authentication
 const api = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 10000, // 10 second timeout
+  timeout: 10000, // 10 second timeout for most requests
   withCredentials: true, // Include cookies for session-based auth (required for WorkOS sessions)
 });
+
+// Create separate axios instance for AI calls with no timeout
+// AI generation can take 30+ seconds, so we don't want to timeout
+const aiApi = axios.create({
+  baseURL: API_BASE_URL,
+  timeout: 0, // No timeout for AI generation
+  withCredentials: true,
+});
+
+// Add response interceptor for AI API (same error handling)
+aiApi.interceptors.response.use(
+  (response) => {
+    if (import.meta.env.DEV) {
+      console.log(
+        `✅ ${response.config.method?.toUpperCase()} ${response.config.url}`,
+        {
+          status: response.status,
+          data: response.data,
+        }
+      );
+    }
+    return response;
+  },
+  (error: AxiosError) => {
+    if (error.response) {
+      const response = error.response as AxiosResponse<ApiErrorResponse>;
+      if (import.meta.env.DEV) {
+        console.error(
+          `❌ ${error.config?.method?.toUpperCase()} ${error.config?.url}`,
+          {
+            status: response.status,
+            error: response.data,
+          }
+        );
+      }
+      if (response.status === 401) {
+        window.dispatchEvent(new CustomEvent("auth:session-expired"));
+        const currentPath = window.location.pathname;
+        if (
+          !currentPath.startsWith("/signin") &&
+          !currentPath.startsWith("/signup") &&
+          !currentPath.startsWith("/auth")
+        ) {
+          window.location.href = "/signin";
+        }
+      }
+      if (response.status === 403) {
+        console.warn("Access forbidden - insufficient permissions");
+      }
+      throw new ApiError(response);
+    } else if (error.request) {
+      console.error("Network error:", error.message);
+      throw new Error("Network error: Unable to connect to server");
+    } else {
+      console.error("Request error:", error.message);
+      throw new Error(`Request error: ${error.message}`);
+    }
+  }
+);
 
 // Add response interceptor for error handling
 api.interceptors.response.use(
@@ -337,6 +396,10 @@ export const apiClient = {
   }) => api.post("/rubric", data),
   updateRubric: (id: string, data: { values: number[] }) =>
     api.put(`/rubric/${id}`, data),
+
+  // AI endpoints (uses separate axios instance with no timeout)
+  generateAIContent: (prompt: string, assignmentId: string) =>
+    aiApi.post("/ai/generate", { prompt, assignmentId }),
 };
 
 export default api;

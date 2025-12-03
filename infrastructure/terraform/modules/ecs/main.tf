@@ -112,6 +112,26 @@ resource "aws_iam_role" "ecs_task" {
   }
 }
 
+# IAM policy for Bedrock access (all foundation models)
+resource "aws_iam_role_policy" "ecs_task_bedrock" {
+  name = "classla-${var.environment}-ecs-task-bedrock"
+  role = aws_iam_role.ecs_task.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "bedrock:InvokeModel",
+          "bedrock:InvokeModelWithResponseStream"
+        ]
+        Resource = "arn:aws:bedrock:*::foundation-model/*"
+      }
+    ]
+  })
+}
+
 # Task definition
 resource "aws_ecs_task_definition" "app" {
   family                   = "classla-${var.environment}"
@@ -143,6 +163,10 @@ resource "aws_ecs_task_definition" "app" {
         {
           name  = "NODE_ENV"
           value = "production"
+        },
+        {
+          name  = "AWS_REGION"
+          value = data.aws_region.current.name
         }
       ]
 

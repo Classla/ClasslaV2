@@ -48,16 +48,6 @@ declare global {
  */
 export const authenticateToken = asyncHandler(
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-    // Debug logging
-    logger.info("Auth middleware debug", {
-      path: req.path,
-      sessionID: req.sessionID,
-      hasSession: !!req.session,
-      sessionUser: req.session ? !!(req.session as any).user : false,
-      cookies: req.headers.cookie,
-      userAgent: req.headers["user-agent"],
-    });
-
     // Validate session using session management service
     const sessionData = await sessionManagementService.validateSession(req);
 
