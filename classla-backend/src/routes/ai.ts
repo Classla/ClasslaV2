@@ -207,6 +207,20 @@ export function setupAIWebSocket(io: SocketIOServer): void {
       }
 
       try {
+        // Fetch user data for logging
+        const { data: userData, error: userError } = await supabase
+          .from("users")
+          .select("id, email")
+          .eq("id", userId)
+          .single();
+
+        if (userError || !userData) {
+          logger.warn("User not found for AI generation", {
+            userId,
+            error: userError?.message,
+          });
+        }
+
         // Fetch the assignment
         const { data: assignment, error: assignmentError } = await supabase
           .from("assignments")
@@ -308,6 +322,9 @@ export function setupAIWebSocket(io: SocketIOServer): void {
           socket,
           requestId,
           assignmentId,
+          userId: userData?.id || userId,
+          userEmail: userData?.email,
+          courseId: assignment.course_id,
         });
       } catch (error: any) {
         logger.error("Failed to start AI generation stream", {
@@ -322,6 +339,7 @@ export function setupAIWebSocket(io: SocketIOServer): void {
           message: error.message || "Failed to start generation",
           code: "GENERATION_FAILED",
           requestId,
+          assignmentId,
         });
       }
     });
@@ -477,6 +495,10 @@ router.post(
           name: assignment.name,
           courseName: course?.name,
         },
+        userId: req.user!.id,
+        userEmail: req.user!.email,
+        assignmentId,
+        courseId: assignment.course_id,
       });
 
       // Return the generated content

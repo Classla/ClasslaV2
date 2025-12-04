@@ -5,6 +5,8 @@ import {
 } from "@aws-sdk/client-bedrock-runtime";
 import { logger } from "../utils/logger";
 import { AuthenticatedSocket } from "./websocket";
+import { supabase } from "../middleware/auth";
+import { notifyAssignmentQuery, notifyParsingError, notifyRequestError } from "./discord";
 
 // Claude Sonnet model ID
 const CLAUDE_MODEL_ID = "us.anthropic.claude-sonnet-4-20250514-v1:0";
@@ -133,6 +135,11 @@ interface GenerateContentOptions {
     name: string;
     content: string;
   }>;
+  userId?: string;
+  userEmail?: string;
+  assignmentId?: string;
+  courseId?: string;
+  requestId?: string;
 }
 
 /**
@@ -141,7 +148,34 @@ interface GenerateContentOptions {
 export const generateContent = async (
   options: GenerateContentOptions
 ): Promise<any> => {
-  const { prompt, assignmentContext } = options;
+  const { prompt, assignmentContext, userId, assignmentId, courseId, requestId } = options;
+
+  // Create LLM call log entry
+  let llmCallId: string | null = null;
+  try {
+    if (userId && assignmentId && courseId) {
+      const { data: llmCall, error: insertError } = await supabase
+        .from("llm_calls")
+        .insert({
+          assignment_id: assignmentId,
+          user_id: userId,
+          course_id: courseId,
+          prompt: prompt,
+          success: false, // Will update later
+          request_id: requestId || undefined,
+        })
+        .select("id")
+        .single();
+
+      if (!insertError && llmCall) {
+        llmCallId = llmCall.id;
+      }
+    }
+  } catch (logError) {
+    logger.error("Error creating LLM call log entry", {
+      error: logError instanceof Error ? logError.message : "Unknown",
+    });
+  }
 
   try {
     const client = getBedrockClient();
@@ -199,6 +233,28 @@ export const generateContent = async (
         blockCount: parsedContent.content?.length || 0,
       });
 
+      // Update LLM call log with success
+      if (llmCallId) {
+        try {
+          const responseText = generatedText.length > 100000 
+            ? generatedText.substring(0, 100000) + "... [truncated]"
+            : generatedText;
+          
+          await supabase
+            .from("llm_calls")
+            .update({
+              success: true,
+              llm_response: responseText,
+            })
+            .eq("id", llmCallId);
+        } catch (updateError) {
+          logger.error("Failed to update LLM call log with success", {
+            error: updateError instanceof Error ? updateError.message : "Unknown",
+            llmCallId,
+          });
+        }
+      }
+
       return parsedContent;
     }
 
@@ -208,6 +264,25 @@ export const generateContent = async (
       error: error.message,
       stack: error.stack,
     });
+
+    // Update LLM call log with error
+    if (llmCallId) {
+      try {
+        await supabase
+          .from("llm_calls")
+          .update({
+            success: false,
+            error: error.message || "Unknown error",
+          })
+          .eq("id", llmCallId);
+      } catch (updateError) {
+        logger.error("Failed to update LLM call log with error", {
+          error: updateError instanceof Error ? updateError.message : "Unknown",
+          llmCallId,
+        });
+      }
+    }
+
     throw error;
   }
 };
@@ -228,7 +303,64 @@ export const generateContentStream = async (
     assignmentId: string;
   }
 ): Promise<void> => {
-  const { prompt, assignmentContext, taggedAssignments, socket, requestId, assignmentId } = options;
+  const { 
+    prompt, 
+    assignmentContext, 
+    taggedAssignments, 
+    socket, 
+    requestId, 
+    assignmentId,
+    userId,
+    userEmail,
+    courseId 
+  } = options;
+
+  // Create LLM call log entry
+  let llmCallId: string | null = null;
+  try {
+    if (userId && assignmentId && courseId) {
+      const { data: llmCall, error: insertError } = await supabase
+        .from("llm_calls")
+        .insert({
+          assignment_id: assignmentId,
+          user_id: userId,
+          course_id: courseId,
+          prompt: prompt,
+          success: false, // Will update later
+          request_id: requestId,
+        })
+        .select("id")
+        .single();
+
+      if (!insertError && llmCall) {
+        llmCallId = llmCall.id;
+        
+        // Send Discord notification for new query
+        if (assignmentContext && llmCallId) {
+          await notifyAssignmentQuery({
+            userId,
+            userEmail,
+            assignmentId,
+            assignmentName: assignmentContext.name || assignmentId,
+            courseId,
+            courseName: assignmentContext.courseName,
+            prompt,
+            llmCallId,
+          });
+        }
+      } else {
+        logger.error("Failed to create LLM call log entry", {
+          error: insertError?.message,
+          requestId,
+        });
+      }
+    }
+  } catch (logError) {
+    logger.error("Error creating LLM call log entry", {
+      error: logError instanceof Error ? logError.message : "Unknown",
+      requestId,
+    });
+  }
 
   try {
     const client = getBedrockClient();
@@ -336,7 +468,18 @@ export const generateContentStream = async (
             fullText += text;
             
             // Parse incrementally to detect new blocks
-            parseAndEmitBlocks(fullText, socket, requestId, assignmentId, startedBlocks, completedBlocks);
+            parseAndEmitBlocks(
+              fullText, 
+              socket, 
+              requestId, 
+              assignmentId, 
+              startedBlocks, 
+              completedBlocks,
+              llmCallId || undefined,
+              userId,
+              userEmail,
+              assignmentContext
+            );
           }
         } else if (chunkData.type === "message_stop") {
           // Stream complete - parse final content
@@ -413,6 +556,29 @@ export const generateContentStream = async (
               socketId: socket.id,
               totalBlocks: contentArray.length,
             });
+
+            // Update LLM call log with success
+            if (llmCallId) {
+              try {
+                // Truncate response if too long (keep first 100k chars)
+                const responseText = fullText.length > 100000 
+                  ? fullText.substring(0, 100000) + "... [truncated]"
+                  : fullText;
+                
+                await supabase
+                  .from("llm_calls")
+                  .update({
+                    success: true,
+                    llm_response: responseText,
+                  })
+                  .eq("id", llmCallId);
+              } catch (updateError) {
+                logger.error("Failed to update LLM call log with success", {
+                  error: updateError instanceof Error ? updateError.message : "Unknown",
+                  llmCallId,
+                });
+              }
+            }
           } else {
             // If we have some completed blocks, just finish successfully
             // Don't error if we got at least some content
@@ -423,15 +589,74 @@ export const generateContentStream = async (
                 completedBlocks: completedBlocks.size,
                 parseError: parseError?.message,
               });
+              
+              // Update LLM call log with success (but note the parse warning)
+              if (llmCallId) {
+                try {
+                  const responseText = fullText.length > 100000 
+                    ? fullText.substring(0, 100000) + "... [truncated]"
+                    : fullText;
+                  
+                  await supabase
+                    .from("llm_calls")
+                    .update({
+                      success: true,
+                      llm_response: responseText,
+                      error: parseError ? `Parse warning: ${parseError.message}` : null,
+                    })
+                    .eq("id", llmCallId);
+                } catch (updateError) {
+                  logger.error("Failed to update LLM call log with parse warning", {
+                    error: updateError instanceof Error ? updateError.message : "Unknown",
+                    llmCallId,
+                  });
+                }
+              }
+              
               socket.emit("generation-complete", { success: true, requestId, assignmentId });
             } else {
               // Only error if we got no blocks at all
+              const errorMessage = parseError?.message || "Unknown parsing error";
               logger.error("Failed to parse final AI response and no blocks were generated", {
                 requestId,
-                error: parseError?.message || "Unknown",
+                error: errorMessage,
                 fullTextLength: fullText.length,
                 fullTextPreview: fullText.substring(0, 200),
               });
+              
+              // Update LLM call log with error
+              if (llmCallId) {
+                try {
+                  await supabase
+                    .from("llm_calls")
+                    .update({
+                      success: false,
+                      error: errorMessage,
+                      llm_response: fullText.length > 100000 
+                        ? fullText.substring(0, 100000) + "... [truncated]"
+                        : fullText,
+                    })
+                    .eq("id", llmCallId);
+                } catch (updateError) {
+                  logger.error("Failed to update LLM call log with error", {
+                    error: updateError instanceof Error ? updateError.message : "Unknown",
+                    llmCallId,
+                  });
+                }
+
+                // Send Discord notification
+                if (userId && assignmentContext) {
+                  await notifyParsingError({
+                    llmCallId,
+                    requestId,
+                    assignmentId,
+                    assignmentName: assignmentContext.name,
+                    userId,
+                    userEmail,
+                    error: errorMessage,
+                  });
+                }
+              }
               
               socket.emit("stream-error", {
                 message: "Failed to parse AI response",
@@ -461,9 +686,43 @@ export const generateContentStream = async (
       ? "AI service is currently busy. Please try again in a moment."
       : error.message || "Failed to generate content";
 
+    const errorCode = error.name || "STREAM_ERROR";
+
+    // Update LLM call log with error
+    if (llmCallId) {
+      try {
+        await supabase
+          .from("llm_calls")
+          .update({
+            success: false,
+            error: errorMessage,
+          })
+          .eq("id", llmCallId);
+      } catch (updateError) {
+        logger.error("Failed to update LLM call log with error", {
+          error: updateError instanceof Error ? updateError.message : "Unknown",
+          llmCallId,
+        });
+      }
+
+      // Send Discord notification
+      if (userId && assignmentContext) {
+        await notifyRequestError({
+          llmCallId,
+          requestId,
+          assignmentId,
+          assignmentName: assignmentContext.name,
+          userId,
+          userEmail,
+          error: errorMessage,
+          errorCode,
+        });
+      }
+    }
+
     socket.emit("stream-error", {
       message: errorMessage,
-      code: error.name || "STREAM_ERROR",
+      code: errorCode,
       requestId,
       assignmentId,
     });
@@ -479,7 +738,11 @@ function parseAndEmitBlocks(
   requestId: string,
   assignmentId: string,
   startedBlocks: Set<number>,
-  completedBlocks: Set<number>
+  completedBlocks: Set<number>,
+  llmCallId?: string | null,
+  userId?: string,
+  userEmail?: string,
+  assignmentContext?: { name?: string }
 ): void {
   // Remove markdown code blocks if present
   let jsonText = text.trim();
@@ -529,7 +792,38 @@ function parseAndEmitBlocks(
           socket.emit("block-complete", { blockIndex, block, requestId, assignmentId });
           completedBlocks.add(blockIndex);
         } catch (e) {
-          // Block JSON not complete yet, ignore
+          // Block JSON parsing failed - log error for observability
+          const parseError = e instanceof Error ? e.message : String(e);
+          logger.warn("Failed to parse block during streaming", {
+            requestId,
+            blockIndex,
+            blockType: typeMatch?.[1],
+            error: parseError,
+            blockJsonPreview: jsonText.substring(blockStart, Math.min(blockStart + 200, blockEnd + 1)),
+          });
+
+          // Log parsing error to database and Discord
+          if (llmCallId && typeMatch?.[1]) {
+            (async () => {
+              try {
+                await notifyParsingError({
+                  llmCallId,
+                  requestId,
+                  assignmentId,
+                  assignmentName: assignmentContext?.name,
+                  userId: userId || "",
+                  userEmail,
+                  error: `Failed to parse block ${blockIndex}: ${parseError}`,
+                  blockIndex,
+                  blockType: typeMatch[1],
+                });
+              } catch (notifyError) {
+                logger.error("Failed to send parsing error notification", {
+                  error: notifyError instanceof Error ? notifyError.message : "Unknown",
+                });
+              }
+            })();
+          }
         }
       }
       blockIndex++;
