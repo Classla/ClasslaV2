@@ -1,0 +1,239 @@
+#!/bin/bash
+# Don't exit on error immediately - we want to log everything
+set +e
+
+# Enable logging
+exec > >(tee -a /var/log/classla-backend-user-data.log)
+exec 2>&1
+
+echo "=== User Data Script Started at $(date) ===" >> /var/log/classla-backend-user-data.log
+
+# Variables from Terraform
+AWS_REGION="${aws_region}"
+ECR_REPOSITORY_URL="${ecr_repository_url}"
+DOCKER_IMAGE_TAG="${docker_image_tag}"
+REDIS_ENDPOINT="${redis_endpoint}"
+REDIS_PORT="${redis_port}"
+SECRETS_MANAGER_SUPABASE="${secrets_manager_supabase}"
+SECRETS_MANAGER_WORKOS="${secrets_manager_workos}"
+SECRETS_MANAGER_APP="${secrets_manager_app}"
+FRONTEND_URL="${frontend_url}"
+LOG_GROUP_NAME="${log_group_name}"
+
+# Update system
+yum update -y
+
+# Install Docker
+yum install -y docker
+systemctl start docker
+systemctl enable docker
+usermod -a -G docker ec2-user
+
+# Install AWS CLI v2 (if not already installed)
+if ! command -v aws &> /dev/null; then
+    curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+    yum install -y unzip
+    unzip awscliv2.zip
+    ./aws/install
+    rm -rf aws awscliv2.zip
+fi
+
+# Install jq for JSON parsing
+yum install -y jq
+
+# Configure ECR login
+aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ECR_REPOSITORY_URL
+
+# Retrieve secrets from Secrets Manager
+SUPABASE_SECRET=$(aws secretsmanager get-secret-value --secret-id $SECRETS_MANAGER_SUPABASE --region $AWS_REGION --query SecretString --output text)
+WORKOS_SECRET=$(aws secretsmanager get-secret-value --secret-id $SECRETS_MANAGER_WORKOS --region $AWS_REGION --query SecretString --output text)
+APP_SECRET=$(aws secretsmanager get-secret-value --secret-id $SECRETS_MANAGER_APP --region $AWS_REGION --query SecretString --output text)
+
+# Parse secrets
+SUPABASE_URL=$(echo $SUPABASE_SECRET | jq -r '.url // .SUPABASE_URL')
+SUPABASE_SERVICE_ROLE_KEY=$(echo $SUPABASE_SECRET | jq -r '.service_role_key // .SUPABASE_SERVICE_ROLE_KEY')
+WORKOS_CLIENT_ID=$(echo $WORKOS_SECRET | jq -r '.client_id // .WORKOS_CLIENT_ID')
+WORKOS_API_KEY=$(echo $WORKOS_SECRET | jq -r '.api_key // .WORKOS_API_KEY')
+WORKOS_REDIRECT_URI=$(echo $WORKOS_SECRET | jq -r '.redirect_uri // .WORKOS_REDIRECT_URI')
+SESSION_SECRET=$(echo $APP_SECRET | jq -r '.session_secret // .SESSION_SECRET')
+
+# Create directory for app
+mkdir -p /opt/classla-backend
+
+# Validate required variables
+if [ -z "$FRONTEND_URL" ]; then
+  echo "ERROR: FRONTEND_URL is not set" >> /var/log/classla-backend-deployment.log
+  exit 1
+fi
+
+# Create environment file for Docker
+cat > /opt/classla-backend/.env <<EOF
+NODE_ENV=production
+PORT=3001
+AWS_REGION=$AWS_REGION
+SUPABASE_URL=$SUPABASE_URL
+SUPABASE_SERVICE_ROLE_KEY=$SUPABASE_SERVICE_ROLE_KEY
+WORKOS_CLIENT_ID=$WORKOS_CLIENT_ID
+WORKOS_API_KEY=$WORKOS_API_KEY
+WORKOS_REDIRECT_URI=$WORKOS_REDIRECT_URI
+SESSION_SECRET=$SESSION_SECRET
+FRONTEND_URL=$FRONTEND_URL
+REDIS_URL=redis://$REDIS_ENDPOINT:$REDIS_PORT
+EOF
+
+# Log environment setup
+echo "Environment file created with FRONTEND_URL=$FRONTEND_URL" >> /var/log/classla-backend-deployment.log
+
+# Pull Docker image
+docker pull $ECR_REPOSITORY_URL:$DOCKER_IMAGE_TAG
+
+# Stop any existing container
+docker stop classla-backend || true
+docker rm classla-backend || true
+
+# Run Docker container
+echo "Starting Docker container..." >> /var/log/classla-backend-deployment.log
+echo "ECR Repository: $ECR_REPOSITORY_URL" >> /var/log/classla-backend-deployment.log
+echo "Image Tag: $DOCKER_IMAGE_TAG" >> /var/log/classla-backend-deployment.log
+
+# Verify .env file exists and has content
+if [ ! -f /opt/classla-backend/.env ]; then
+  echo "ERROR: .env file not found" >> /var/log/classla-backend-deployment.log
+  exit 1
+fi
+
+echo "Environment file contents (without secrets):" >> /var/log/classla-backend-deployment.log
+grep -v "SECRET\|KEY\|PASSWORD" /opt/classla-backend/.env >> /var/log/classla-backend-deployment.log
+
+docker run -d \
+  --name classla-backend \
+  --restart unless-stopped \
+  -p 3001:3001 \
+  --env-file /opt/classla-backend/.env \
+  $ECR_REPOSITORY_URL:$DOCKER_IMAGE_TAG 2>&1 | tee -a /var/log/classla-backend-deployment.log
+
+CONTAINER_ID=$(docker ps -q -f name=classla-backend)
+if [ -z "$CONTAINER_ID" ]; then
+  echo "ERROR: Docker container failed to start" >> /var/log/classla-backend-deployment.log
+  echo "Checking container status..." >> /var/log/classla-backend-deployment.log
+  docker ps -a | grep classla-backend >> /var/log/classla-backend-deployment.log
+  echo "Container logs:" >> /var/log/classla-backend-deployment.log
+  docker logs classla-backend >> /var/log/classla-backend-deployment.log 2>&1
+  exit 1
+fi
+
+echo "Container started with ID: $CONTAINER_ID" >> /var/log/classla-backend-deployment.log
+
+# Wait for container to be ready
+echo "Waiting for container to be ready..." >> /var/log/classla-backend-deployment.log
+sleep 10
+
+# Check if container is still running
+if ! docker ps | grep -q classla-backend; then
+  echo "ERROR: Docker container stopped after starting" >> /var/log/classla-backend-deployment.log
+  docker logs classla-backend >> /var/log/classla-backend-deployment.log 2>&1
+  exit 1
+fi
+
+# Verify container is responding
+echo "Testing health endpoint..." >> /var/log/classla-backend-deployment.log
+for i in {1..15}; do
+  if curl -f http://localhost:3001/health > /dev/null 2>&1; then
+    echo "Container health check passed on attempt $i" >> /var/log/classla-backend-deployment.log
+    curl -s http://localhost:3001/health >> /var/log/classla-backend-deployment.log
+    break
+  fi
+  if [ $i -eq 15 ]; then
+    echo "WARNING: Container health check failed after 15 attempts" >> /var/log/classla-backend-deployment.log
+    echo "Container status:" >> /var/log/classla-backend-deployment.log
+    docker ps -a | grep classla-backend >> /var/log/classla-backend-deployment.log
+    echo "Container logs:" >> /var/log/classla-backend-deployment.log
+    docker logs classla-backend >> /var/log/classla-backend-deployment.log 2>&1
+    echo "Environment variables:" >> /var/log/classla-backend-deployment.log
+    docker exec classla-backend env | grep -E "FRONTEND_URL|PORT|NODE_ENV" >> /var/log/classla-backend-deployment.log 2>&1 || echo "Could not exec into container" >> /var/log/classla-backend-deployment.log
+  fi
+  sleep 2
+done
+
+# Install and configure CloudWatch agent
+wget https://s3.amazonaws.com/amazoncloudwatch-agent/amazon_linux/amd64/latest/amazon-cloudwatch-agent.rpm
+rpm -U ./amazon-cloudwatch-agent.rpm
+
+# Create CloudWatch agent configuration
+cat > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json <<EOF
+{
+  "logs": {
+    "logs_collected": {
+      "files": {
+        "collect_list": [
+          {
+            "file_path": "/var/lib/docker/containers/*/*-json.log",
+            "log_group_name": "$LOG_GROUP_NAME",
+            "log_stream_name": "{instance_id}-docker",
+            "timezone": "UTC"
+          }
+        ]
+      }
+    }
+  },
+  "metrics": {
+    "namespace": "ClasslaBackend",
+    "metrics_collected": {
+      "cpu": {
+        "measurement": [
+          "cpu_usage_idle",
+          "cpu_usage_iowait",
+          "cpu_usage_user",
+          "cpu_usage_system"
+        ],
+        "totalcpu": false
+      },
+      "disk": {
+        "measurement": [
+          "used_percent"
+        ],
+        "resources": [
+          "*"
+        ]
+      },
+      "diskio": {
+        "measurement": [
+          "io_time"
+        ],
+        "resources": [
+          "*"
+        ]
+      },
+      "mem": {
+        "measurement": [
+          "mem_used_percent"
+        ]
+      },
+      "netstat": {
+        "measurement": [
+          "tcp_established",
+          "tcp_time_wait"
+        ]
+      },
+      "processes": {
+        "measurement": [
+          "running",
+          "sleeping",
+          "dead"
+        ]
+      }
+    }
+  }
+}
+EOF
+
+# Start CloudWatch agent
+/opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl \
+  -a fetch-config \
+  -m ec2 \
+  -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json \
+  -s
+
+# Log successful deployment
+echo "Classla backend deployed successfully at $(date)" >> /var/log/classla-backend-deployment.log
+

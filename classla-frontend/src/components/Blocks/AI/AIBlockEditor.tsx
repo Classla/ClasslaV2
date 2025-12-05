@@ -14,7 +14,7 @@ interface AIBlockEditorProps {
   updateAttributes: (attrs: any) => void;
   deleteNode: () => void;
   editor: any;
-  getPos: () => number;
+  getPos: () => number | undefined;
 }
 
 // Get base URL for WebSocket

@@ -48,7 +48,7 @@ logs
 
 # TypeScript
 *.tsbuildinfo
-tsconfig.json
+# Note: tsconfig.json is needed for the build, so don't exclude it
 
 # Misc
 .editorconfig

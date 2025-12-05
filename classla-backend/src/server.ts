@@ -12,7 +12,6 @@ import { sessionMiddleware } from "./config/session";
 import { logger } from "./utils/logger";
 import { initializeWebSocket } from "./services/websocket";
 import { setupAIWebSocket } from "./routes/ai";
-import { sessionMiddleware } from "./config/session";
 
 // Validate required environment variables
 const requiredEnvVars = ["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"];

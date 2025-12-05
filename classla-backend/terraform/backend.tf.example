@@ -1,0 +1,20 @@
+# Optional: Uncomment and configure if you want to use remote state storage
+# This helps with team collaboration and state locking
+
+# terraform {
+#   backend "s3" {
+#     bucket         = "your-terraform-state-bucket"
+#     key            = "classla-backend/terraform.tfstate"
+#     region         = "us-east-2"
+#     encrypt        = true
+#     dynamodb_table = "terraform-state-locks"
+#   }
+# }
+
+# To use this:
+# 1. Create an S3 bucket for state storage
+# 2. Create a DynamoDB table for state locking (primary key: LockID)
+# 3. Copy this file to backend.tf
+# 4. Update the bucket name, key, region, and DynamoDB table name
+# 5. Run terraform init
+

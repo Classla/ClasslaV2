@@ -60,7 +60,7 @@ export function initializeWebSocket(
       
       // Parse cookies manually
       const cookies = req.headers.cookie || "";
-      const parsedCookies = cookieParser.JSONCookies ? {} : {};
+      const parsedCookies: any = {};
       
       // Parse session ID from cookie
       const sessionCookieName = "classla.sid";
@@ -82,7 +82,8 @@ export function initializeWebSocket(
       // Manually load session from store
       // Wrap in a promise to handle async session loading
       await new Promise<void>((resolve, reject) => {
-        if (!expressSessionMiddleware.store) {
+        const store = (expressSessionMiddleware as any).store;
+        if (!store) {
           // Memory store - we can't easily access it
           // For now, we'll need to use a workaround
           resolve();
@@ -90,7 +91,7 @@ export function initializeWebSocket(
         }
         
         // Load session from store
-        expressSessionMiddleware.store.get(sessionId, (err: any, session: any) => {
+        store.get(sessionId, (err: any, session: any) => {
           if (err) {
             reject(err);
             return;

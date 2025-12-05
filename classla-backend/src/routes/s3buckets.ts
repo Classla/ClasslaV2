@@ -94,7 +94,7 @@ router.post(
         return res.status(500).json({ error: fetchError.message });
       }
 
-      res.status(201).json(bucket);
+      return res.status(201).json(bucket);
     } catch (s3Error: any) {
       // Update status to 'error'
       await supabase
@@ -148,7 +148,7 @@ router.get(
       return res.status(500).json({ error: error.message });
     }
 
-    res.json({ buckets });
+    return res.json({ buckets });
   })
 );
 
@@ -175,7 +175,7 @@ router.get(
       return res.status(500).json({ error: error.message });
     }
 
-    res.json(bucket);
+    return res.json(bucket);
   })
 );
 
@@ -241,7 +241,7 @@ router.delete(
         .update({ status: "deleted" })
         .eq("id", id);
 
-      res.json({ message: "Bucket deleted successfully", id });
+      return res.json({ message: "Bucket deleted successfully", id });
     } catch (s3Error: any) {
       // Update status to 'error'
       await supabase

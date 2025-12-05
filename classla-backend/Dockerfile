@@ -22,6 +22,9 @@ FROM node:20-alpine
 
 WORKDIR /app
 
+# Install curl for health checks
+RUN apk add --no-cache curl
+
 # Copy package files
 COPY package*.json ./
 
@@ -45,9 +48,15 @@ USER nodejs
 # Expose port
 EXPOSE 3001
 
+# Add labels for metadata
+LABEL maintainer="Classla Team"
+LABEL description="Classla Backend API"
+LABEL version="1.0"
+
 # Health check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=40s --retries=3 \
-  CMD node -e "require('http').get('http://localhost:3001/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"
+  CMD curl -f http://localhost:3001/health || exit 1
 
 # Start application
+# Node.js handles SIGTERM/SIGINT gracefully by default
 CMD ["node", "dist/server.js"]

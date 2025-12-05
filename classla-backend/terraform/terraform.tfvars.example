@@ -1,0 +1,71 @@
+# AWS Configuration
+aws_region = "us-east-2"
+
+# Environment Configuration
+environment  = "production"
+project_name = "classla-backend"
+
+# Networking
+vpc_cidr = "10.0.0.0/16"
+
+# EC2 Configuration
+instance_type     = "t3.medium"
+min_size          = 1
+max_size          = 5
+desired_capacity  = 1
+
+# Auto Scaling Configuration
+cpu_scaling_target    = 70.0
+memory_scaling_target = 80.0
+health_check_grace_period = 300
+
+# Load Balancer Configuration
+acm_certificate_arn              = "arn:aws:acm:us-east-2:123456789012:certificate/your-certificate-id"
+enable_https_redirect           = true
+enable_deletion_protection      = false
+alb_idle_timeout                = 60
+target_group_deregistration_delay = 30
+health_check_path                = "/health"
+
+# Redis Configuration
+redis_node_type              = "cache.t3.micro"
+redis_maintenance_window     = "mon:03:00-mon:04:00"
+redis_snapshot_retention_limit = 0
+
+# Docker Configuration
+ecr_repository_url = "123456789012.dkr.ecr.us-east-2.amazonaws.com/classla-backend"
+docker_image_tag   = "latest"
+
+# Application Configuration
+frontend_url = "https://your-frontend-domain.com"
+
+# Secrets Manager Configuration
+# These secrets must exist in AWS Secrets Manager before deployment
+secrets_manager_supabase_secret = "classla-backend/supabase"
+secrets_manager_workos_secret   = "classla-backend/workos"
+secrets_manager_app_secret      = "classla-backend/app"
+
+# Monitoring Configuration
+log_retention_days = 30
+
+# Secret Format Examples:
+#
+# Supabase Secret (classla-backend/supabase):
+# {
+#   "url": "https://your-project.supabase.co",
+#   "service_role_key": "your-service-role-key"
+# }
+#
+# WorkOS Secret (classla-backend/workos):
+# {
+#   "client_id": "client_xxxxx",
+#   "api_key": "sk_live_xxxxx",
+#   "redirect_uri": "https://your-frontend-domain.com/callback"
+# }
+#
+# App Secret (classla-backend/app):
+# {
+#   "session_secret": "your-random-session-secret",
+#   "frontend_url": "https://your-frontend-domain.com"
+# }
+

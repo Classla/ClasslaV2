@@ -84,7 +84,7 @@ router.post(
       created_at: new Date(joinLink.created_at),
     };
 
-    res.status(201).json(result);
+    return res.status(201).json(result);
   })
 );
 
@@ -131,7 +131,7 @@ router.get(
       created_at: new Date(link.created_at),
     }));
 
-    res.json(result);
+    return res.json(result);
   })
 );
 
@@ -265,7 +265,7 @@ router.post(
       return res.status(500).json({ error: "Failed to enroll in course" });
     }
 
-    res.json({
+    return res.json({
       message: "Successfully joined course",
       course_name: course.name,
       course_slug: joinLink.course_slug,
@@ -319,7 +319,7 @@ router.delete(
       return res.status(500).json({ error: "Failed to delete join link" });
     }
 
-    res.json({ message: "Join link deleted successfully" });
+    return res.json({ message: "Join link deleted successfully" });
   })
 );
 

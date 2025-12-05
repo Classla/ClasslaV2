@@ -250,7 +250,15 @@ router.get("/auth/callback", async (req: Request, res: Response) => {
     });
 
     // Redirect to frontend dashboard
-    const frontendUrl = process.env.FRONTEND_URL || "http://localhost:5173";
+    const frontendUrl = process.env.FRONTEND_URL;
+    if (!frontendUrl) {
+      logger.error("FRONTEND_URL environment variable is not set");
+      return res.status(500).json({
+        success: false,
+        error: "Frontend URL not configured",
+        code: "CONFIGURATION_ERROR",
+      });
+    }
     return res.redirect(`${frontendUrl}/dashboard?auth=success`);
   } catch (error) {
     logger.error("Authentication callback failed", {
@@ -280,7 +288,15 @@ router.get("/auth/callback", async (req: Request, res: Response) => {
     }
 
     // Redirect to frontend with error
-    const frontendUrl = process.env.FRONTEND_URL || "http://localhost:5173";
+    const frontendUrl = process.env.FRONTEND_URL;
+    if (!frontendUrl) {
+      logger.error("FRONTEND_URL environment variable is not set");
+      return res.status(500).json({
+        success: false,
+        error: "Frontend URL not configured",
+        code: "CONFIGURATION_ERROR",
+      });
+    }
     return res.redirect(
       `${frontendUrl}/login?error=${encodeURIComponent(
         errorMessage
