@@ -1,6 +1,9 @@
 // Load environment variables FIRST before any other imports
+// Only load .env file in development - in production, use environment variables from container
 import dotenv from "dotenv";
-dotenv.config();
+if (process.env.NODE_ENV !== "production") {
+  dotenv.config();
+}
 
 import express from "express";
 import { createServer } from "http";
