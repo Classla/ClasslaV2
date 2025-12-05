@@ -47,6 +47,8 @@ app.use(
         process.env.FRONTEND_URL || "http://localhost:5173",
         "http://localhost:3001", // Orchestration API
         "http://localhost:8000", // Backend itself
+        "api.classla.org",
+        "app.classla.org",
       ];
 
       if (allowedOrigins.includes(origin)) {

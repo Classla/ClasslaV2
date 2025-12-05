@@ -38,6 +38,8 @@ export function initializeWebSocket(
           process.env.FRONTEND_URL || "http://localhost:5173",
           "http://localhost:3001",
           "http://localhost:8000",
+          "api.classla.org",
+          "app.classla.org",
         ];
 
         if (allowedOrigins.includes(origin)) {
