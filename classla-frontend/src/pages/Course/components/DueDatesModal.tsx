@@ -78,7 +78,7 @@ const DueDatesModal: React.FC<DueDatesModalProps> = ({
       const sectionsResponse = await apiClient.getCourseSections(
         assignment.course_id
       );
-      const sectionsData = sectionsResponse.data;
+      const sectionsData = sectionsResponse.data.data || [];
 
       // Fetch enrollments
       const enrollmentsResponse = await apiClient.getCourseEnrollments(
@@ -111,7 +111,7 @@ const DueDatesModal: React.FC<DueDatesModalProps> = ({
 
       // Group enrollments by section
       const sectionsWithEnrollments: SectionWithEnrollments[] =
-        sectionsData.map((section: Section) => ({
+        (Array.isArray(sectionsData) ? sectionsData : []).map((section: Section) => ({
           ...section,
           enrollments: transformedEnrollments.filter(
             (enrollment: EnrollmentWithUser) =>
@@ -334,18 +334,18 @@ const DueDatesModal: React.FC<DueDatesModalProps> = ({
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-4xl max-h-[80vh]">
+      <DialogContent className="max-w-4xl max-h-[80vh] flex flex-col overflow-hidden">
         <DialogHeader>
           <DialogTitle>Configure Due Dates</DialogTitle>
         </DialogHeader>
 
-        <Tabs defaultValue="hierarchy" className="w-full">
+        <Tabs defaultValue="hierarchy" className="w-full flex flex-col flex-1 min-h-0 overflow-hidden">
           <TabsList className="grid w-full grid-cols-2">
             <TabsTrigger value="hierarchy">Hierarchy</TabsTrigger>
             <TabsTrigger value="overrides">Current Overrides</TabsTrigger>
           </TabsList>
 
-          <TabsContent value="hierarchy" className="space-y-4">
+          <TabsContent value="hierarchy" className="space-y-4 flex-1 overflow-y-auto min-h-0">
             <div className="text-sm text-gray-600 mb-4">
               Set due dates hierarchically. Section dates override course dates,
               and individual student dates override section dates.
@@ -464,7 +464,7 @@ const DueDatesModal: React.FC<DueDatesModalProps> = ({
             </div>
           </TabsContent>
 
-          <TabsContent value="overrides" className="space-y-4">
+          <TabsContent value="overrides" className="space-y-4 flex-1 overflow-y-auto min-h-0">
             <div className="text-sm text-gray-600 mb-4">
               Current due date overrides. Remove overrides to inherit from
               higher levels.
@@ -522,7 +522,7 @@ const DueDatesModal: React.FC<DueDatesModalProps> = ({
           </TabsContent>
         </Tabs>
 
-        <DialogFooter>
+        <DialogFooter className="mt-auto flex-shrink-0">
           <Button variant="outline" onClick={onClose}>
             Cancel
           </Button>
