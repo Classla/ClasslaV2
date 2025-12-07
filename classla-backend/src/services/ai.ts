@@ -30,16 +30,23 @@ const getBedrockClient = (): BedrockRuntimeClient => {
       region,
     };
 
+    // In production, prefer IAM role credentials (no explicit credentials needed)
+    // Only use explicit credentials if provided (for local development or special cases)
     if (process.env.BEDROCK_ACCESS_KEY_ID && process.env.BEDROCK_SECRET_ACCESS_KEY) {
       config.credentials = {
         accessKeyId: process.env.BEDROCK_ACCESS_KEY_ID,
         secretAccessKey: process.env.BEDROCK_SECRET_ACCESS_KEY,
       };
+      logger.info("Using explicit Bedrock credentials from environment variables");
     } else if (process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY) {
       config.credentials = {
         accessKeyId: process.env.AWS_ACCESS_KEY_ID,
         secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
       };
+      logger.info("Using explicit AWS credentials from environment variables");
+    } else {
+      // No explicit credentials - will use IAM role credentials (default AWS SDK behavior)
+      logger.info("Using IAM role credentials for Bedrock (no explicit credentials provided)");
     }
     
     bedrockClient = new BedrockRuntimeClient(config);

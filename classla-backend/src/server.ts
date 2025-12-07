@@ -2,7 +2,9 @@
 // Only load .env file in development - in production, use environment variables from container
 import dotenv from "dotenv";
 if (process.env.NODE_ENV !== "production") {
-  dotenv.config();
+  // Try .env.local first (for local overrides), then .env
+  dotenv.config({ path: ".env.local" });
+  dotenv.config(); // .env will override .env.local if both exist
 }
 
 import express from "express";
@@ -11,7 +13,7 @@ import cors from "cors";
 import helmet from "helmet";
 import { supabase } from "./middleware/auth";
 import { errorHandler, notFoundHandler } from "./middleware/errorHandler";
-import { sessionMiddleware } from "./config/session";
+import { sessionMiddleware, waitForRedisConnection } from "./config/session";
 import { logger } from "./utils/logger";
 import { initializeWebSocket } from "./services/websocket";
 import { setupAIWebSocket } from "./routes/ai";
@@ -29,6 +31,11 @@ const app = express();
 const server = createServer(app);
 const PORT = process.env.PORT || 3001;
 
+// CRITICAL: Trust proxy for load balancer (ALB)
+// This is required for secure cookies to work correctly behind a load balancer
+// Without this, Express doesn't know the request is over HTTPS and may reject secure cookies
+app.set('trust proxy', 1);
+
 // Middleware
 app.use(helmet());
 app.use(
@@ -43,17 +50,33 @@ app.use(
       }
 
       // In production, only allow specific origins
+      const frontendUrl = process.env.FRONTEND_URL;
+      if (!frontendUrl) {
+        logger.error("FRONTEND_URL environment variable is not set");
+        return callback(new Error("CORS configuration error: FRONTEND_URL not set"));
+      }
+
+      // Parse the frontend URL to get the origin
+      let frontendOrigin: string;
+      try {
+        frontendOrigin = new URL(frontendUrl).origin;
+      } catch (error) {
+        logger.error(`Invalid FRONTEND_URL format: ${frontendUrl}`);
+        return callback(new Error("CORS configuration error: Invalid FRONTEND_URL format"));
+      }
+      
+      // Allowed origins in production (must include protocol)
       const allowedOrigins = [
-        process.env.FRONTEND_URL || "http://localhost:5173",
-        "http://localhost:3001", // Orchestration API
-        "http://localhost:8000", // Backend itself
-        "api.classla.org",
-        "app.classla.org",
+        frontendOrigin, // Frontend URL from environment (e.g., https://dkxwdi4itgzqv.amplifyapp.com)
+        "https://app.classla.org", // Production frontend domain
+        "https://api.classla.org", // Backend itself (for internal requests)
       ];
 
+      // Check if origin matches any allowed origin
       if (allowedOrigins.includes(origin)) {
         callback(null, true);
       } else {
+        logger.warn(`CORS blocked origin: ${origin}. Allowed origins: ${allowedOrigins.join(", ")}`);
         callback(new Error("Not allowed by CORS"));
       }
     },
@@ -151,10 +174,20 @@ const io = initializeWebSocket(server, sessionMiddleware);
 // Set up AI WebSocket namespace
 setupAIWebSocket(io);
 
-server.listen(PORT, () => {
-  logger.info(`Server running on port ${PORT}`);
-  logger.info(`Health check: http://localhost:${PORT}/health`);
-  logger.info(`WebSocket server initialized`);
-});
+// Wait for Redis connection before starting server (in production)
+waitForRedisConnection()
+  .then(() => {
+    server.listen(PORT, () => {
+      logger.info(`Server running on port ${PORT}`);
+      logger.info(`Health check: http://localhost:${PORT}/health`);
+      logger.info(`WebSocket server initialized`);
+    });
+  })
+  .catch((error) => {
+    logger.error('Failed to start server - Redis connection required', {
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
+    process.exit(1);
+  });
 
 export default app;

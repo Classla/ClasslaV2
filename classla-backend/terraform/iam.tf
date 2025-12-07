@@ -53,7 +53,8 @@ resource "aws_iam_role_policy" "ec2_secrets" {
   })
 }
 
-# Policy for Bedrock access
+# Policy for Bedrock Runtime access
+# Note: Bedrock Runtime uses bedrock-runtime service, not bedrock
 resource "aws_iam_role_policy" "ec2_bedrock" {
   name = "${local.name_prefix}-ec2-bedrock-policy"
   role = aws_iam_role.ec2.id
@@ -64,8 +65,8 @@ resource "aws_iam_role_policy" "ec2_bedrock" {
       {
         Effect = "Allow"
         Action = [
-          "bedrock:InvokeModel",
-          "bedrock:InvokeModelWithResponseStream"
+          "bedrock-runtime:InvokeModel",
+          "bedrock-runtime:InvokeModelWithResponseStream"
         ]
         Resource = "arn:aws:bedrock:${data.aws_region.current.name}::foundation-model/*"
       }

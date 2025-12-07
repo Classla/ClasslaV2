@@ -5,9 +5,13 @@
   "main": "dist/server.js",
   "scripts": {
     "dev": "tsx watch src/server.ts",
+    "dev:redis": "docker compose -f docker-compose.local.yml up -d redis && tsx watch src/server.ts",
     "build": "tsc",
     "start": "node dist/server.js",
     "test": "jest",
+    "redis:up": "docker compose -f docker-compose.local.yml up -d redis",
+    "redis:down": "docker compose -f docker-compose.local.yml down",
+    "redis:logs": "docker compose -f docker-compose.local.yml logs -f redis",
     "test:watch": "jest --watch"
   },
   "keywords": [

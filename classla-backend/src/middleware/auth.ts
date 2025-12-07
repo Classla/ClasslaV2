@@ -48,6 +48,16 @@ declare global {
  */
 export const authenticateToken = asyncHandler(
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    // Log cookie information for debugging
+    logger.debug("Authentication attempt", {
+      path: req.path,
+      sessionId: req.sessionID,
+      cookies: req.headers.cookie,
+      cookieHeader: req.headers.cookie ? req.headers.cookie.split(';').map(c => c.trim().substring(0, 50)) : [],
+      hasSession: !!req.session,
+      sessionKeys: req.session ? Object.keys(req.session) : [],
+    });
+
     // Validate session using session management service
     const sessionData = await sessionManagementService.validateSession(req);
 
@@ -57,6 +67,8 @@ export const authenticateToken = asyncHandler(
         sessionId: req.sessionID,
         hasSession: !!req.session,
         sessionKeys: req.session ? Object.keys(req.session) : [],
+        cookies: req.headers.cookie,
+        cookieHeader: req.headers.cookie ? req.headers.cookie.split(';').map(c => c.trim().substring(0, 50)) : [],
       });
       throw new AuthenticationError("Valid session is required");
     }

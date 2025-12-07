@@ -56,6 +56,20 @@ WORKOS_CLIENT_ID=$(echo $WORKOS_SECRET | jq -r '.client_id // .WORKOS_CLIENT_ID'
 WORKOS_API_KEY=$(echo $WORKOS_SECRET | jq -r '.api_key // .WORKOS_API_KEY')
 WORKOS_REDIRECT_URI=$(echo $WORKOS_SECRET | jq -r '.redirect_uri // .WORKOS_REDIRECT_URI')
 SESSION_SECRET=$(echo $APP_SECRET | jq -r '.session_secret // .SESSION_SECRET')
+# Get FRONTEND_URL from app secret (preferred) or fall back to Terraform variable
+FRONTEND_URL_FROM_SECRET=$(echo $APP_SECRET | jq -r '.frontend_url // .FRONTEND_URL // empty')
+if [ -n "$FRONTEND_URL_FROM_SECRET" ]; then
+  FRONTEND_URL="$FRONTEND_URL_FROM_SECRET"
+  echo "Using FRONTEND_URL from Secrets Manager: $FRONTEND_URL" >> /var/log/classla-backend-deployment.log
+else
+  echo "FRONTEND_URL not found in secret, using Terraform variable: $FRONTEND_URL" >> /var/log/classla-backend-deployment.log
+fi
+
+# Parse AWS credentials from app secret (optional - IAM role is preferred)
+BEDROCK_ACCESS_KEY_ID=$(echo $APP_SECRET | jq -r '.bedrock_access_key_id // .BEDROCK_ACCESS_KEY_ID // empty')
+BEDROCK_SECRET_ACCESS_KEY=$(echo $APP_SECRET | jq -r '.bedrock_secret_access_key // .BEDROCK_SECRET_ACCESS_KEY // empty')
+IDE_MANAGER_ACCESS_KEY_ID=$(echo $APP_SECRET | jq -r '.ide_manager_access_key_id // .IDE_MANAGER_ACCESS_KEY_ID // empty')
+IDE_MANAGER_SECRET_ACCESS_KEY=$(echo $APP_SECRET | jq -r '.ide_manager_secret_access_key // .IDE_MANAGER_SECRET_ACCESS_KEY // empty')
 
 # Create directory for app
 mkdir -p /opt/classla-backend
@@ -80,6 +94,23 @@ SESSION_SECRET=$SESSION_SECRET
 FRONTEND_URL=$FRONTEND_URL
 REDIS_URL=redis://$REDIS_ENDPOINT:$REDIS_PORT
 EOF
+
+# Add AWS credentials if provided (optional - IAM role is preferred)
+if [ -n "$BEDROCK_ACCESS_KEY_ID" ] && [ -n "$BEDROCK_SECRET_ACCESS_KEY" ]; then
+  echo "BEDROCK_ACCESS_KEY_ID=$BEDROCK_ACCESS_KEY_ID" >> /opt/classla-backend/.env
+  echo "BEDROCK_SECRET_ACCESS_KEY=$BEDROCK_SECRET_ACCESS_KEY" >> /opt/classla-backend/.env
+  echo "Added Bedrock credentials to environment file" >> /var/log/classla-backend-deployment.log
+else
+  echo "Bedrock credentials not provided, will use IAM role credentials" >> /var/log/classla-backend-deployment.log
+fi
+
+if [ -n "$IDE_MANAGER_ACCESS_KEY_ID" ] && [ -n "$IDE_MANAGER_SECRET_ACCESS_KEY" ]; then
+  echo "IDE_MANAGER_ACCESS_KEY_ID=$IDE_MANAGER_ACCESS_KEY_ID" >> /opt/classla-backend/.env
+  echo "IDE_MANAGER_SECRET_ACCESS_KEY=$IDE_MANAGER_SECRET_ACCESS_KEY" >> /opt/classla-backend/.env
+  echo "Added IDE Manager credentials to environment file" >> /var/log/classla-backend-deployment.log
+else
+  echo "IDE Manager credentials not provided, will use IAM role credentials" >> /var/log/classla-backend-deployment.log
+fi
 
 # Log environment setup
 echo "Environment file created with FRONTEND_URL=$FRONTEND_URL" >> /var/log/classla-backend-deployment.log

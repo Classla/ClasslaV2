@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { WorkOSUser } from './workos';
+import { logger } from '../utils/logger';
 
 // User session data interface
 export interface UserSessionData {
@@ -80,24 +81,50 @@ export class SessionManagementService {
       // Store session data
       (req.session as any).user = sessionData;
 
-      // Configure session cookie
+      // Configure session cookie - use values from SESSION_CONFIG, not sessionConfig
       if (req.session.cookie) {
-        req.session.cookie.maxAge = sessionConfig.maxAge;
-        req.session.cookie.secure = sessionConfig.secure;
-        req.session.cookie.httpOnly = sessionConfig.httpOnly;
-        req.session.cookie.sameSite = sessionConfig.sameSite;
+        // Import SESSION_CONFIG to get the actual cookie settings
+        const { SESSION_CONFIG } = require('../config/session');
+        
+        req.session.cookie.maxAge = SESSION_CONFIG.cookie.maxAge;
+        req.session.cookie.secure = SESSION_CONFIG.cookie.secure;
+        req.session.cookie.httpOnly = SESSION_CONFIG.cookie.httpOnly;
+        req.session.cookie.sameSite = SESSION_CONFIG.cookie.sameSite;
+        req.session.cookie.domain = SESSION_CONFIG.cookie.domain;
+        
+        logger.debug("Session cookie configured", {
+          domain: req.session.cookie.domain,
+          sameSite: req.session.cookie.sameSite,
+          secure: req.session.cookie.secure,
+          maxAge: req.session.cookie.maxAge,
+        });
       }
 
       // Force session save
       await new Promise<void>((resolve, reject) => {
         req.session.save((err) => {
           if (err) {
+            logger.error('Failed to save session', {
+              error: err.message,
+              sessionId: req.sessionID,
+              hasUser: !!(req.session as any).user,
+            });
             reject(new SessionManagementError(
               'Failed to save session',
               'SESSION_SAVE_ERROR',
               500
             ));
           } else {
+            // Log successful save with details
+            logger.info('Session saved successfully', {
+              sessionId: req.sessionID,
+              hasUser: !!(req.session as any).user,
+              userEmail: (req.session as any).user?.email,
+              sessionKeys: Object.keys(req.session || {}),
+              cookieDomain: req.session.cookie?.domain,
+              cookieSameSite: req.session.cookie?.sameSite,
+              cookieSecure: req.session.cookie?.secure,
+            });
             resolve();
           }
         });
@@ -122,7 +149,39 @@ export class SessionManagementService {
    */
   async validateSession(req: Request): Promise<UserSessionData | null> {
     try {
-      if (!req.session || !(req.session as any).user) {
+      // Log session details for debugging
+      logger.info("Validating session", {
+        hasSession: !!req.session,
+        sessionId: req.sessionID,
+        sessionKeys: req.session ? Object.keys(req.session) : [],
+        hasUser: req.session ? !!(req.session as any).user : false,
+        cookieValue: req.headers.cookie?.includes('classla.sid') ? 
+          req.headers.cookie.split(';').find(c => c.trim().startsWith('classla.sid='))?.substring(0, 50) : 
+          'no cookie',
+        sessionStore: (req.session as any)?.store ? 'has store' : 'no store',
+      });
+
+      if (!req.session) {
+        logger.warn("Session validation failed: no session object", {
+          sessionId: req.sessionID,
+          cookieValue: req.headers.cookie?.includes('classla.sid') ? 
+            req.headers.cookie.split(';').find(c => c.trim().startsWith('classla.sid='))?.substring(0, 50) : 
+            'no cookie',
+        });
+        return null;
+      }
+
+      // Check if user data exists in session
+      const userData = (req.session as any).user;
+      if (!userData) {
+        logger.warn("Session validation failed: no user data in session", {
+          sessionId: req.sessionID,
+          sessionKeys: Object.keys(req.session),
+          sessionData: JSON.stringify(req.session).substring(0, 200),
+          cookieValue: req.headers.cookie?.includes('classla.sid') ? 
+            req.headers.cookie.split(';').find(c => c.trim().startsWith('classla.sid='))?.substring(0, 50) : 
+            'no cookie',
+        });
         return null;
       }
 

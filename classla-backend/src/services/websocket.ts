@@ -34,12 +34,25 @@ export function initializeWebSocket(
         }
 
         // In production, only allow specific origins
+        const frontendUrl = process.env.FRONTEND_URL;
+        if (!frontendUrl) {
+          logger.error("FRONTEND_URL environment variable is not set for WebSocket CORS");
+          return callback(new Error("CORS configuration error: FRONTEND_URL not set"));
+        }
+
+        // Parse the frontend URL to get the origin
+        let frontendOrigin: string;
+        try {
+          frontendOrigin = new URL(frontendUrl).origin;
+        } catch (error) {
+          logger.error(`Invalid FRONTEND_URL format: ${frontendUrl}`);
+          return callback(new Error("CORS configuration error: Invalid FRONTEND_URL format"));
+        }
+
         const allowedOrigins = [
-          process.env.FRONTEND_URL || "http://localhost:5173",
-          "http://localhost:3001",
-          "http://localhost:8000",
-          "api.classla.org",
-          "app.classla.org",
+          frontendOrigin, // Frontend URL from environment (e.g., https://dkxwdi4itgzqv.amplifyapp.com)
+          "https://app.classla.org", // Production frontend domain
+          "https://api.classla.org", // Backend itself (for internal requests)
         ];
 
         if (allowedOrigins.includes(origin)) {

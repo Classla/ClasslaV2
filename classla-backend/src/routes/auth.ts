@@ -13,6 +13,7 @@ import {
 } from "../services/userSync";
 import { authenticateToken } from "../middleware/auth";
 import { logger } from "../utils/logger";
+import { storeOAuthState, validateOAuthState } from "../services/stateStore";
 import crypto from "crypto";
 
 const router = Router();
@@ -129,8 +130,8 @@ router.post("/auth/google-login", async (req: Request, res: Response) => {
     // Generate CSRF state token for security
     const state = crypto.randomBytes(32).toString("hex");
 
-    // Store state in session for validation during callback
-    req.session.authState = state;
+    // Store state in Redis/memory store (not session, because session cookies don't work cross-domain)
+    await storeOAuthState(state, 600); // 10 minute TTL
 
     // Generate Google OAuth authorization URL
     const authorizationUrl =
@@ -195,24 +196,36 @@ router.get("/auth/callback", async (req: Request, res: Response) => {
       });
     }
 
-    // Validate CSRF state token
-    if (!state || state !== req.session.authState) {
-      logger.warn("Invalid or missing state parameter", {
+    // Validate CSRF state token using Redis/memory store (not session)
+    if (!state || typeof state !== "string") {
+      logger.warn("Missing state parameter", {
         requestId: req.headers["x-request-id"],
-        providedState: state,
-        sessionState: req.session.authState,
+        query: req.query,
         ip: req.ip,
       });
 
       return res.status(400).json({
         success: false,
-        error: "Invalid state parameter",
-        code: "INVALID_STATE",
+        error: "State parameter is required",
+        code: "MISSING_STATE",
       });
     }
 
-    // Clear the state from session
-    delete req.session.authState;
+    // Validate state from Redis/memory store
+    const isValidState = await validateOAuthState(state);
+    if (!isValidState) {
+      logger.warn("Invalid or expired state parameter", {
+        requestId: req.headers["x-request-id"],
+        providedState: state,
+        ip: req.ip,
+      });
+
+      return res.status(400).json({
+        success: false,
+        error: "Invalid or expired state parameter",
+        code: "INVALID_STATE",
+      });
+    }
 
     // Exchange authorization code for user profile
     const authResult = await workosAuthService.handleCallback(
@@ -247,7 +260,60 @@ router.get("/auth/callback", async (req: Request, res: Response) => {
       supabaseUserId: supabaseUser.id,
       workosUserId: authResult.user.id,
       email: authResult.user.email,
+      sessionId: req.sessionID,
+      cookieDomain: req.session.cookie?.domain,
+      cookieSameSite: req.session.cookie?.sameSite,
     });
+
+    // Verify session has user data before saving
+    const sessionUser = (req.session as any).user;
+    if (!sessionUser) {
+      logger.error("Session user data missing before save", {
+        requestId: req.headers["x-request-id"],
+        sessionId: req.sessionID,
+        sessionKeys: Object.keys(req.session || {}),
+      });
+      throw new Error("Session user data is missing");
+    }
+
+    // Ensure session is saved and cookie is set before redirect
+    await new Promise<void>((resolve, reject) => {
+      req.session.save((err) => {
+        if (err) {
+          logger.error("Failed to save session before redirect", {
+            requestId: req.headers["x-request-id"],
+            error: err.message,
+            sessionId: req.sessionID,
+          });
+          reject(err);
+        } else {
+          // Verify session still has user data after save
+          const savedUser = (req.session as any).user;
+          
+          if (!savedUser) {
+            logger.error("Session user data lost after save!", {
+              requestId: req.headers["x-request-id"],
+              sessionId: req.sessionID,
+            });
+            reject(new Error("Session user data is missing after save"));
+            return;
+          }
+          
+          logger.info("Session saved successfully before redirect", {
+            requestId: req.headers["x-request-id"],
+            sessionId: req.sessionID,
+            userEmail: savedUser.email,
+          });
+          
+          resolve();
+        }
+      });
+    });
+
+    // DO NOT explicitly set the cookie - express-session handles this automatically
+    // Setting it explicitly can cause signature mismatches and prevent express-session
+    // from recognizing the cookie on subsequent requests
+    // The session.save() call above ensures the cookie is set by express-session
 
     // Redirect to frontend dashboard
     const frontendUrl = process.env.FRONTEND_URL;
@@ -469,8 +535,8 @@ router.post("/auth/signup", async (req: Request, res: Response) => {
     // Generate CSRF state token for security
     const state = crypto.randomBytes(32).toString("hex");
 
-    // Store state in session for validation during callback
-    req.session.authState = state;
+    // Store state in Redis/memory store (not session, because session cookies don't work cross-domain)
+    await storeOAuthState(state, 600); // 10 minute TTL
 
     // Generate WorkOS authorization URL for signup
     const authorizationUrl = workosAuthService.generateAuthorizationUrl(state);
