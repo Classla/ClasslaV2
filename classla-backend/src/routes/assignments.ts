@@ -32,6 +32,11 @@ const filterAssignmentContentForStudent = (content: string): string => {
 
       return blocks
         .filter((block) => {
+          // Remove AIblocks - these are editor-only blocks
+          if (block.type === "aiBlock") {
+            return false;
+          }
+
           // Remove blocks marked as autograder-only
           if (block.attrs?.autograderOnly === true) {
             return false;
