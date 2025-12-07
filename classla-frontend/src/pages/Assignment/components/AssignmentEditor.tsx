@@ -1097,10 +1097,8 @@ const AssignmentEditor: React.FC<AssignmentEditorProps> = ({
                 <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-purple-600 mr-2"></div>
                 Saving...
               </div>
-            ) : lastSaved ? (
-              <span>Saved {formatTimeAgo(lastSaved)}</span>
             ) : (
-              <span>Start typing...</span>
+              <span>Saved</span>
             )}
           </div>
 
