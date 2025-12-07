@@ -136,3 +136,4 @@ const AssignmentPageSkeleton: React.FC<AssignmentPageSkeletonProps> = ({
 };
 
 export default AssignmentPageSkeleton;
+
