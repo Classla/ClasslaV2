@@ -8,6 +8,7 @@ interface AuthContextType {
   signInWithPassword: (email: string, password: string) => Promise<void>
   signInWithGoogle: () => Promise<void>
   signUp: () => Promise<void>
+  signUpWithPassword: (email: string, password: string, firstName?: string, lastName?: string) => Promise<void>
   signOut: () => Promise<void>
   isAuthenticated: boolean
 }
@@ -125,6 +126,19 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     }
   }
 
+  const signUpWithPassword = async (email: string, password: string, firstName?: string, lastName?: string) => {
+    try {
+      setLoading(true)
+      await authService.signUpWithPassword(email, password, firstName, lastName)
+      // After successful signup, check auth status
+      await checkAuthStatus()
+    } catch (error) {
+      console.error('Password sign up failed:', error)
+      setLoading(false)
+      throw error
+    }
+  }
+
   const signOut = async () => {
     try {
       setLoading(true)
@@ -148,6 +162,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     signInWithPassword,
     signInWithGoogle,
     signUp,
+    signUpWithPassword,
     signOut,
     isAuthenticated: user !== null,
   }

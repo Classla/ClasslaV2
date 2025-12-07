@@ -203,6 +203,34 @@ export class AuthService {
   }
 
   /**
+   * Sign up with email and password
+   */
+  async signUpWithPassword(
+    email: string,
+    password: string,
+    firstName?: string,
+    lastName?: string
+  ): Promise<void> {
+    try {
+      const response = await this.apiClient.post('/auth/password-signup', {
+        email,
+        password,
+        firstName,
+        lastName,
+      });
+      
+      if (!response.data.success) {
+        throw new Error(response.data.error || 'Password signup failed');
+      }
+    } catch (error) {
+      if (axios.isAxiosError(error) && error.response?.data) {
+        throw error.response.data as AuthError;
+      }
+      throw new Error('Failed to sign up with password');
+    }
+  }
+
+  /**
    * Redirect to WorkOS signup
    */
   async redirectToSignup(): Promise<void> {

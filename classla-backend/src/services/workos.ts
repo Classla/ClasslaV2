@@ -312,6 +312,66 @@ export class WorkOSAuthService {
       );
     }
   }
+
+  /**
+   * Create a new user with email and password
+   * @param email User email address
+   * @param password User password (plaintext, WorkOS will hash it)
+   * @param firstName Optional first name
+   * @param lastName Optional last name
+   * @returns Created user information
+   */
+  async signUpWithPassword(
+    email: string,
+    password: string,
+    firstName?: string,
+    lastName?: string
+  ): Promise<WorkOSUser> {
+    try {
+      const user = await this.workos.userManagement.createUser({
+        email,
+        password,
+        firstName,
+        lastName,
+        emailVerified: true, // Skip email verification as requested
+      });
+
+      if (!user) {
+        throw new WorkOSAuthenticationError(
+          'Failed to create user',
+          'USER_CREATION_FAILED',
+          500
+        );
+      }
+
+      return {
+        id: user.id,
+        email: user.email,
+        firstName: user.firstName || undefined,
+        lastName: user.lastName || undefined,
+        profilePictureUrl: user.profilePictureUrl || undefined,
+      };
+    } catch (error) {
+      if (error instanceof WorkOSAuthenticationError) {
+        throw error;
+      }
+
+      // Handle WorkOS API errors
+      if (error && typeof error === 'object' && 'message' in error) {
+        throw new WorkOSAuthenticationError(
+          `User creation failed: ${error.message}`,
+          'USER_CREATION_ERROR',
+          400
+        );
+      }
+
+      throw new WorkOSAuthenticationError(
+        'User creation failed',
+        'SIGNUP_ERROR',
+        500
+      );
+    }
+  }
 }
 
 // Create singleton instance

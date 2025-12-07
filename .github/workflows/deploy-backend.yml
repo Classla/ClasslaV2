@@ -105,17 +105,20 @@ jobs:
 
       - name: Terraform Plan
         id: plan
-        timeout-minutes: 15
+        timeout-minutes: 10
         working-directory: ${{ env.TERRAFORM_DIR }}
         run: |
           echo "Starting Terraform plan..."
-          echo "This may take 5-10 minutes while Terraform refreshes state for all resources..."
-          echo "Refreshing state for: VPC, subnets, ALB, EC2 instances, Auto Scaling Group, Redis, IAM roles, etc."
+          echo "Note: For faster CI plans, we skip state refresh (-refresh=false)"
+          echo "This is safe for detecting changes and significantly faster (usually < 30 seconds)"
+          echo "Full state refresh happens during terraform apply"
           
-          # Run terraform plan with progress indication
-          # Use -detailed-exitcode to get exit code 2 when changes are detected
+          # Run terraform plan WITHOUT refresh for speed in CI
+          # -refresh=false skips state refresh, making plan much faster
+          # This is safe because we're just checking for changes, not applying
+          # The actual state will be refreshed during terraform apply
           set +e  # Don't exit on error, we'll handle it manually
-          terraform plan -out=tfplan -no-color -detailed-exitcode 2>&1 | tee plan_output.txt
+          terraform plan -refresh=false -out=tfplan -no-color -detailed-exitcode 2>&1 | tee plan_output.txt
           PLAN_EXIT=$?
           set -e
           

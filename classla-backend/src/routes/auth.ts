@@ -526,9 +526,126 @@ router.get(
 );
 
 /**
+ * POST /auth/password-signup
+ * Create a new user account with email and password
+ */
+router.post("/auth/password-signup", async (req: Request, res: Response) => {
+  try {
+    const { email, password, firstName, lastName } = req.body;
+
+    // Validate required parameters
+    if (!email || !password) {
+      logger.warn("Password signup missing credentials", {
+        requestId: req.headers["x-request-id"],
+        email: email ? "[PROVIDED]" : "[MISSING]",
+        password: password ? "[PROVIDED]" : "[MISSING]",
+        ip: req.ip,
+      });
+
+      return res.status(400).json({
+        success: false,
+        error: "Email and password are required",
+        code: "MISSING_CREDENTIALS",
+      });
+    }
+
+    // Validate password length
+    if (password.length < 8) {
+      return res.status(400).json({
+        success: false,
+        error: "Password must be at least 8 characters long",
+        code: "INVALID_PASSWORD",
+      });
+    }
+
+    // Create user with WorkOS
+    const workosUser = await workosAuthService.signUpWithPassword(
+      email,
+      password,
+      firstName,
+      lastName
+    );
+
+    logger.info("User created with WorkOS", {
+      requestId: req.headers["x-request-id"],
+      workosUserId: workosUser.id,
+      email: workosUser.email,
+      ip: req.ip,
+    });
+
+    // Sync user with Supabase database
+    const supabaseUser = await userSynchronizationService.syncUser(workosUser);
+
+    logger.info("User synchronized with database", {
+      requestId: req.headers["x-request-id"],
+      supabaseUserId: supabaseUser.id,
+      workosUserId: workosUser.id,
+      email: workosUser.email,
+    });
+
+    // Authenticate the user immediately after signup
+    const authResult = await workosAuthService.authenticateWithPassword(
+      email,
+      password
+    );
+
+    // Create user session
+    await sessionManagementService.createSession(req, authResult.user);
+
+    logger.info("User session created after signup", {
+      requestId: req.headers["x-request-id"],
+      supabaseUserId: supabaseUser.id,
+      workosUserId: workosUser.id,
+      email: workosUser.email,
+    });
+
+    return res.json({
+      success: true,
+      message: "Account created successfully",
+    });
+  } catch (error) {
+    logger.error("Password signup failed", {
+      requestId: req.headers["x-request-id"],
+      error: error instanceof Error ? error.message : "Unknown error",
+      ip: req.ip,
+    });
+
+    if (error instanceof WorkOSAuthenticationError) {
+      return res.status(error.statusCode || 500).json({
+        success: false,
+        error: error.message,
+        code: error.code,
+      });
+    }
+
+    if (error instanceof UserSynchronizationError) {
+      return res.status(error.statusCode || 500).json({
+        success: false,
+        error: "Failed to sync user data",
+        code: error.code || "USER_SYNC_ERROR",
+      });
+    }
+
+    if (error instanceof SessionManagementError) {
+      return res.status(error.statusCode || 500).json({
+        success: false,
+        error: "Failed to create session",
+        code: error.code || "SESSION_ERROR",
+      });
+    }
+
+    return res.status(500).json({
+      success: false,
+      error: "Failed to create account",
+      code: "SIGNUP_ERROR",
+    });
+  }
+});
+
+/**
  * POST /auth/signup
  * Initiate WorkOS signup flow (redirects to WorkOS hosted signup)
- * This is kept for backward compatibility and new user registration
+ * This is kept for backward compatibility and OAuth-based signup
  */
 router.post("/auth/signup", async (req: Request, res: Response) => {
   try {

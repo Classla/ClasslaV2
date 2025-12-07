@@ -25,7 +25,7 @@ const SignUpPage = () => {
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
 
-  const { user, signUp } = useAuth();
+  const { user, signUp, signUpWithPassword } = useAuth();
 
   // Redirect if already authenticated
   if (user) {
@@ -51,11 +51,9 @@ const SignUpPage = () => {
     }
 
     try {
-      // For now, redirect to WorkOS since we don't have email/password signup yet
-      // In the future, this would call a signUpWithPassword method
-      await signUp();
+      await signUpWithPassword(email, password);
     } catch (error: any) {
-      setError(error?.message || "Failed to create account. Please try again.");
+      setError(error?.error || error?.message || "Failed to create account. Please try again.");
       setLoading(false);
     }
   };
