@@ -105,14 +105,43 @@ jobs:
 
       - name: Terraform Plan
         id: plan
+        timeout-minutes: 15
         working-directory: ${{ env.TERRAFORM_DIR }}
         run: |
-          terraform plan -out=tfplan -no-color | tee plan_output.txt
+          echo "Starting Terraform plan..."
+          echo "This may take 5-10 minutes while Terraform refreshes state for all resources..."
+          echo "Refreshing state for: VPC, subnets, ALB, EC2 instances, Auto Scaling Group, Redis, IAM roles, etc."
           
-          # Check if there are changes
+          # Run terraform plan with progress indication
+          # Use -detailed-exitcode to get exit code 2 when changes are detected
+          set +e  # Don't exit on error, we'll handle it manually
+          terraform plan -out=tfplan -no-color -detailed-exitcode 2>&1 | tee plan_output.txt
+          PLAN_EXIT=$?
+          set -e
+          
+          # terraform plan returns:
+          # 0 = success with no changes
+          # 1 = error
+          # 2 = success with changes
+          if [ "$PLAN_EXIT" = "2" ]; then
+            echo "has-changes=true" >> $GITHUB_OUTPUT
+            echo "✓ Terraform plan completed - changes detected"
+          elif [ "$PLAN_EXIT" = "0" ]; then
+            echo "has-changes=false" >> $GITHUB_OUTPUT
+            echo "✓ Terraform plan completed - no changes"
+          else
+            echo "::error::Terraform plan failed (exit code: $PLAN_EXIT)"
+            echo "has-changes=error" >> $GITHUB_OUTPUT
+            # Show last 50 lines of output for debugging
+            echo "Last 50 lines of terraform plan output:"
+            tail -50 plan_output.txt
+            exit 1
+          fi
+          
+          # Also check the output file for "No changes" as backup
           if grep -q "No changes" plan_output.txt; then
             echo "has-changes=false" >> $GITHUB_OUTPUT
-          else
+          elif grep -q "Plan:" plan_output.txt && ! grep -q "No changes" plan_output.txt; then
             echo "has-changes=true" >> $GITHUB_OUTPUT
           fi
 
@@ -163,6 +192,7 @@ jobs:
         run: terraform init
 
       - name: Terraform Apply
+        timeout-minutes: 15
         working-directory: ${{ env.TERRAFORM_DIR }}
         run: terraform apply -auto-approve tfplan
 
