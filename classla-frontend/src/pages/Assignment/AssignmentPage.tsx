@@ -16,6 +16,7 @@ import { Popover } from "../../components/ui/popover";
 import PublishedStudentsList from "./components/PublishedStudentsList";
 import AssignmentEditor from "./components/AssignmentEditor";
 import AssignmentViewer from "./components/AssignmentViewer";
+import AssignmentPageSkeleton from "./components/AssignmentPageSkeleton";
 import { Allotment } from "allotment";
 import "allotment/dist/style.css";
 import { calculateAssignmentPoints } from "../../utils/assignmentPoints";
@@ -46,6 +47,7 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
 
   const [assignment, setAssignment] = useState<Assignment | null>(null);
   const [loading, setLoading] = useState(true);
+  const [previousAssignmentId, setPreviousAssignmentId] = useState<string | undefined>(undefined);
   const [isEditing, setIsEditing] = useState(false);
   const [editedName, setEditedName] = useState("");
   const [userDueDate, setUserDueDate] = useState<Date | null>(null);
@@ -78,6 +80,15 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
 
   // Check if user has instructional privileges (can see sidebar)
   const hasInstructionalPrivileges = effectiveIsInstructor; // This already covers instructor, TA, and admin roles
+
+  // Set loading immediately when assignmentId changes
+  useEffect(() => {
+    if (assignmentId && assignmentId !== previousAssignmentId) {
+      setLoading(true);
+      setPreviousAssignmentId(assignmentId);
+      setAssignment(null); // Clear previous assignment immediately
+    }
+  }, [assignmentId, previousAssignmentId]);
 
   useEffect(() => {
     const fetchAssignment = async () => {
@@ -322,12 +333,7 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
   };
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-600"></div>
-        <span className="ml-3 text-gray-600">Loading assignment...</span>
-      </div>
-    );
+    return <AssignmentPageSkeleton isInstructor={effectiveIsInstructor} />;
   }
 
   if (!assignment) {
@@ -498,6 +504,7 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
                         />
                       ) : (
                         <AssignmentEditor
+                          key={assignment.id}
                           assignment={assignment}
                           onAssignmentUpdated={handleAssignmentUpdated}
                           isReadOnly={false}

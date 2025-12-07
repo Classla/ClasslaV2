@@ -981,21 +981,37 @@ const AssignmentEditor: React.FC<AssignmentEditorProps> = ({
   // Track if we're currently saving to prevent sync loop
   const isSavingRef = useRef(false);
   const lastSavedContentRef = useRef<string | null>(null);
+  const lastAssignmentIdRef = useRef<string | null>(null);
 
+  // Update editor content when assignment changes
   useEffect(() => {
-    if (editor && assignment.content) {
+    if (!editor) return;
+
+    // If assignment ID changed, always update the content
+    const assignmentIdChanged = lastAssignmentIdRef.current !== assignment.id;
+    if (assignmentIdChanged) {
+      lastAssignmentIdRef.current = assignment.id;
+      lastSavedContentRef.current = null; // Reset saved content ref for new assignment
+    }
+
+    if (assignment.content) {
       const currentContent = JSON.stringify(editor.getJSON());
       
-      // Only sync if:
-      // 1. Content actually changed
-      // 2. We're not currently saving (to prevent overwriting user edits)
-      // 3. The new content is different from what we just saved
-      if (
+      // Sync if:
+      // 1. Assignment ID changed (force update)
+      // 2. Content actually changed AND we're not currently saving AND it's different from what we just saved
+      const shouldSync = assignmentIdChanged || (
         assignment.content !== currentContent &&
         !isSavingRef.current &&
         assignment.content !== lastSavedContentRef.current
-      ) {
+      );
+
+      if (shouldSync) {
         measureRenderTime(() => {
+          // Temporarily disable the onUpdate handler to prevent save loop
+          const wasSaving = isSavingRef.current;
+          isSavingRef.current = true;
+          
           try {
             // Try to parse as JSON first (new format)
             const parsedContent = JSON.parse(assignment.content);
@@ -1003,6 +1019,11 @@ const AssignmentEditor: React.FC<AssignmentEditorProps> = ({
           } catch (error) {
             // Fallback to HTML format (legacy support)
             editor.commands.setContent(assignment.content);
+          } finally {
+            // Restore the saving state after a brief delay
+            setTimeout(() => {
+              isSavingRef.current = wasSaving;
+            }, 100);
           }
 
           // Count MCQ blocks for performance monitoring
@@ -1013,7 +1034,7 @@ const AssignmentEditor: React.FC<AssignmentEditorProps> = ({
         });
       }
     }
-  }, [assignment.content, editor, measureRenderTime, updateMCQCount]);
+  }, [assignment.id, assignment.content, editor, measureRenderTime, updateMCQCount]);
 
   // Cleanup effect for proper resource management
   useEffect(() => {
