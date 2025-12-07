@@ -7,9 +7,9 @@ This workflow automatically deploys the backend application to AWS when code cha
 ### Features
 
 - **Automatic Docker Build & Push**: Builds and pushes Docker images to ECR
-- **Terraform Plan & Apply**: Only applies changes if Terraform detects differences
 - **Zero-Downtime Deployment**: Uses AWS Auto Scaling Group instance refresh
 - **Path-Based Triggers**: Only runs when `classla-backend/**` files change
+- **Fast Execution**: No Terraform steps - just build and deploy
 
 ### Prerequisites
 
@@ -17,9 +17,8 @@ You need to configure the following GitHub Secrets:
 
 1. **AWS_ACCESS_KEY_ID**: AWS access key with permissions for:
    - ECR (push/pull images)
-   - Terraform state management (S3, DynamoDB if using remote state)
-   - EC2, Auto Scaling, VPC, ALB, ElastiCache, Secrets Manager
-   - CloudWatch Logs
+   - Auto Scaling (describe groups, start instance refresh)
+   - EC2 (read instance information)
 
 2. **AWS_SECRET_ACCESS_KEY**: Corresponding AWS secret access key
 
@@ -30,20 +29,10 @@ You need to configure the following GitHub Secrets:
    - Tags with: `latest`, branch-SHA, and timestamp-SHA
    - Pushes to ECR with build cache
 
-2. **Terraform Plan**
-   - Initializes Terraform
-   - Runs `terraform plan` to detect changes
-   - Uploads plan as artifact for review
-
-3. **Terraform Apply** (conditional)
-   - Only runs if Terraform detected changes
-   - Applies the plan automatically
-   - Updates infrastructure as needed
-
-4. **Instance Refresh** (zero-downtime)
-   - Always runs after successful build
-   - Triggers Auto Scaling Group instance refresh
-   - Settings:
+2. **Instance Refresh** (zero-downtime)
+   - Automatically finds the Auto Scaling Group (searches for `classla-backend*`)
+   - Checks for existing in-progress refreshes
+   - Triggers Auto Scaling Group instance refresh with zero-downtime settings:
      - `MinHealthyPercentage=50`: Keeps at least 50% of instances healthy
      - `InstanceWarmup=300`: 5-minute warmup before adding to load balancer
      - Checkpoints at 25%, 50%, 75%, and 100%
@@ -56,6 +45,15 @@ The instance refresh ensures zero-downtime by:
 - Using ELB health checks to verify readiness
 - Automatically draining connections from old instances
 
+### Infrastructure Changes
+
+**Important**: This workflow does NOT handle Terraform infrastructure changes. If you need to update infrastructure:
+
+1. Make your Terraform changes locally in `classla-backend/terraform/`
+2. Run `terraform plan` to review changes
+3. Run `terraform apply` to apply changes
+4. The workflow will continue to deploy application code automatically
+
 ### Manual Trigger
 
 You can manually trigger the workflow from the GitHub Actions tab using the "Run workflow" button.
@@ -65,9 +63,21 @@ You can manually trigger the workflow from the GitHub Actions tab using the "Run
 After the workflow completes, you can monitor the instance refresh progress:
 
 ```bash
+# Get ASG name from Terraform
+cd classla-backend/terraform
+terraform output auto_scaling_group_name
+
+# Monitor instance refresh
 aws autoscaling describe-instance-refreshes \
   --auto-scaling-group-name <ASG_NAME> \
   --region us-east-2
 ```
 
-Replace `<ASG_NAME>` with the actual Auto Scaling Group name from Terraform outputs.
+Or find the ASG name directly:
+
+```bash
+aws autoscaling describe-auto-scaling-groups \
+  --region us-east-2 \
+  --query 'AutoScalingGroups[?contains(AutoScalingGroupName, `classla-backend`)].AutoScalingGroupName' \
+  --output text
+```

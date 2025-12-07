@@ -12,7 +12,6 @@ on:
 env:
   AWS_REGION: us-east-2
   ECR_REPOSITORY: 044973914670.dkr.ecr.us-east-2.amazonaws.com/classla-backend
-  TERRAFORM_DIR: classla-backend/terraform
 
 jobs:
   build-and-push:
@@ -69,146 +68,13 @@ jobs:
           cache-from: type=registry,ref=${{ env.ECR_REPOSITORY }}:buildcache
           cache-to: type=registry,ref=${{ env.ECR_REPOSITORY }}:buildcache,mode=max
 
-  terraform-plan:
-    name: Terraform Plan
-    runs-on: ubuntu-latest
-    needs: build-and-push
-    outputs:
-      has-changes: ${{ steps.plan.outputs.has-changes }}
-    
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Validate AWS credentials
-        run: |
-          if [ -z "${{ secrets.AWS_ACCESS_KEY_ID }}" ] || [ -z "${{ secrets.AWS_SECRET_ACCESS_KEY }}" ]; then
-            echo "::error::AWS credentials are not configured. Please set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY secrets in GitHub repository settings."
-            exit 1
-          fi
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: 1.5.0
-
-      - name: Terraform Init
-        working-directory: ${{ env.TERRAFORM_DIR }}
-        run: terraform init
-
-      - name: Terraform Plan
-        id: plan
-        timeout-minutes: 10
-        working-directory: ${{ env.TERRAFORM_DIR }}
-        run: |
-          echo "Starting Terraform plan..."
-          echo "Note: For faster CI plans, we skip state refresh (-refresh=false)"
-          echo "This is safe for detecting changes and significantly faster (usually < 30 seconds)"
-          echo "Full state refresh happens during terraform apply"
-          
-          # Run terraform plan WITHOUT refresh for speed in CI
-          # -refresh=false skips state refresh, making plan much faster
-          # This is safe because we're just checking for changes, not applying
-          # The actual state will be refreshed during terraform apply
-          set +e  # Don't exit on error, we'll handle it manually
-          terraform plan -refresh=false -out=tfplan -no-color -detailed-exitcode 2>&1 | tee plan_output.txt
-          PLAN_EXIT=$?
-          set -e
-          
-          # terraform plan returns:
-          # 0 = success with no changes
-          # 1 = error
-          # 2 = success with changes
-          if [ "$PLAN_EXIT" = "2" ]; then
-            echo "has-changes=true" >> $GITHUB_OUTPUT
-            echo "✓ Terraform plan completed - changes detected"
-          elif [ "$PLAN_EXIT" = "0" ]; then
-            echo "has-changes=false" >> $GITHUB_OUTPUT
-            echo "✓ Terraform plan completed - no changes"
-          else
-            echo "::error::Terraform plan failed (exit code: $PLAN_EXIT)"
-            echo "has-changes=error" >> $GITHUB_OUTPUT
-            # Show last 50 lines of output for debugging
-            echo "Last 50 lines of terraform plan output:"
-            tail -50 plan_output.txt
-            exit 1
-          fi
-          
-          # Also check the output file for "No changes" as backup
-          if grep -q "No changes" plan_output.txt; then
-            echo "has-changes=false" >> $GITHUB_OUTPUT
-          elif grep -q "Plan:" plan_output.txt && ! grep -q "No changes" plan_output.txt; then
-            echo "has-changes=true" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Upload Terraform Plan
-        uses: actions/upload-artifact@v4
-        with:
-          name: terraform-plan
-          path: ${{ env.TERRAFORM_DIR }}/tfplan
-          retention-days: 1
-
-  terraform-apply:
-    name: Terraform Apply
-    runs-on: ubuntu-latest
-    needs: [build-and-push, terraform-plan]
-    if: needs.terraform-plan.outputs.has-changes == 'true'
-    
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Validate AWS credentials
-        run: |
-          if [ -z "${{ secrets.AWS_ACCESS_KEY_ID }}" ] || [ -z "${{ secrets.AWS_SECRET_ACCESS_KEY }}" ]; then
-            echo "::error::AWS credentials are not configured. Please set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY secrets in GitHub repository settings."
-            exit 1
-          fi
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: 1.5.0
-
-      - name: Download Terraform Plan
-        uses: actions/download-artifact@v4
-        with:
-          name: terraform-plan
-          path: ${{ env.TERRAFORM_DIR }}
-
-      - name: Terraform Init
-        working-directory: ${{ env.TERRAFORM_DIR }}
-        run: terraform init
-
-      - name: Terraform Apply
-        timeout-minutes: 15
-        working-directory: ${{ env.TERRAFORM_DIR }}
-        run: terraform apply -auto-approve tfplan
-
   instance-refresh:
     name: Trigger Instance Refresh (Zero Downtime)
     runs-on: ubuntu-latest
-    needs: [build-and-push, terraform-plan, terraform-apply]
-    if: always() && needs.build-and-push.result == 'success' && (needs.terraform-apply.result == 'success' || needs.terraform-apply.result == 'skipped')
+    needs: build-and-push
+    if: needs.build-and-push.result == 'success'
     
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
       - name: Validate AWS credentials
         run: |
           if [ -z "${{ secrets.AWS_ACCESS_KEY_ID }}" ] || [ -z "${{ secrets.AWS_SECRET_ACCESS_KEY }}" ]; then
@@ -223,17 +89,20 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: 1.5.0
-
       - name: Get Auto Scaling Group Name
         id: get-asg
-        working-directory: ${{ env.TERRAFORM_DIR }}
         run: |
-          terraform init
-          ASG_NAME=$(terraform output -raw auto_scaling_group_name)
+          # Find the Auto Scaling Group by name pattern (should be classla-backend-production-asg)
+          ASG_NAME=$(aws autoscaling describe-auto-scaling-groups \
+            --region ${{ env.AWS_REGION }} \
+            --query 'AutoScalingGroups[?contains(AutoScalingGroupName, `classla-backend`)].AutoScalingGroupName' \
+            --output text | head -1)
+          
+          if [ -z "$ASG_NAME" ]; then
+            echo "::error::Could not find Auto Scaling Group. Make sure it exists and contains 'classla-backend' in the name."
+            exit 1
+          fi
+          
           echo "asg-name=$ASG_NAME" >> $GITHUB_OUTPUT
           echo "Auto Scaling Group: $ASG_NAME"
 
@@ -295,4 +164,3 @@ jobs:
           echo ""
           echo "✓ Instance refresh is running in the background"
           echo "  Monitor progress: aws autoscaling describe-instance-refreshes --auto-scaling-group-name $ASG_NAME --instance-refresh-ids $REFRESH_ID --region ${{ env.AWS_REGION }}"
-

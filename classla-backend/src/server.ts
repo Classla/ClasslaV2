@@ -191,4 +191,3 @@ waitForRedisConnection()
   });
 
 export default app;
-
