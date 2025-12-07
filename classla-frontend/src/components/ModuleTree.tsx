@@ -1,10 +1,16 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { Tree } from "react-arborist";
 
 import { apiClient } from "../lib/api";
 import { useToast } from "../hooks/use-toast";
 import { Button } from "./ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "./ui/dropdown-menu";
 import {
   ChevronRight,
   ChevronDown,
@@ -46,6 +52,8 @@ const ModuleTree: React.FC<ModuleTreeProps> = ({ courseId, isInstructor }) => {
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [folders, setFolders] = useState<Folder[]>([]);
   const [loading, setLoading] = useState(true);
+  const [treeHeight, setTreeHeight] = useState(384);
+  const treeContainerRef = useRef<HTMLDivElement>(null);
   const [rootContextMenu, setRootContextMenu] = useState<{
     x: number;
     y: number;
@@ -209,11 +217,52 @@ const ModuleTree: React.FC<ModuleTreeProps> = ({ courseId, isInstructor }) => {
       };
 
       sortChildren(rootNodes);
+      
+      // Add "+ create" node at the root level if instructor
+      if (effectiveIsInstructor) {
+        rootNodes.push({
+          id: "create-node",
+          name: "+ create",
+          type: "assignment", // Use assignment type to avoid expand/collapse
+          path: [],
+          order_index: 999999, // Ensure it's always last
+        });
+      }
+      
       return rootNodes;
     };
 
     return buildTree();
-  }, [assignments, folders]);
+  }, [assignments, folders, effectiveIsInstructor]);
+
+  // Update tree height when container size changes
+  useEffect(() => {
+    const updateHeight = () => {
+      if (treeContainerRef.current) {
+        const height = treeContainerRef.current.clientHeight;
+        if (height > 0) {
+          setTreeHeight(Math.max(height, 200)); // Minimum height of 200px
+        }
+      }
+    };
+
+    // Initial height
+    updateHeight();
+    
+    // Use ResizeObserver to track container size changes
+    const resizeObserver = new ResizeObserver(updateHeight);
+    if (treeContainerRef.current) {
+      resizeObserver.observe(treeContainerRef.current);
+    }
+
+    // Also listen to window resize as fallback
+    window.addEventListener("resize", updateHeight);
+
+    return () => {
+      resizeObserver.disconnect();
+      window.removeEventListener("resize", updateHeight);
+    };
+  }, [treeData]);
 
   const handleCreateAssignment = async (modulePath: string[] = []) => {
     if (!effectiveIsInstructor) return;
@@ -377,6 +426,11 @@ const ModuleTree: React.FC<ModuleTreeProps> = ({ courseId, isInstructor }) => {
       // Process each dragged item
       await Promise.all(
         dragIds.map(async (dragId: string, i: number) => {
+          // Skip create node
+          if (dragId === "create-node") {
+            return;
+          }
+          
           const newOrderIndex = index + i;
 
           if (dragId.startsWith("assignment-")) {
@@ -446,24 +500,27 @@ const ModuleTree: React.FC<ModuleTreeProps> = ({ courseId, isInstructor }) => {
     const assignment = nodeData.assignment;
     const folder = nodeData.folder;
     const isEmptyIndicator = nodeData.id.startsWith("empty-");
+    const isCreateNode = nodeData.id === "create-node";
     const [contextMenu, setContextMenu] = useState<{
       x: number;
       y: number;
       show: boolean;
     }>({ x: 0, y: 0, show: false });
 
-    return (
+    const nodeContent = (
       <div
         style={style}
-        ref={dragHandle}
+        ref={isCreateNode ? undefined : dragHandle}
         className={`flex items-center space-x-2 px-3 rounded group h-full ${
           isEmptyIndicator
             ? "cursor-default"
+            : isCreateNode
+            ? "cursor-pointer hover:bg-gray-100"
             : `hover:bg-gray-50 cursor-pointer ${
                 node.isSelected ? "bg-blue-50" : ""
               }`
         }`}
-        onClick={() => {
+        onClick={isCreateNode ? undefined : (e) => {
           if (isEmptyIndicator) {
             // Do nothing for empty indicators
             return;
@@ -475,7 +532,7 @@ const ModuleTree: React.FC<ModuleTreeProps> = ({ courseId, isInstructor }) => {
           }
         }}
         onContextMenu={(e) => {
-          if (effectiveIsInstructor && !isEmptyIndicator) {
+          if (effectiveIsInstructor && !isEmptyIndicator && !isCreateNode) {
             e.preventDefault();
             e.stopPropagation();
             setContextMenu({
@@ -500,6 +557,8 @@ const ModuleTree: React.FC<ModuleTreeProps> = ({ courseId, isInstructor }) => {
         {/* Icon */}
         {isEmptyIndicator ? (
           <div className="w-4 h-4" /> // Empty space for alignment
+        ) : isCreateNode ? (
+          <div className="w-4 h-4" /> // Empty space for alignment
         ) : isFolder ? (
           <FolderIcon className="w-4 h-4 text-gray-500" />
         ) : assignment && assignment.published_to.length > 0 ? (
@@ -515,12 +574,55 @@ const ModuleTree: React.FC<ModuleTreeProps> = ({ courseId, isInstructor }) => {
         {/* Name */}
         <span
           className={`flex-1 truncate ${
-            isEmptyIndicator ? "text-gray-400 italic text-sm" : "text-gray-700"
+            isEmptyIndicator
+              ? "text-gray-400 italic text-sm"
+              : isCreateNode
+              ? "text-gray-500 text-sm"
+              : "text-gray-700"
           }`}
           title={nodeData.name}
         >
           {nodeData.name}
         </span>
+      </div>
+    );
+
+    // Wrap create node with DropdownMenu
+    if (isCreateNode) {
+      return (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            {nodeContent}
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" side="bottom" className="w-48">
+            <DropdownMenuItem
+              onClick={(e) => {
+                e.stopPropagation();
+                handleCreateAssignment([]);
+              }}
+              className="cursor-pointer"
+            >
+              <FileText className="w-4 h-4 mr-2" />
+              Create Assignment
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={(e) => {
+                e.stopPropagation();
+                handleCreateFolder([]);
+              }}
+              className="cursor-pointer"
+            >
+              <FolderIcon className="w-4 h-4 mr-2" />
+              Create Folder
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      );
+    }
+
+    return (
+      <>
+        {nodeContent}
 
         {/* Custom right-click context menu */}
         {contextMenu.show && effectiveIsInstructor && !isEmptyIndicator && (
@@ -592,7 +694,7 @@ const ModuleTree: React.FC<ModuleTreeProps> = ({ courseId, isInstructor }) => {
             </div>
           </>
         )}
-      </div>
+      </>
     );
   };
 
@@ -606,7 +708,7 @@ const ModuleTree: React.FC<ModuleTreeProps> = ({ courseId, isInstructor }) => {
   }
 
   return (
-    <div className="space-y-1">
+    <div className="space-y-1 flex flex-col" style={{ height: "100%" }}>
       <div className="flex items-center justify-between mb-3">
         <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider">
           Assignments
@@ -628,7 +730,8 @@ const ModuleTree: React.FC<ModuleTreeProps> = ({ courseId, isInstructor }) => {
         </div>
       ) : (
         <div
-          className="h-96 relative"
+          ref={treeContainerRef}
+          className="flex-1 relative min-h-0"
           onContextMenu={(e) => {
             if (effectiveIsInstructor) {
               e.preventDefault();
@@ -650,7 +753,7 @@ const ModuleTree: React.FC<ModuleTreeProps> = ({ courseId, isInstructor }) => {
             data={treeData}
             openByDefault={false}
             width="100%"
-            height={384}
+            height={treeHeight}
             indent={24}
             rowHeight={28}
             overscanCount={1}

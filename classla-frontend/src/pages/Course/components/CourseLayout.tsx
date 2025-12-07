@@ -4,9 +4,15 @@ import { useAuth } from "../../../contexts/AuthContext";
 import { apiClient } from "../../../lib/api";
 import { useToast } from "../../../hooks/use-toast";
 import { Button } from "../../../components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "../../../components/ui/dropdown-menu";
 import Logo from "../../../components/Logo";
 import ModuleTree from "../../../components/ModuleTree";
-import { BookOpen, Users, Settings, BarChart3 } from "lucide-react";
+import { BookOpen, Users, Settings, BarChart3, Plus, FileText, Folder } from "lucide-react";
 import { Course, UserRole } from "../../../types";
 import { Allotment } from "allotment";
 import "allotment/dist/style.css";
@@ -226,7 +232,7 @@ const CourseLayout: React.FC<CourseLayoutProps> = ({ children }) => {
                 </nav>
 
                 {/* Assignments Section */}
-                <div className="mt-8 px-3">
+                <div className="mt-8 px-3 flex-1 min-h-0 flex flex-col">
                   <ModuleTree
                     courseId={course.id}
                     userRole={userRole || undefined}
@@ -235,6 +241,88 @@ const CourseLayout: React.FC<CourseLayoutProps> = ({ children }) => {
                   />
                 </div>
               </div>
+
+              {/* Create button at bottom */}
+              {isInstructor && (
+                <div className="border-t border-gray-200 p-3">
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button className="w-full bg-purple-600 hover:bg-purple-700 text-white">
+                        <Plus className="w-4 h-4 mr-2" />
+                        Create
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" side="top" className="w-48">
+                      <DropdownMenuItem
+                        onClick={async () => {
+                          try {
+                            const response = await apiClient.createAssignment({
+                              name: "New Assignment",
+                              course_id: course.id,
+                              module_path: [],
+                              settings: {},
+                              content: "",
+                              published_to: [],
+                              due_dates_map: {},
+                              is_lockdown: false,
+                              lockdown_time_map: {},
+                              order_index: 0,
+                            });
+
+                            const newAssignment = response.data;
+                            navigate(`/course/${courseSlug}/assignment/${newAssignment.id}`);
+
+                            toast({
+                              title: "Assignment created",
+                              description: "New assignment has been created successfully",
+                            });
+                          } catch (error: any) {
+                            toast({
+                              title: "Error creating assignment",
+                              description: error.message || "Failed to create assignment",
+                              variant: "destructive",
+                            });
+                          }
+                        }}
+                        className="cursor-pointer"
+                      >
+                        <FileText className="w-4 h-4 mr-2" />
+                        Create Assignment
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onClick={async () => {
+                          const folderName = prompt("Enter folder name:");
+                          if (!folderName?.trim()) return;
+
+                          try {
+                            await apiClient.createFolder({
+                              course_id: course.id,
+                              path: [folderName.trim()],
+                              name: folderName.trim(),
+                              order_index: 0,
+                            });
+
+                            toast({
+                              title: "Folder created",
+                              description: "New folder has been created successfully",
+                            });
+                          } catch (error: any) {
+                            toast({
+                              title: "Error creating folder",
+                              description: error.message || "Failed to create folder",
+                              variant: "destructive",
+                            });
+                          }
+                        }}
+                        className="cursor-pointer"
+                      >
+                        <Folder className="w-4 h-4 mr-2" />
+                        Create Folder
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
+              )}
             </div>
           </Allotment.Pane>
 
