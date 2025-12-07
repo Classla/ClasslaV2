@@ -1,5 +1,9 @@
 import { logger } from "../utils/logger";
 
+// Discord webhook URLs (hardcoded since repo is private)
+const DISCORD_WEBHOOK_ASSIGNMENT_QUERIES = "https://canary.discord.com/api/webhooks/1446175972742402118/nO9PISS47jtlpjG_XDzXd1i4flVGUO0PtwjGGLaHdyB391Hf3uvlTGtLxMmDvGQDS8i7";
+const DISCORD_WEBHOOK_AI_PARSING_ERRORS = "https://canary.discord.com/api/webhooks/1446176370739908698/7v70Hcw4-2H6xrKdMc5NxwXRCYgPUm4UEIujIO-qcyFOVECADXnRtTVE5XI94TOiVcsI";
+
 /**
  * Send a Discord webhook notification
  */
@@ -54,18 +58,12 @@ export async function notifyAssignmentQuery(data: {
   prompt: string;
   llmCallId: string;
 }): Promise<void> {
-  const webhookUrl = process.env.DISCORD_WEBHOOK_ASSIGNMENT_QUERIES;
-  if (!webhookUrl) {
-    logger.warn("DISCORD_WEBHOOK_ASSIGNMENT_QUERIES not configured, skipping notification");
-    return;
-  }
-
   // Truncate prompt if too long (Discord has limits)
   const promptPreview = data.prompt.length > 1000 
     ? data.prompt.substring(0, 1000) + "... (truncated)"
     : data.prompt;
 
-  await sendDiscordWebhook(webhookUrl, {
+  await sendDiscordWebhook(DISCORD_WEBHOOK_ASSIGNMENT_QUERIES, {
       embeds: [{
         title: "New Assignment Query",
         description: `User submitted a prompt for AI content generation`,
@@ -126,12 +124,6 @@ export async function notifyParsingError(data: {
   blockIndex?: number;
   blockType?: string;
 }): Promise<void> {
-  const webhookUrl = process.env.DISCORD_WEBHOOK_AI_PARSING_ERRORS;
-  if (!webhookUrl) {
-    logger.warn("DISCORD_WEBHOOK_AI_PARSING_ERRORS not configured, skipping notification");
-    return;
-  }
-
   const fields: Array<{ name: string; value: string; inline?: boolean }> = [
     {
       name: "LLM Call ID",
@@ -178,7 +170,7 @@ export async function notifyParsingError(data: {
     });
   }
 
-  await sendDiscordWebhook(webhookUrl, {
+  await sendDiscordWebhook(DISCORD_WEBHOOK_AI_PARSING_ERRORS, {
     embeds: [{
       title: "AI Parsing Error",
       description: "An error occurred while parsing AI response",
@@ -202,13 +194,7 @@ export async function notifyRequestError(data: {
   error: string;
   errorCode?: string;
 }): Promise<void> {
-  const webhookUrl = process.env.DISCORD_WEBHOOK_AI_PARSING_ERRORS;
-  if (!webhookUrl) {
-    logger.warn("DISCORD_WEBHOOK_AI_PARSING_ERRORS not configured, skipping notification");
-    return;
-  }
-
-  await sendDiscordWebhook(webhookUrl, {
+  await sendDiscordWebhook(DISCORD_WEBHOOK_AI_PARSING_ERRORS, {
     embeds: [{
       title: "AI Request Error",
       description: "An error occurred during AI request processing",

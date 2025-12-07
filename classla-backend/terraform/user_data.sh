@@ -85,6 +85,8 @@ cat > /opt/classla-backend/.env <<EOF
 NODE_ENV=production
 PORT=3001
 AWS_REGION=$AWS_REGION
+# Bedrock models (Claude) are typically available in us-east-1, even if infrastructure is in us-east-2
+BEDROCK_REGION=us-east-1
 SUPABASE_URL=$SUPABASE_URL
 SUPABASE_SERVICE_ROLE_KEY=$SUPABASE_SERVICE_ROLE_KEY
 WORKOS_CLIENT_ID=$WORKOS_CLIENT_ID

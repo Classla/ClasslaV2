@@ -55,6 +55,7 @@ resource "aws_iam_role_policy" "ec2_secrets" {
 
 # Policy for Bedrock Runtime access
 # Note: Bedrock Runtime uses bedrock-runtime service, not bedrock
+# Using wildcard region (*) to allow access to models in any region
 resource "aws_iam_role_policy" "ec2_bedrock" {
   name = "${local.name_prefix}-ec2-bedrock-policy"
   role = aws_iam_role.ec2.id
@@ -68,7 +69,7 @@ resource "aws_iam_role_policy" "ec2_bedrock" {
           "bedrock-runtime:InvokeModel",
           "bedrock-runtime:InvokeModelWithResponseStream"
         ]
-        Resource = "arn:aws:bedrock:${data.aws_region.current.name}::foundation-model/*"
+        Resource = "arn:aws:bedrock:*::foundation-model/*"
       }
     ]
   })
