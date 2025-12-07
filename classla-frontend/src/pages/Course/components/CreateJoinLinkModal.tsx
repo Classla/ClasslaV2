@@ -69,7 +69,7 @@ const CreateJoinLinkModal: React.FC<CreateJoinLinkModalProps> = ({
       const courseSections = await sectionsService.getCourseSections(
         courseSlug
       );
-      setSections(courseSections);
+      setSections(Array.isArray(courseSections) ? courseSections : []);
     } catch (err) {
       console.error("Failed to load sections:", err);
       setSections([]);
@@ -270,7 +270,7 @@ const CreateJoinLinkModal: React.FC<CreateJoinLinkModalProps> = ({
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                   >
                     <option value="">Course-wide (all sections)</option>
-                    {sections.map((section) => (
+                    {Array.isArray(sections) && sections.map((section) => (
                       <option key={section.id} value={section.slug}>
                         {section.name} ({section.slug})
                       </option>

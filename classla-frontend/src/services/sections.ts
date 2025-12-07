@@ -5,6 +5,6 @@ export const sectionsService = {
   // Get sections for a course
   async getCourseSections(courseSlug: string): Promise<Section[]> {
     const response = await api.get(`/sections/course/${courseSlug}`);
-    return response.data;
+    return response.data.data || [];
   },
 };
