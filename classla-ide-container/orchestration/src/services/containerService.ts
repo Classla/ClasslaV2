@@ -137,17 +137,12 @@ export class ContainerService {
       await this.docker.createService(serviceSpec);
 
       // Ensure the service is attached to the ide-network
-      // Dockerode sometimes doesn't apply Networks correctly, so we update it explicitly
+      // Dockerode sometimes doesn't apply Networks correctly, so we update it explicitly using Docker CLI
       try {
-        const service = this.docker.getService(serviceName);
-        await service.update({
-          Networks: [
-            {
-              Target: "ide-network",
-              Aliases: [serviceName],
-            },
-          ],
-        });
+        const { exec } = await import("child_process");
+        const { promisify } = await import("util");
+        const execAsync = promisify(exec);
+        await execAsync(`docker service update --network-add ide-network ${serviceName}`);
       } catch (updateError) {
         // Log but don't fail - network might already be attached or service might be starting
         console.warn(
