@@ -221,6 +221,13 @@
         <!-- Configuration Section -->
         <div class="section">
             <h2>⚙️ Configuration</h2>
+            <div class="form-group" style="margin-bottom: 20px;">
+                <label for="environmentMode">Environment Mode</label>
+                <select id="environmentMode" onchange="switchEnvironment()" style="max-width: 300px;">
+                    <option value="local">Local (localhost)</option>
+                    <option value="remote">Remote (Hetzner - 5.161.59.175)</option>
+                </select>
+            </div>
             <div class="config-section">
                 <div>
                     <div class="form-group">
@@ -315,6 +322,41 @@
     <script>
         let currentBucket = null;
         let currentContainer = null;
+
+        // Environment configurations
+        const environments = {
+            local: {
+                orchestrationApiUrl: 'http://localhost:3001',
+                classlaBackendUrl: 'http://localhost:8000',
+                apiKey: 'eDg+MU50cATcNK4ap4WlPBewZlEvITW2Cj0LB6WZQJo='
+            },
+            remote: {
+                orchestrationApiUrl: 'http://5.161.59.175',
+                classlaBackendUrl: 'http://localhost:8000', // Backend might still be local
+                apiKey: 'test-api-key-12345'
+            }
+        };
+
+        async function switchEnvironment() {
+            const mode = document.getElementById('environmentMode').value;
+            const config = environments[mode];
+            
+            document.getElementById('orchestrationApiUrl').value = config.orchestrationApiUrl;
+            document.getElementById('classlaBackendUrl').value = config.classlaBackendUrl;
+            document.getElementById('apiKey').value = config.apiKey;
+            
+            // Show notification
+            const statusEl = document.getElementById('bucketStatus');
+            if (statusEl) {
+                showStatus('bucketStatus', `🔄 Switched to ${mode === 'local' ? 'Local' : 'Remote'} environment`, 'info');
+                setTimeout(() => {
+                    statusEl.style.display = 'none';
+                }, 2000);
+            }
+            
+            // Check API health
+            await checkApiHealth();
+        }
 
         function showStatus(elementId, message, type = 'info') {
             const element = document.getElementById(elementId);
@@ -505,17 +547,27 @@
             }
         }
 
-        // Check API health on load
-        window.addEventListener('load', async () => {
+        // Check API health on load and when environment changes
+        async function checkApiHealth() {
             const orchestrationUrl = document.getElementById('orchestrationApiUrl').value;
             try {
                 const response = await fetch(`${orchestrationUrl}/api/health`);
                 if (response.ok) {
-                    console.log('✅ Orchestration API is healthy');
+                    const data = await response.json();
+                    console.log('✅ Orchestration API is healthy', data);
+                    return true;
+                } else {
+                    console.warn('⚠️ Orchestration API returned non-OK status:', response.status);
+                    return false;
                 }
             } catch (error) {
                 console.warn('⚠️ Could not connect to Orchestration API:', error.message);
+                return false;
             }
+        }
+
+        window.addEventListener('load', async () => {
+            await checkApiHealth();
         });
     </script>
 </body>

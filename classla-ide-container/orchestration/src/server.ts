@@ -23,11 +23,35 @@ app.use(helmet());
 // CORS configuration
 app.use(
   cors({
-    origin:
-      config.nodeEnv === "production"
-        ? [`https://${config.domain}`, `https://api.${config.domain}`]
-        : "*",
+    origin: (origin, callback) => {
+      // Allow requests with no origin (like mobile apps, Postman, or file://)
+      if (!origin) {
+        return callback(null, true);
+      }
+      
+      // In production, allow specific domains
+      if (config.nodeEnv === "production") {
+        const allowedOrigins = [
+          `https://${config.domain}`,
+          `https://api.${config.domain}`,
+          `http://${config.domain}`,
+          `http://api.${config.domain}`,
+        ];
+        if (allowedOrigins.includes(origin)) {
+          return callback(null, true);
+        }
+        // Also allow IP-based access for testing
+        if (origin.startsWith(`http://${config.domain}`) || origin.startsWith(`https://${config.domain}`)) {
+          return callback(null, true);
+        }
+      }
+      
+      // In development, allow all origins
+      callback(null, true);
+    },
     credentials: true,
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
 

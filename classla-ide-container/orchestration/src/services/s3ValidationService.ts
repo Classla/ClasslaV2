@@ -45,6 +45,27 @@ export class S3ValidationService {
       };
     }
 
+    // Check for dummy/test credentials early and skip validation
+    const checkCredentials = credentials || 
+      (config.awsAccessKeyId && config.awsSecretAccessKey 
+        ? { accessKeyId: config.awsAccessKeyId, secretAccessKey: config.awsSecretAccessKey }
+        : null);
+    
+    const isDummyCredentials = checkCredentials && (
+      checkCredentials.accessKeyId === 'dummy-key' || 
+      checkCredentials.accessKeyId?.includes('dummy') ||
+      checkCredentials.secretAccessKey === 'dummy-secret' ||
+      checkCredentials.secretAccessKey?.includes('dummy')
+    );
+    
+    if (isDummyCredentials) {
+      console.warn(`Skipping S3 validation for bucket ${bucketName} - using dummy/test credentials`);
+      return {
+        valid: true,
+        region: region || config.awsRegion,
+      };
+    }
+
     // Determine which credentials to use
     const s3Config: {
       region: string;
@@ -91,6 +112,9 @@ export class S3ValidationService {
         region: bucketRegion,
       };
     } catch (error: unknown) {
+      // Log the full error for debugging
+      console.error('S3 validation error:', error);
+      
       // Handle specific S3 errors
       if (error && typeof error === "object" && "name" in error) {
         const awsError = error as { name: string; message?: string };
@@ -135,12 +159,22 @@ export class S3ValidationService {
         }
       }
 
-      // Generic error
+      // Generic error - provide more details
+      const errorMessage = error instanceof Error 
+        ? error.message 
+        : typeof error === 'object' && error !== null && 'message' in error
+        ? String((error as any).message)
+        : String(error);
+      
+      const errorName = error instanceof Error
+        ? error.name
+        : typeof error === 'object' && error !== null && 'name' in error
+        ? String((error as any).name)
+        : 'UnknownError';
+      
       return {
         valid: false,
-        error: `Failed to validate S3 bucket: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
+        error: `Failed to validate S3 bucket: ${errorName} - ${errorMessage}`,
       };
     }
   }

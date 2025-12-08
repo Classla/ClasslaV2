@@ -1,4 +1,6 @@
-Local Development Instructions
+# IDE Container Orchestration
+
+## Local Development Instructions
 
 First, build the IDE container image:
 
@@ -52,4 +54,19 @@ Note: If you do not have an s3 bucket already, the backend needs to be running f
 ```bash
 cd classla-ide-container/backend
 npm start
+```
+
+## Production Deployment
+
+For deploying to a cloud server (e.g., Hetzner) without HTTPS, see [HETZNER_DEPLOYMENT.md](./HETZNER_DEPLOYMENT.md).
+
+The deployment uses:
+- Docker Swarm for orchestration
+- Traefik for reverse proxying and routing
+- HTTP-only configuration (no SSL certificates required)
+
+Quick start for Hetzner:
+```bash
+./scripts/init-swarm.sh
+./scripts/deploy-http.sh
 ```
