@@ -86,12 +86,16 @@ services:
       labels:
         - "traefik.enable=true"
         # Management API - supports both domain and IP access
-        - "traefik.http.routers.management-api.rule=Host(`api.${DOMAIN}`) || Host(`${SERVER_IP:-localhost}`)"
+        # For IP addresses, only match /api paths to avoid catching IDE container routes
+        - "traefik.http.routers.management-api.rule=Host(`api.${DOMAIN}`) || (Host(`${SERVER_IP:-localhost}`) && PathPrefix(`/api`))"
         - "traefik.http.routers.management-api.entrypoints=web"
+        - "traefik.http.routers.management-api.service=management-api"
         - "traefik.http.services.management-api.loadbalancer.server.port=3001"
         # Dashboard UI - supports both domain and IP access
-        - "traefik.http.routers.dashboard.rule=Host(`dashboard.${DOMAIN}`) || Host(`${SERVER_IP:-localhost}`)"
+        # For IP addresses, only match /dashboard paths
+        - "traefik.http.routers.dashboard.rule=Host(`dashboard.${DOMAIN}`) || (Host(`${SERVER_IP:-localhost}`) && PathPrefix(`/dashboard`))"
         - "traefik.http.routers.dashboard.entrypoints=web"
+        - "traefik.http.routers.dashboard.service=dashboard"
         - "traefik.http.services.dashboard.loadbalancer.server.port=3001"
 
 networks:
