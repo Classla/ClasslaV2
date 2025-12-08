@@ -136,6 +136,26 @@ export class ContainerService {
     try {
       await this.docker.createService(serviceSpec);
 
+      // Ensure the service is attached to the ide-network
+      // Dockerode sometimes doesn't apply Networks correctly, so we update it explicitly
+      try {
+        const service = this.docker.getService(serviceName);
+        await service.update({
+          Networks: [
+            {
+              Target: "ide-network",
+              Aliases: [serviceName],
+            },
+          ],
+        });
+      } catch (updateError) {
+        // Log but don't fail - network might already be attached or service might be starting
+        console.warn(
+          `Failed to update network for service ${serviceName}:`,
+          updateError
+        );
+      }
+
       const containerInfo: ContainerInfo = {
         id: containerId,
         serviceName,
