@@ -65,7 +65,26 @@ The deployment uses:
 - Traefik for reverse proxying and routing
 - HTTP-only configuration (no SSL certificates required)
 
-Quick start for Hetzner:
+### Quick Start (Recommended)
+
+For a fresh server, use the automated setup script:
+
+```bash
+cd classla-ide-container
+./start.sh
+```
+
+This script will:
+- Install Docker if needed
+- Initialize Docker Swarm
+- Create the overlay network
+- Set up environment variables
+- Build and deploy everything
+
+### Manual Deployment
+
+If you prefer manual setup:
+
 ```bash
 ./scripts/init-swarm.sh
 ./scripts/deploy-http.sh

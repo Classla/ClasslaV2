@@ -29,11 +29,15 @@ if [ ! -f "$PROJECT_DIR/.env" ]; then
     echo "Location: $PROJECT_DIR/.env"
     echo ""
     echo "Required variables:"
-    echo "  - DOMAIN (optional, can use IP address)"
-    echo "  - API_KEYS (comma-separated list of API keys)"
-    echo "  - AWS_ACCESS_KEY_ID"
-    echo "  - AWS_SECRET_ACCESS_KEY"
-    echo "  - SERVER_IP (optional, your server's public IP for direct access)"
+    echo "  - API_KEY (single API key, required by the application)"
+    echo "  - API_KEYS (comma-separated list of API keys, required by deployment)"
+    echo "  - AWS_ACCESS_KEY_ID (can be dummy for testing)"
+    echo "  - AWS_SECRET_ACCESS_KEY (can be dummy for testing)"
+    echo ""
+    echo "Optional variables:"
+    echo "  - DOMAIN (defaults to SERVER_IP if not set)"
+    echo "  - SERVER_IP (auto-detected if not set)"
+    echo "  - RESOURCE_CPU_LIMIT, RESOURCE_MEMORY_LIMIT, etc. (all have defaults)"
     exit 1
 fi
 

@@ -67,25 +67,51 @@ This will:
 
 ### Step 3: Configure Environment
 
-Create a `.env` file based on the example:
+Create a `.env` file. The `start.sh` script will create a template if one doesn't exist, but you can create it manually:
 
 ```bash
-# Required
-API_KEYS=your-api-key-1,your-api-key-2
+# Server Configuration
+DOMAIN=your-domain.com  # If you have a domain, otherwise use your IP
+SERVER_IP=your.hetzner.ip.address  # Your Hetzner server's public IP
+
+# API Keys (comma-separated)
+API_KEY=your-api-key  # Required by the application
+API_KEYS=your-api-key-1,your-api-key-2  # Required for deployment script
+
+# AWS Configuration (required but can be dummy for testing)
+AWS_REGION=us-east-1
 AWS_ACCESS_KEY_ID=your-aws-access-key
 AWS_SECRET_ACCESS_KEY=your-aws-secret-key
 
-# Optional but recommended
-DOMAIN=your-domain.com  # If you have a domain pointing to your server
-SERVER_IP=your.hetzner.ip.address  # Your Hetzner server's public IP
-
-# AWS Configuration
-AWS_REGION=us-east-1
-
-# Optional: Resource limits
+# Optional: Resource Limits
 RESOURCE_CPU_LIMIT=2
 RESOURCE_MEMORY_LIMIT=4294967296  # 4GB in bytes
+RESOURCE_CPU_THRESHOLD=90
+RESOURCE_MEMORY_THRESHOLD=90
+
+# Optional: Health Check Settings
+HEALTH_CHECK_INTERVAL=30000
+HEALTH_CHECK_TIMEOUT=5000
+HEALTH_CHECK_RETRIES=3
+
+# Optional: Container Restart Policy
+CONTAINER_RESTART_POLICY=on-failure
+CONTAINER_RESTART_MAX_ATTEMPTS=3
+
+# Optional: Logging
+LOG_LEVEL=info
 ```
+
+**Required variables:**
+- `API_KEY` - Single API key (required by the application)
+- `API_KEYS` - Comma-separated list of API keys (required by deployment script)
+- `AWS_ACCESS_KEY_ID` - AWS access key (can be dummy for testing)
+- `AWS_SECRET_ACCESS_KEY` - AWS secret key (can be dummy for testing)
+
+**Optional variables:**
+- `DOMAIN` - Your domain name (defaults to SERVER_IP if not set)
+- `SERVER_IP` - Your server's public IP (auto-detected if not set)
+- All other variables have sensible defaults
 
 **Note**: If you don't set `SERVER_IP`, the deployment script will attempt to auto-detect it.
 

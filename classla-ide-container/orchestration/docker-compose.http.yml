@@ -2,7 +2,7 @@ version: "3.8"
 
 services:
   traefik:
-    image: traefik:v2.10
+    image: traefik:v2.11
     command:
       # API and Dashboard
       - "--api.dashboard=true"
@@ -50,14 +50,11 @@ services:
 
   management-api:
     image: ${REGISTRY:-local}/ide-orchestration-api:${VERSION:-latest}
-    build:
-      context: .
-      dockerfile: Dockerfile
-      platforms:
-        - linux/amd64  # Explicitly build for x86_64 architecture
+    user: root
     environment:
       - NODE_ENV=production
       - PORT=3001
+      - API_KEY=${API_KEY}
       - API_KEYS=${API_KEYS}
       - DOMAIN=${DOMAIN}
       - AWS_REGION=${AWS_REGION:-us-east-1}
