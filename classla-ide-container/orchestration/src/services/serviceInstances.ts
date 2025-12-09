@@ -11,6 +11,7 @@ import { ResourceMonitor } from "./resourceMonitor.js";
 import { HealthMonitor } from "./healthMonitor.js";
 import { NodeMonitor } from "./nodeMonitor.js";
 import { S3ValidationService } from "./s3ValidationService.js";
+import { ContainerStatsService } from "./containerStatsService.js";
 import { config } from "../config/index.js";
 import Docker from "dockerode";
 
@@ -22,7 +23,12 @@ export const resourceMonitor = new ResourceMonitor(containerService, {
   memoryPercent: config.maxMemoryPercent,
   cpuPercent: config.maxCpuPercent,
 });
-export const healthMonitor = new HealthMonitor(containerService, stateManager);
+export const containerStatsService = new ContainerStatsService();
+export const healthMonitor = new HealthMonitor(
+  containerService,
+  stateManager,
+  containerStatsService
+);
 export const nodeMonitor = new NodeMonitor(docker);
 export const s3ValidationService = new S3ValidationService();
 

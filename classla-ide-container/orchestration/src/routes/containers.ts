@@ -15,6 +15,7 @@ import {
   resourceMonitor,
   healthMonitor,
   s3ValidationService,
+  containerStatsService,
 } from "../services/serviceInstances.js";
 
 const router = Router();
@@ -34,6 +35,7 @@ router.post(
         awsAccessKeyId,
         awsSecretAccessKey,
         vncPassword,
+        userId,
       } = req.body;
 
       if (!s3Bucket || typeof s3Bucket !== "string") {
@@ -83,6 +85,13 @@ router.post(
           error instanceof Error ? error : new Error(String(error))
         );
       }
+
+      // Record request received in stats service
+      await containerStatsService.recordRequestReceived(
+        containerInfo.id,
+        s3Bucket,
+        userId
+      );
 
       // Save container metadata to state manager
       stateManager.saveContainer({
@@ -285,6 +294,9 @@ router.delete(
         shutdownReason: "manual",
       });
 
+      // Record container stopped in stats service
+      await containerStatsService.recordContainerStopped(id, "manual");
+
       // Remove health monitoring state for this container
       healthMonitor.removeContainerHealth(id);
 
@@ -337,6 +349,9 @@ router.post(
         stoppedAt: new Date(),
         shutdownReason: "inactivity",
       });
+
+      // Record container stopped in stats service
+      await containerStatsService.recordContainerStopped(id, "inactivity");
 
       // Remove health monitoring state for this container
       healthMonitor.removeContainerHealth(id);

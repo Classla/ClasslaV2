@@ -1,6 +1,7 @@
 import axios from "axios";
 import { ContainerService } from "./containerService.js";
 import { StateManager } from "./stateManager.js";
+import { ContainerStatsService } from "./containerStatsService.js";
 
 export interface HealthCheckResult {
   status: "healthy" | "unhealthy" | "starting";
@@ -23,15 +24,22 @@ interface ContainerHealthState {
 export class HealthMonitor {
   private containerService: ContainerService;
   private stateManager: StateManager;
+  private containerStatsService: ContainerStatsService;
   private healthStates: Map<string, ContainerHealthState>;
   private checkInterval: NodeJS.Timeout | null;
   private readonly CHECK_INTERVAL_MS = 30000; // 30 seconds
   private readonly MAX_CONSECUTIVE_FAILURES = 3;
   private readonly REQUEST_TIMEOUT_MS = 5000; // 5 seconds
+  private codeServerAvailableTracked: Set<string> = new Set(); // Track which containers have had code-server availability recorded
 
-  constructor(containerService: ContainerService, stateManager: StateManager) {
+  constructor(
+    containerService: ContainerService,
+    stateManager: StateManager,
+    containerStatsService?: ContainerStatsService
+  ) {
     this.containerService = containerService;
     this.stateManager = stateManager;
+    this.containerStatsService = containerStatsService || new ContainerStatsService();
     this.healthStates = new Map();
     this.checkInterval = null;
   }
@@ -121,6 +129,15 @@ export class HealthMonitor {
     healthState.lastCheck = new Date();
 
     if (allHealthy) {
+      // Record code-server availability on first successful check
+      if (
+        checks.codeServer &&
+        !this.codeServerAvailableTracked.has(containerId)
+      ) {
+        this.codeServerAvailableTracked.add(containerId);
+        await this.containerStatsService.recordCodeServerAvailable(containerId);
+      }
+
       // Reset failure count on success
       if (healthState.consecutiveFailures > 0) {
         console.log(
@@ -252,5 +269,6 @@ export class HealthMonitor {
    */
   removeContainerHealth(containerId: string): void {
     this.healthStates.delete(containerId);
+    this.codeServerAvailableTracked.delete(containerId);
   }
 }
