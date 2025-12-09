@@ -71,6 +71,9 @@ export class ContainerService {
     const env = [
       `S3_BUCKET=${containerConfig.s3Bucket}`,
       `S3_REGION=${containerConfig.s3Region || "us-east-1"}`,
+      // Base paths for path-based routing
+      `CODE_BASE_PATH=/code/${containerId}`,
+      `VNC_BASE_PATH=/vnc/${containerId}`,
     ];
 
     if (containerConfig.awsAccessKeyId) {
@@ -90,13 +93,14 @@ export class ContainerService {
     );
 
     // Create service specification
+    // Note: In Docker Swarm mode, Traefik reads labels from service level, not container spec
     const serviceSpec = {
       Name: serviceName,
       TaskTemplate: {
         ContainerSpec: {
           Image: config.ideContainerImage,
           Env: env,
-          Labels: labels,
+          // Labels removed from ContainerSpec - Traefik reads from service level in Swarm mode
         },
         Resources: {
           Limits: {
@@ -137,17 +141,71 @@ export class ContainerService {
       await this.docker.createService(serviceSpec);
 
       // Ensure the service is attached to the ide-network
-      // Dockerode sometimes doesn't apply Networks correctly, so we update it explicitly using Docker CLI
+      // Dockerode sometimes doesn't apply Networks correctly during creation, so we update it
       try {
-        const { exec } = await import("child_process");
-        const { promisify } = await import("util");
-        const execAsync = promisify(exec);
-        await execAsync(`docker service update --network-add ide-network ${serviceName}`);
+        // Wait a moment for service to be fully created
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        
+        const service = this.docker.getService(serviceName);
+        const inspect = await service.inspect();
+        const currentNetworks = inspect.Spec?.TaskTemplate?.Networks || [];
+        
+        // Check if ide-network is already attached
+        const hasIdeNetwork = currentNetworks.some(
+          (net: { Target?: string }) => net.Target === "ide-network"
+        );
+
+        if (!hasIdeNetwork) {
+          // Get the service version for the update
+          const version = inspect.Version?.Index;
+          if (version !== undefined) {
+            // Update the service to add the network
+            const updateSpec = {
+              ...inspect.Spec,
+              TaskTemplate: {
+                ...inspect.Spec.TaskTemplate,
+                Networks: [
+                  ...currentNetworks,
+                  {
+                    Target: "ide-network",
+                    Aliases: [serviceName],
+                  },
+                ],
+              },
+            };
+
+            try {
+              await service.update({
+                version: version,
+                ...updateSpec,
+              } as any);
+              console.log(
+                `Successfully attached network to service ${serviceName} using dockerode API`
+              );
+            } catch (updateErr) {
+              console.error(
+                `Dockerode API update failed for ${serviceName}:`,
+                updateErr instanceof Error ? updateErr.message : String(updateErr)
+              );
+              throw updateErr; // Re-throw to trigger outer catch
+            }
+          } else {
+            console.warn(
+              `Could not get service version for ${serviceName}, network attachment may fail`
+            );
+            throw new Error("Service version not available");
+          }
+        } else {
+          console.log(`Network already attached to service ${serviceName}`);
+        }
       } catch (updateError) {
         // Log but don't fail - network might already be attached or service might be starting
-        console.warn(
-          `Failed to update network for service ${serviceName}:`,
-          updateError
+        console.error(
+          `Failed to update network for service ${serviceName} using dockerode API:`,
+          updateError instanceof Error ? updateError.message : String(updateError)
+        );
+        console.error(
+          `Network attachment failed for ${serviceName}. The Networks field in serviceSpec should have attached it, but dockerode may not be applying it correctly. Manual attachment may be required.`
         );
       }
 

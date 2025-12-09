@@ -225,7 +225,7 @@
                 <label for="environmentMode">Environment Mode</label>
                 <select id="environmentMode" onchange="switchEnvironment()" style="max-width: 300px;">
                     <option value="local">Local (localhost)</option>
-                    <option value="remote">Remote (Hetzner - 5.161.59.175)</option>
+                    <option value="remote">Remote (ide.classla.org)</option>
                 </select>
             </div>
             <div class="config-section">
@@ -295,6 +295,7 @@
             <div class="button-group">
                 <button id="loadVncBtn" onclick="loadVnc()" disabled>Load noVNC</button>
                 <button id="loadCodeBtn" onclick="loadCodeServer()" disabled>Load Code Server</button>
+                <button id="loadWebBtn" onclick="loadWebServer()" disabled>Load Web Server</button>
                 <button id="stopContainerBtn" onclick="stopContainer()" disabled>Stop Container</button>
             </div>
             <div id="viewStatus"></div>
@@ -331,7 +332,7 @@
                 apiKey: 'eDg+MU50cATcNK4ap4WlPBewZlEvITW2Cj0LB6WZQJo='
             },
             remote: {
-                orchestrationApiUrl: 'http://5.161.59.175',
+                orchestrationApiUrl: 'https://api.ide.classla.org/api',
                 classlaBackendUrl: 'http://localhost:8000', // Backend might still be local
                 apiKey: 'test-api-key-12345'
             }
@@ -432,7 +433,17 @@
             try {
                 showStatus('containerStatus', '⏳ Starting IDE container...', 'info');
 
-                const response = await fetch(`${apiUrl}/api/containers/start`, {
+                // Construct API endpoint URL
+                let startUrl;
+                if (apiUrl.includes('/api')) {
+                    // URL already includes /api, use /containers/start
+                    startUrl = `${apiUrl}/containers/start`;
+                } else {
+                    // URL is base domain, use /api/containers/start
+                    startUrl = `${apiUrl}/api/containers/start`;
+                }
+                
+                const response = await fetch(startUrl, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -458,6 +469,7 @@
                 // Enable view buttons
                 document.getElementById('loadVncBtn').disabled = false;
                 document.getElementById('loadCodeBtn').disabled = false;
+                document.getElementById('loadWebBtn').disabled = false;
                 document.getElementById('stopContainerBtn').disabled = false;
 
                 // Wait a bit for container to be ready
@@ -477,7 +489,18 @@
                 return;
             }
 
-            const vncUrl = currentContainer.urls.vnc;
+            // Ensure URL uses proper path-based format
+            let vncUrl = currentContainer.urls.vnc;
+            
+            // If URL doesn't start with http/https, construct it properly
+            if (!vncUrl.startsWith('http://') && !vncUrl.startsWith('https://')) {
+                const apiUrl = document.getElementById('orchestrationApiUrl').value;
+                const baseUrl = apiUrl.replace('/api', '').replace('api.', '');
+                const protocol = baseUrl.startsWith('https') ? 'https' : 'http';
+                const domain = baseUrl.replace(/^https?:\/\//, '').split('/')[0];
+                vncUrl = `${protocol}://${domain}/vnc/${currentContainer.id}`;
+            }
+            
             document.getElementById('vncUrl').textContent = vncUrl;
             document.getElementById('vncFrame').src = vncUrl;
             document.getElementById('iframeContainer').style.display = 'grid';
@@ -490,11 +513,45 @@
                 return;
             }
 
-            const codeUrl = currentContainer.urls.codeServer;
+            // Ensure URL uses proper path-based format
+            let codeUrl = currentContainer.urls.codeServer;
+            
+            // If URL doesn't start with http/https, construct it properly
+            if (!codeUrl.startsWith('http://') && !codeUrl.startsWith('https://')) {
+                const apiUrl = document.getElementById('orchestrationApiUrl').value;
+                const baseUrl = apiUrl.replace('/api', '').replace('api.', '');
+                const protocol = baseUrl.startsWith('https') ? 'https' : 'http';
+                const domain = baseUrl.replace(/^https?:\/\//, '').split('/')[0];
+                codeUrl = `${protocol}://${domain}/code/${currentContainer.id}`;
+            }
+            
             document.getElementById('codeUrl').textContent = codeUrl;
             document.getElementById('codeFrame').src = codeUrl;
             document.getElementById('iframeContainer').style.display = 'grid';
             showStatus('viewStatus', '✅ Loading Code Server...', 'success');
+        }
+
+        function loadWebServer() {
+            if (!currentContainer || !currentContainer.urls || !currentContainer.urls.webServer) {
+                showStatus('viewStatus', '❌ No container URLs available', 'error');
+                return;
+            }
+
+            // Ensure URL uses proper path-based format
+            let webUrl = currentContainer.urls.webServer;
+            
+            // If URL doesn't start with http/https, construct it properly
+            if (!webUrl.startsWith('http://') && !webUrl.startsWith('https://')) {
+                const apiUrl = document.getElementById('orchestrationApiUrl').value;
+                const baseUrl = apiUrl.replace('/api', '').replace('api.', '');
+                const protocol = baseUrl.startsWith('https') ? 'https' : 'http';
+                const domain = baseUrl.replace(/^https?:\/\//, '').split('/')[0];
+                webUrl = `${protocol}://${domain}/web/${currentContainer.id}`;
+            }
+            
+            // Web server is an API, so show in a new window or display the URL
+            showStatus('viewStatus', `✅ Web Server URL: <code>${webUrl}</code><br>Use this URL to execute code via HTTP requests.`, 'success');
+            window.open(webUrl, '_blank');
         }
 
         async function stopContainer() {
@@ -513,7 +570,17 @@
             try {
                 showStatus('viewStatus', '⏳ Stopping container...', 'info');
 
-                const response = await fetch(`${apiUrl}/api/containers/${currentContainer.id}`, {
+                // Construct API endpoint URL
+                let deleteUrl;
+                if (apiUrl.includes('/api')) {
+                    // URL already includes /api, use /containers/{id}
+                    deleteUrl = `${apiUrl}/containers/${currentContainer.id}`;
+                } else {
+                    // URL is base domain, use /api/containers/{id}
+                    deleteUrl = `${apiUrl}/api/containers/${currentContainer.id}`;
+                }
+
+                const response = await fetch(deleteUrl, {
                     method: 'DELETE',
                     headers: {
                         'Authorization': `Bearer ${apiKey}`,
@@ -535,6 +602,7 @@
                 // Disable buttons
                 document.getElementById('loadVncBtn').disabled = true;
                 document.getElementById('loadCodeBtn').disabled = true;
+                document.getElementById('loadWebBtn').disabled = true;
                 document.getElementById('stopContainerBtn').disabled = true;
 
                 currentContainer = null;
@@ -550,8 +618,18 @@
         // Check API health on load and when environment changes
         async function checkApiHealth() {
             const orchestrationUrl = document.getElementById('orchestrationApiUrl').value;
+            // Construct health endpoint URL
+            let healthUrl;
+            if (orchestrationUrl.includes('/api')) {
+                // URL already includes /api, use /health
+                healthUrl = `${orchestrationUrl}/health`;
+            } else {
+                // URL is base domain, use /api/health
+                healthUrl = `${orchestrationUrl}/api/health`;
+            }
+            
             try {
-                const response = await fetch(`${orchestrationUrl}/api/health`);
+                const response = await fetch(healthUrl);
                 if (response.ok) {
                     const data = await response.json();
                     console.log('✅ Orchestration API is healthy', data);

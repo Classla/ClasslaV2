@@ -94,14 +94,16 @@ RUN cd /opt && \
     mv noVNC-1.4.0 novnc
 
 # Create custom index page that auto-connects to VNC with scaling enabled
+# Uses VNC_BASE_PATH environment variable to preserve container ID in redirects
 RUN echo '#!/bin/bash' > /usr/local/bin/create-novnc-index.sh && \
     echo 'VNC_PASSWORD=${VNC_PASSWORD:-vncpassword}' >> /usr/local/bin/create-novnc-index.sh && \
+    echo 'VNC_BASE_PATH=${VNC_BASE_PATH:-}' >> /usr/local/bin/create-novnc-index.sh && \
     echo 'cat > /opt/novnc/index.html << EOF' >> /usr/local/bin/create-novnc-index.sh && \
     echo '<!DOCTYPE html>' >> /usr/local/bin/create-novnc-index.sh && \
     echo '<html>' >> /usr/local/bin/create-novnc-index.sh && \
     echo '<head>' >> /usr/local/bin/create-novnc-index.sh && \
     echo '    <title>Redirecting to VNC...</title>' >> /usr/local/bin/create-novnc-index.sh && \
-    echo '    <meta http-equiv="refresh" content="0; url=/vnc.html?autoconnect=true&password=${VNC_PASSWORD}&resize=scale">' >> /usr/local/bin/create-novnc-index.sh && \
+    echo '    <meta http-equiv="refresh" content="0; url=${VNC_BASE_PATH}/vnc.html?autoconnect=true&password=${VNC_PASSWORD}&resize=scale">' >> /usr/local/bin/create-novnc-index.sh && \
     echo '</head>' >> /usr/local/bin/create-novnc-index.sh && \
     echo '<body>' >> /usr/local/bin/create-novnc-index.sh && \
     echo '    <p>Connecting to VNC desktop...</p>' >> /usr/local/bin/create-novnc-index.sh && \

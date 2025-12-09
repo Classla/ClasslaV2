@@ -45,9 +45,8 @@ export class TraefikService {
     const labels: TraefikLabels = {
       // Enable Traefik for this service
       "traefik.enable": "true",
-
-      // Specify the Docker network to use
-      "traefik.docker.network": "ide-network",
+      // Note: traefik.docker.network is not needed - Traefik uses the network specified
+      // in --providers.docker.network command line argument
     };
 
     // Always use path-based routing
