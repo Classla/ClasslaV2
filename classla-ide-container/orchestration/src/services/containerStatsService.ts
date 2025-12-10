@@ -94,30 +94,62 @@ export class ContainerStatsService {
    * Record when code-server becomes available (first successful health check)
    */
   async recordCodeServerAvailable(containerId: string): Promise<void> {
+    console.log(
+      `[ContainerStatsService] recordCodeServerAvailable called for container ${containerId}`
+    );
+    
     if (!this.enabled || !this.supabase) {
+      console.warn(
+        `[ContainerStatsService] Service not enabled or Supabase not initialized. enabled=${this.enabled}, supabase=${!!this.supabase}`
+      );
       return;
     }
 
     try {
+      console.log(
+        `[ContainerStatsService] Fetching existing record for container ${containerId}...`
+      );
+      
       // First, get the request_received_at to calculate startup time
       const { data: existing, error: fetchError } = await this.supabase
         .from("container_stats")
-        .select("request_received_at")
+        .select("request_received_at, code_server_available_at")
         .eq("container_id", containerId)
         .single();
 
       if (fetchError || !existing) {
         console.warn(
-          `No existing record found for container ${containerId}, cannot record code-server available`
+          `[ContainerStatsService] No existing record found for container ${containerId}, cannot record code-server available`
+        );
+        if (fetchError) {
+          console.error(`[ContainerStatsService] Fetch error:`, fetchError);
+        }
+        return;
+      }
+
+      if (existing.code_server_available_at) {
+        console.log(
+          `[ContainerStatsService] Code-server availability already recorded for container ${containerId} at ${existing.code_server_available_at}`
         );
         return;
       }
+
+      console.log(
+        `[ContainerStatsService] Found existing record for container ${containerId}, request_received_at: ${existing.request_received_at}`
+      );
 
       const now = new Date();
       const requestReceivedAt = new Date(existing.request_received_at);
       const startupTimeMs = now.getTime() - requestReceivedAt.getTime();
 
-      const { error } = await this.supabase
+      console.log(
+        `[ContainerStatsService] Updating record: code_server_available_at=${now.toISOString()}, startup_time_ms=${startupTimeMs}`
+      );
+
+      // Try to update - use .is() to only update if not already set, but also check if update succeeded
+      // Update the record - remove .is() filter to ensure update happens
+      // We already checked above if it's already set, so this should be safe
+      const { data: updateData, error } = await this.supabase
         .from("container_stats")
         .update({
           code_server_available_at: now.toISOString(),
@@ -125,17 +157,41 @@ export class ContainerStatsService {
           updated_at: now.toISOString(),
         })
         .eq("container_id", containerId)
-        .is("code_server_available_at", null); // Only update if not already set
+        .select();
+
+      console.log(
+        `[ContainerStatsService] Update query result: ${updateData?.length || 0} row(s) updated, error: ${error ? JSON.stringify(error) : 'none'}`
+      );
 
       if (error) {
         console.error(
-          `Failed to record code-server available for container ${containerId}:`,
+          `[ContainerStatsService] ❌ Failed to record code-server available for container ${containerId}:`,
           error
         );
+        // Log the error details for debugging
+        if (error.code) {
+          console.error(`[ContainerStatsService] Supabase error code: ${error.code}`);
+        }
+        if (error.message) {
+          console.error(`[ContainerStatsService] Supabase error message: ${error.message}`);
+        }
+        if (error.details) {
+          console.error(`[ContainerStatsService] Supabase error details: ${error.details}`);
+        }
+        if (error.hint) {
+          console.error(`[ContainerStatsService] Supabase error hint: ${error.hint}`);
+        }
       } else {
-        console.log(
-          `Recorded code-server available for container ${containerId} (startup time: ${startupTimeMs}ms)`
-        );
+        const rowsUpdated = updateData?.length || 0;
+        if (rowsUpdated === 0) {
+          console.warn(
+            `[ContainerStatsService] ⚠️ Update query returned 0 rows - record may have already been updated or doesn't exist`
+          );
+        } else {
+          console.log(
+            `[ContainerStatsService] ✅ Recorded code-server available for container ${containerId} (startup time: ${startupTimeMs}ms, ${Math.round(startupTimeMs / 1000)}s)`
+          );
+        }
       }
     } catch (error) {
       console.error(

@@ -81,17 +81,26 @@ export class HealthMonitor {
    * Perform health checks on all running containers
    */
   private async performHealthChecks(): Promise<void> {
-    // Get all running containers from state manager
-    const containers = this.stateManager.listContainers({
+    // Get all running and starting containers from state manager
+    // We check "starting" containers too because they might be ready but status hasn't updated yet
+    const runningContainers = this.stateManager.listContainers({
       status: "running",
     });
+    const startingContainers = this.stateManager.listContainers({
+      status: "starting",
+    });
+    const containers = [...runningContainers, ...startingContainers];
+
+    console.log(
+      `[HealthMonitor] Performing health checks on ${containers.length} container(s) (${runningContainers.length} running, ${startingContainers.length} starting)`
+    );
 
     for (const container of containers) {
       try {
         await this.checkContainerHealth(container.id, container.urls);
       } catch (error) {
         console.error(
-          `Error checking health for container ${container.id}:`,
+          `[HealthMonitor] Error checking health for container ${container.id}:`,
           error
         );
       }
@@ -105,11 +114,19 @@ export class HealthMonitor {
     containerId: string,
     urls: { vnc: string; codeServer: string; webServer: string }
   ): Promise<void> {
+    console.log(
+      `[HealthMonitor] Checking health for container ${containerId}, codeServer URL: ${urls.codeServer}`
+    );
+    
     const checks = {
       codeServer: await this.checkServiceReachability(urls.codeServer),
       vnc: await this.checkServiceReachability(urls.vnc),
       webServer: await this.checkServiceReachability(urls.webServer),
     };
+
+    console.log(
+      `[HealthMonitor] Container ${containerId} health checks: codeServer=${checks.codeServer}, vnc=${checks.vnc}, webServer=${checks.webServer}`
+    );
 
     const allHealthy = checks.codeServer && checks.vnc && checks.webServer;
 
@@ -128,20 +145,54 @@ export class HealthMonitor {
     // Update health state
     healthState.lastCheck = new Date();
 
-    if (allHealthy) {
-      // Record code-server availability on first successful check
-      if (
-        checks.codeServer &&
-        !this.codeServerAvailableTracked.has(containerId)
-      ) {
-        this.codeServerAvailableTracked.add(containerId);
+    // Record code-server availability on first successful check (independent of other services)
+    if (
+      checks.codeServer &&
+      !this.codeServerAvailableTracked.has(containerId)
+    ) {
+      console.log(
+        `[HealthMonitor] ✅ Code-server is reachable for container ${containerId}, recording availability...`
+      );
+      this.codeServerAvailableTracked.add(containerId);
+      try {
         await this.containerStatsService.recordCodeServerAvailable(containerId);
+        console.log(
+          `[HealthMonitor] ✅ Successfully recorded code-server availability for container ${containerId}`
+        );
+      } catch (error) {
+        console.error(
+          `[HealthMonitor] ❌ Failed to record code-server availability for container ${containerId}:`,
+          error
+        );
+        // Re-remove from tracked set so we can retry
+        this.codeServerAvailableTracked.delete(containerId);
+      }
+    } else if (!checks.codeServer) {
+      console.log(
+        `[HealthMonitor] ⏳ Code-server not yet reachable for container ${containerId} (URL: ${urls.codeServer})`
+      );
+    } else if (this.codeServerAvailableTracked.has(containerId)) {
+      console.log(
+        `[HealthMonitor] ℹ️ Code-server availability already recorded for container ${containerId}`
+      );
+    }
+
+    if (allHealthy) {
+      // Update container status to "running" if it was "starting"
+      const container = this.stateManager.getContainer(containerId);
+      if (container && container.status === "starting") {
+        console.log(
+          `[HealthMonitor] Container ${containerId} is healthy, updating status from "starting" to "running"`
+        );
+        this.stateManager.updateContainerLifecycle(containerId, {
+          status: "running",
+        });
       }
 
       // Reset failure count on success
       if (healthState.consecutiveFailures > 0) {
         console.log(
-          `Container ${containerId} recovered (was unhealthy for ${healthState.consecutiveFailures} checks)`
+          `[HealthMonitor] Container ${containerId} recovered (was unhealthy for ${healthState.consecutiveFailures} checks)`
         );
       }
       healthState.consecutiveFailures = 0;
@@ -179,9 +230,35 @@ export class HealthMonitor {
         validateStatus: (status) => status < 500, // Accept any status < 500 as "reachable"
         maxRedirects: 0, // Don't follow redirects
       });
-      return response.status < 500;
+      // Accept 200, 302 (redirect), 404 (service exists but route not found), etc. as "reachable"
+      // Only 5xx errors indicate the service is not available
+      const isReachable = response.status < 500;
+      if (!isReachable) {
+        console.log(
+          `[HealthMonitor] Service at ${url} returned status ${response.status} (not reachable)`
+        );
+      } else {
+        console.log(
+          `[HealthMonitor] Service at ${url} is reachable (status: ${response.status})`
+        );
+      }
+      return isReachable;
     } catch (error) {
-      // Network errors, timeouts, etc.
+      // Network errors, timeouts, etc. indicate service is not reachable
+      if (axios.isAxiosError(error)) {
+        const errorMsg = error.code === 'ECONNREFUSED' 
+          ? 'Connection refused' 
+          : error.code === 'ETIMEDOUT' 
+          ? 'Timeout' 
+          : error.message;
+        console.log(
+          `[HealthMonitor] Service at ${url} is not reachable: ${errorMsg}`
+        );
+      } else {
+        console.log(
+          `[HealthMonitor] Service at ${url} check failed: ${error}`
+        );
+      }
       return false;
     }
   }
