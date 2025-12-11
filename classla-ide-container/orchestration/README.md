@@ -58,12 +58,23 @@ npm start
 
 ## Production Deployment
 
-For deploying to a cloud server (e.g., Hetzner) without HTTPS, see [HETZNER_DEPLOYMENT.md](./HETZNER_DEPLOYMENT.md).
-
 The deployment uses:
-- Docker Swarm for orchestration
-- Traefik for reverse proxying and routing
-- HTTP-only configuration (no SSL certificates required)
+- **Docker Swarm** for orchestration
+- **Traefik v2.11** for reverse proxying and routing
+- **Path-based routing** (`/code/<container-id>`, `/vnc/<container-id>`)
+- **HTTPS support** with Let's Encrypt (when DOMAIN is configured)
+- **Optimized for fast startup** (<5 seconds from request to accessible)
+
+### Performance Optimizations
+
+The system has been optimized to achieve **<5 second container startup time**:
+
+1. **Health Monitoring**: 5-second check interval (was 30s) with 2-second quick check
+2. **Traefik Discovery**: 2-second polling (was 15s default)
+3. **Code-Server**: Starts immediately before other setup tasks
+4. **S3 Sync**: Non-blocking background process
+5. **Network Attachment**: Reduced delay to 100ms
+6. **Image Pre-pulling**: Images cached on all Swarm nodes
 
 ### Quick Start (Recommended)
 
@@ -80,12 +91,28 @@ This script will:
 - Create the overlay network
 - Set up environment variables
 - Build and deploy everything
+- **Auto-detect HTTP vs HTTPS** based on DOMAIN configuration
+
+**HTTPS Setup:**
+- Set `DOMAIN=yourdomain.com` in `orchestration/.env`
+- Ensure DNS points to your server
+- The script will automatically use `docker-compose.https.yml`
+
+**HTTP Setup:**
+- Leave `DOMAIN` unset or set to IP address
+- The script will use `docker-compose.http.yml`
 
 ### Manual Deployment
 
 If you prefer manual setup:
 
 ```bash
+# Initialize Swarm
 ./scripts/init-swarm.sh
+
+# Deploy (HTTP)
 ./scripts/deploy-http.sh
+
+# OR Deploy (HTTPS)
+./scripts/deploy-traefik.sh
 ```

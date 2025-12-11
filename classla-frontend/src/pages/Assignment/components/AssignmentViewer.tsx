@@ -30,6 +30,7 @@ import {
 
 import { Assignment } from "../../../types";
 import { MCQBlockViewer } from "../../../components/extensions/MCQBlockViewer";
+import { IDEBlockViewer } from "../../../components/extensions/IDEBlockViewer";
 import { validateMCQData, sanitizeMCQData } from "../../../components/extensions/MCQBlock";
 import { Button } from "../../../components/ui/button";
 import { apiClient } from "../../../lib/api";
@@ -413,6 +414,7 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
       Gapcursor,
       Underline,
       MCQBlockViewer, // Add MCQ viewer extension
+      IDEBlockViewer, // Add IDE viewer extension
     ],
     []
   );

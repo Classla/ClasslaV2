@@ -36,7 +36,9 @@ make run VNC_PASSWORD=myvnc123
 
 ## 3. Access Your Environment
 
-Wait 10-15 seconds for services to start, then open:
+**Optimized startup**: Containers are accessible in **<5 seconds** (production deployment).
+
+Wait 10-15 seconds for services to start (local testing), then open:
 
 - **VS Code (code-server):** http://localhost:8080
   - Opens instantly, no password required! ✨

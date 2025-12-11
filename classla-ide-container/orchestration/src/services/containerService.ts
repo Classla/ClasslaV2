@@ -138,13 +138,20 @@ export class ContainerService {
     };
 
     try {
+      // Create service - use update mode to ensure network is attached immediately
+      const createStartTime = Date.now();
       await this.docker.createService(serviceSpec);
+      const createDuration = Date.now() - createStartTime;
+      
+      console.log(
+        `[ContainerService] Service ${serviceName} created in ${createDuration}ms, ensuring network attachment...`
+      );
 
       // Ensure the service is attached to the ide-network
       // Dockerode sometimes doesn't apply Networks correctly during creation, so we update it
       try {
-        // Wait a moment for service to be fully created
-        await new Promise((resolve) => setTimeout(resolve, 500));
+        // Reduced delay for faster startup - check immediately
+        await new Promise((resolve) => setTimeout(resolve, 100));
         
         const service = this.docker.getService(serviceName);
         const inspect = await service.inspect();

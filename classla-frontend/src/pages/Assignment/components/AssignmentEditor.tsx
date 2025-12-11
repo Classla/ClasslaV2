@@ -21,6 +21,7 @@ import Gapcursor from "@tiptap/extension-gapcursor";
 
 import { apiClient } from "../../../lib/api";
 import { MCQBlock, validateMCQData } from "../../../components/extensions/MCQBlock";
+import { IDEBlock } from "../../../components/extensions/IDEBlock";
 import { AIBlock } from "../../../components/extensions/AIBlock";
 import { GeneratingBlock } from "../../../components/extensions/GeneratingBlock";
 import { useToast } from "../../../hooks/use-toast";
@@ -599,6 +600,14 @@ const AssignmentEditor: React.FC<AssignmentEditorProps> = ({
           editor.chain().focus().insertMCQBlock().run();
         },
       },
+      {
+        title: "IDE Block",
+        description: "Add a virtual codespace IDE block.",
+        icon: <Code className="w-4 h-4" />,
+        command: (editor) => {
+          editor.chain().focus().insertIDEBlock().run();
+        },
+      },
     ],
     []
   ); // Empty dependency array since commands don't change
@@ -663,6 +672,7 @@ const AssignmentEditor: React.FC<AssignmentEditorProps> = ({
       }),
       Gapcursor,
       MCQBlock,
+      IDEBlock,
       AIBlock.configure({
         assignmentId: assignment.id,
       }),

@@ -142,6 +142,7 @@ import joinLinksRoutes from "./routes/joinLinks";
 import blocksRoutes from "./routes/blocks";
 import autograderRoutes from "./routes/autograder";
 import s3bucketsRoutes from "./routes/s3buckets";
+import ideBlocksRoutes from "./routes/ideBlocks";
 import aiRoutes from "./routes/ai";
 
 // Auth routes (mounted at root for WorkOS callback compatibility)
@@ -162,6 +163,7 @@ app.use("/api/join-links", joinLinksRoutes);
 app.use("/api", blocksRoutes);
 app.use("/api", autograderRoutes);
 app.use("/api/s3buckets", s3bucketsRoutes);
+app.use("/api/ide-blocks", ideBlocksRoutes);
 app.use("/api", aiRoutes);
 
 // Error handling - must be after all routes

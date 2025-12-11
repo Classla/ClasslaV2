@@ -8,12 +8,13 @@ services:
       - "--api.dashboard=true"
       - "--api.insecure=true" # Allow insecure dashboard access for HTTP-only deployment
 
-      # Docker Swarm Provider
+      # Docker Swarm Provider - Optimized for fast service discovery
       - "--providers.docker=true"
       - "--providers.docker.swarmMode=true"
       - "--providers.docker.exposedbydefault=false"
       - "--providers.docker.network=ide-network"
       - "--providers.docker.watch=true"
+      - "--providers.docker.swarmModeRefreshSeconds=2"  # Poll every 2 seconds for faster discovery
 
       # Entrypoints - HTTP only (no HTTPS)
       - "--entrypoints.web.address=:80"

@@ -400,6 +400,22 @@ export const apiClient = {
   // AI endpoints (uses separate axios instance with no timeout)
   generateAIContent: (prompt: string, assignmentId: string) =>
     aiApi.post("/ai/generate", { prompt, assignmentId }),
+
+  // IDE Block endpoints
+  startIDEContainer: (data: {
+    s3Bucket: string;
+    s3Region: string;
+    userId?: string;
+  }) => api.post("/ide-blocks/start-container", data),
+  checkContainerStatus: (containerId: string) =>
+    api.get(`/ide-blocks/container/${containerId}`),
+  getS3Bucket: (bucketId: string) => api.get(`/s3buckets/${bucketId}`),
+  createS3Bucket: (data: {
+    user_id: string;
+    course_id?: string;
+    assignment_id?: string;
+    region?: string;
+  }) => api.post("/s3buckets", data),
 };
 
 export default api;

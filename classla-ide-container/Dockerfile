@@ -394,11 +394,12 @@ RUN echo '#!/bin/bash' > /usr/local/bin/rclone-sync-loop.sh && \
     echo 'fi' >> /usr/local/bin/rclone-sync-loop.sh && \
     echo 'S3_PATH="s3:${S3_BUCKET}"' >> /usr/local/bin/rclone-sync-loop.sh && \
     echo 'WORKSPACE_PATH="/workspace"' >> /usr/local/bin/rclone-sync-loop.sh && \
-    echo 'echo "Performing initial sync from S3..."' >> /usr/local/bin/rclone-sync-loop.sh && \
+    echo '# Initial sync in background (non-blocking) - container can start immediately' >> /usr/local/bin/rclone-sync-loop.sh && \
     echo 'if [ -z "$(ls -A $WORKSPACE_PATH)" ]; then' >> /usr/local/bin/rclone-sync-loop.sh && \
-    echo '    rclone sync "$S3_PATH" "$WORKSPACE_PATH" --progress --verbose || {' >> /usr/local/bin/rclone-sync-loop.sh && \
+    echo '    echo "Workspace is empty, performing initial download from S3 in background..."' >> /usr/local/bin/rclone-sync-loop.sh && \
+    echo '    (rclone sync "$S3_PATH" "$WORKSPACE_PATH" --progress --no-check-dest --transfers 4 --checkers 8 || {' >> /usr/local/bin/rclone-sync-loop.sh && \
     echo '        echo "WARNING: Initial S3 sync failed (bucket might be empty or not exist yet)"' >> /usr/local/bin/rclone-sync-loop.sh && \
-    echo '    }' >> /usr/local/bin/rclone-sync-loop.sh && \
+    echo '    }) &' >> /usr/local/bin/rclone-sync-loop.sh && \
     echo 'else' >> /usr/local/bin/rclone-sync-loop.sh && \
     echo '    echo "Workspace is not empty, skipping initial download"' >> /usr/local/bin/rclone-sync-loop.sh && \
     echo 'fi' >> /usr/local/bin/rclone-sync-loop.sh && \
@@ -452,21 +453,22 @@ RUN echo '#!/bin/bash' > /usr/local/bin/inactivity-monitor.sh && \
     echo 'done' >> /usr/local/bin/inactivity-monitor.sh && \
     chmod +x /usr/local/bin/inactivity-monitor.sh
 
-# Main Entrypoint
+# Main Entrypoint - Optimized for fast startup
 RUN echo '#!/bin/bash' > /usr/local/bin/entrypoint.sh && \
     echo 'set -e' >> /usr/local/bin/entrypoint.sh && \
-    echo 'echo "========================================="' >> /usr/local/bin/entrypoint.sh && \
-    echo 'echo "AWS Fargate Development Container"' >> /usr/local/bin/entrypoint.sh && \
-    echo 'echo "========================================="' >> /usr/local/bin/entrypoint.sh && \
     echo '' >> /usr/local/bin/entrypoint.sh && \
-    echo '# Set VNC password' >> /usr/local/bin/entrypoint.sh && \
+    echo '# CRITICAL: Start code-server IMMEDIATELY (before other setup)' >> /usr/local/bin/entrypoint.sh && \
+    echo 'echo "Starting code-server immediately on port 8080..."' >> /usr/local/bin/entrypoint.sh && \
+    echo 'su - user -c "cd /workspace && code-server --bind-addr 0.0.0.0:8080 --auth none --disable-telemetry --disable-update-check --disable-getting-started-override /workspace" &' >> /usr/local/bin/entrypoint.sh && \
+    echo '' >> /usr/local/bin/entrypoint.sh && \
+    echo '# Setup tasks in parallel (non-blocking)' >> /usr/local/bin/entrypoint.sh && \
     echo 'VNC_PASSWORD=${VNC_PASSWORD:-vncpassword}' >> /usr/local/bin/entrypoint.sh && \
     echo 'echo "$VNC_PASSWORD" | vncpasswd -f > /home/user/.vnc/passwd' >> /usr/local/bin/entrypoint.sh && \
     echo 'chmod 600 /home/user/.vnc/passwd' >> /usr/local/bin/entrypoint.sh && \
     echo 'chown user:user /home/user/.vnc/passwd' >> /usr/local/bin/entrypoint.sh && \
     echo '' >> /usr/local/bin/entrypoint.sh && \
-    echo '# Ensure workspace ownership' >> /usr/local/bin/entrypoint.sh && \
-    echo 'chown -R user:user /workspace' >> /usr/local/bin/entrypoint.sh && \
+    echo '# Workspace ownership (can be slow, do in background if large)' >> /usr/local/bin/entrypoint.sh && \
+    echo 'chown -R user:user /workspace 2>/dev/null || true' >> /usr/local/bin/entrypoint.sh && \
     echo '' >> /usr/local/bin/entrypoint.sh && \
     echo '# Create custom noVNC index page' >> /usr/local/bin/entrypoint.sh && \
     echo '/usr/local/bin/create-novnc-index.sh' >> /usr/local/bin/entrypoint.sh && \
@@ -480,25 +482,21 @@ RUN echo '#!/bin/bash' > /usr/local/bin/entrypoint.sh && \
     echo 'echo "Starting run server on port 3000..."' >> /usr/local/bin/entrypoint.sh && \
     echo 'su - user -c "python3 /usr/local/bin/run-server.py" &' >> /usr/local/bin/entrypoint.sh && \
     echo '' >> /usr/local/bin/entrypoint.sh && \
-    echo '# Start code-server FIRST (fastest to start)' >> /usr/local/bin/entrypoint.sh && \
-    echo 'echo "Starting code-server on port 8080..."' >> /usr/local/bin/entrypoint.sh && \
-    echo 'su - user -c "cd /workspace && code-server --bind-addr 0.0.0.0:8080 --auth none --disable-telemetry /workspace" &' >> /usr/local/bin/entrypoint.sh && \
-    echo '' >> /usr/local/bin/entrypoint.sh && \
-    echo '# Start VNC and noVNC in background' >> /usr/local/bin/entrypoint.sh && \
+    echo '# Start VNC and noVNC in background (parallel with code-server)' >> /usr/local/bin/entrypoint.sh && \
     echo '(' >> /usr/local/bin/entrypoint.sh && \
     echo '  echo "Starting VNC server..."' >> /usr/local/bin/entrypoint.sh && \
     echo '  su - user -c "vncserver :1 -geometry 1920x1080 -depth 24 -localhost no" || {' >> /usr/local/bin/entrypoint.sh && \
     echo '    echo "ERROR: Failed to start VNC server"' >> /usr/local/bin/entrypoint.sh && \
     echo '    cat /home/user/.vnc/*.log' >> /usr/local/bin/entrypoint.sh && \
     echo '  }' >> /usr/local/bin/entrypoint.sh && \
-    echo '  sleep 2' >> /usr/local/bin/entrypoint.sh && \
+    echo '  sleep 1' >> /usr/local/bin/entrypoint.sh && \
     echo '  echo "Starting noVNC on port 6080..."' >> /usr/local/bin/entrypoint.sh && \
     echo '  websockify --web=/opt/novnc 6080 localhost:5901 &' >> /usr/local/bin/entrypoint.sh && \
     echo ') &' >> /usr/local/bin/entrypoint.sh && \
     echo '' >> /usr/local/bin/entrypoint.sh && \
-    echo '# Start rclone sync loop (if S3_BUCKET is set)' >> /usr/local/bin/entrypoint.sh && \
+    echo '# Start rclone sync loop in background (non-blocking) - if S3_BUCKET is set' >> /usr/local/bin/entrypoint.sh && \
     echo 'if [ -n "$S3_BUCKET" ]; then' >> /usr/local/bin/entrypoint.sh && \
-    echo '    echo "Starting rclone sync loop for bucket: $S3_BUCKET..."' >> /usr/local/bin/entrypoint.sh && \
+    echo '    echo "Starting rclone sync loop for bucket: $S3_BUCKET (background)..."' >> /usr/local/bin/entrypoint.sh && \
     echo '    su user -c "S3_BUCKET=$S3_BUCKET S3_REGION=$S3_REGION AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY /usr/local/bin/rclone-sync-loop.sh" &' >> /usr/local/bin/entrypoint.sh && \
     echo 'else' >> /usr/local/bin/entrypoint.sh && \
     echo '    echo "WARNING: S3_BUCKET not set, skipping rclone sync"' >> /usr/local/bin/entrypoint.sh && \

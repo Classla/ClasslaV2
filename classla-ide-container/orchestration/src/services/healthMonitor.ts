@@ -27,9 +27,9 @@ export class HealthMonitor {
   private containerStatsService: ContainerStatsService;
   private healthStates: Map<string, ContainerHealthState>;
   private checkInterval: NodeJS.Timeout | null;
-  private readonly CHECK_INTERVAL_MS = 30000; // 30 seconds
+  private readonly CHECK_INTERVAL_MS = 5000; // 5 seconds - optimized for faster startup detection
   private readonly MAX_CONSECUTIVE_FAILURES = 3;
-  private readonly REQUEST_TIMEOUT_MS = 5000; // 5 seconds
+  private readonly REQUEST_TIMEOUT_MS = 3000; // 3 seconds - reduced timeout for faster checks
   private codeServerAvailableTracked: Set<string> = new Set(); // Track which containers have had code-server availability recorded
 
   constructor(
@@ -53,17 +53,24 @@ export class HealthMonitor {
       return;
     }
 
-    console.log("Starting health monitor...");
+    console.log(`Starting health monitor (check interval: ${this.CHECK_INTERVAL_MS}ms)...`);
     this.checkInterval = setInterval(() => {
       this.performHealthChecks().catch((error) => {
         console.error("Error during health checks:", error);
       });
     }, this.CHECK_INTERVAL_MS);
 
-    // Perform initial check immediately
+    // Perform initial check immediately for faster detection
     this.performHealthChecks().catch((error) => {
       console.error("Error during initial health check:", error);
     });
+    
+    // Also perform a quick check after 2 seconds for newly created containers
+    setTimeout(() => {
+      this.performHealthChecks().catch((error) => {
+        console.error("Error during quick health check:", error);
+      });
+    }, 2000);
   }
 
   /**
