@@ -464,6 +464,7 @@ const AssignmentEditor: React.FC<AssignmentEditorProps> = ({
   const [showSlashMenu, setShowSlashMenu] = useState(false);
   const [slashMenuPosition, setSlashMenuPosition] = useState({ x: 0, y: 0 });
   const [slashMenuQuery, setSlashMenuQuery] = useState("");
+  const [slashMenuOpensUpward, setSlashMenuOpensUpward] = useState(false);
   const [hoveredBlock, setHoveredBlock] = useState<HTMLElement | null>(null);
   const [showFloatingToolbar, setShowFloatingToolbar] = useState(false);
   const [floatingToolbarPosition, setFloatingToolbarPosition] = useState({
@@ -814,7 +815,17 @@ const AssignmentEditor: React.FC<AssignmentEditorProps> = ({
               if (slashIndex !== -1 && slashIndex === text.length - 1) {
                 // Show slash menu
                 const coords = editor.view.coordsAtPos(from);
-                setSlashMenuPosition({ x: coords.left, y: coords.bottom });
+                const viewportHeight = window.innerHeight;
+                const menuMaxHeight = 400; // max-h-[400px]
+                const spaceBelow = viewportHeight - coords.bottom;
+                const spaceAbove = coords.top;
+                const opensUpward = spaceBelow < menuMaxHeight && spaceAbove > spaceBelow;
+                
+                setSlashMenuPosition({ 
+                  x: coords.left, 
+                  y: opensUpward ? coords.top : coords.bottom 
+                });
+                setSlashMenuOpensUpward(opensUpward);
                 setSlashMenuQuery("");
                 setShowSlashMenu(true);
               } else if (slashIndex !== -1 && slashIndex < text.length - 1) {
@@ -1272,7 +1283,10 @@ const AssignmentEditor: React.FC<AssignmentEditorProps> = ({
           className="fixed z-50 bg-white rounded-lg shadow-lg border border-gray-200 py-2 min-w-[280px] max-h-[400px] overflow-y-auto"
           style={{
             left: slashMenuPosition.x,
-            top: slashMenuPosition.y + 5,
+            top: slashMenuOpensUpward 
+              ? slashMenuPosition.y - 5 
+              : slashMenuPosition.y + 5,
+            transform: slashMenuOpensUpward ? "translateY(-100%)" : "none",
           }}
           role="menu"
           aria-label="Insert block menu"
