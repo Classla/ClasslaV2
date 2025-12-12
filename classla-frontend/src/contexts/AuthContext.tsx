@@ -10,6 +10,7 @@ interface AuthContextType {
   signUp: () => Promise<void>
   signUpWithPassword: (email: string, password: string, firstName?: string, lastName?: string) => Promise<void>
   signOut: () => Promise<void>
+  refreshUser: () => Promise<void>
   isAuthenticated: boolean
 }
 
@@ -155,6 +156,10 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     }
   }
 
+  const refreshUser = async () => {
+    await checkAuthStatus()
+  }
+
   const value = {
     user,
     session,
@@ -164,6 +169,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     signUp,
     signUpWithPassword,
     signOut,
+    refreshUser,
     isAuthenticated: user !== null,
   }
 

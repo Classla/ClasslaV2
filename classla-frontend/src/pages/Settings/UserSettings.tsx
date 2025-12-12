@@ -1,22 +1,34 @@
 import { useState, useEffect } from "react";
 import { useAuth } from "../../contexts/AuthContext";
 import { apiClient } from "../../lib/api";
+import { useToast } from "../../hooks/use-toast";
+import { Button } from "../../components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "../../components/ui/card";
+import { Input } from "../../components/ui/input";
+import { Label } from "../../components/ui/label";
+import { Alert, AlertDescription } from "../../components/ui/alert";
+import { User, Mail, Loader2 } from "lucide-react";
 
 interface UserProfile {
   id: string;
   first_name?: string;
   last_name?: string;
   email: string;
-  roles: string[];
-  is_admin: boolean;
   settings: Record<string, any>;
 }
 
 const UserSettings = () => {
-  const { user } = useAuth();
+  const { user, refreshUser } = useAuth();
+  const { toast } = useToast();
   const [profile, setProfile] = useState<UserProfile | null>(null);
-  const [firstName, setFirstName] = useState("");
-  const [lastName, setLastName] = useState("");
+  const [firstName, setFirstName] = useState(user?.firstName ?? "");
+  const [lastName, setLastName] = useState(user?.lastName ?? "");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -30,13 +42,26 @@ const UserSettings = () => {
         setLoading(true);
         const response = await apiClient.getUser(user.id);
         const userProfile = response.data;
-        setProfile(userProfile);
-        setFirstName(userProfile.first_name || "");
-        setLastName(userProfile.last_name || "");
+        const profileData: UserProfile = {
+          ...userProfile,
+          settings: userProfile.settings || {},
+        };
+        setProfile(profileData);
+        // Set firstName and lastName, handling null/undefined values
+        // Use nullish coalescing to properly handle null values
+        const firstNameValue = userProfile.first_name ?? user?.firstName ?? "";
+        const lastNameValue = userProfile.last_name ?? user?.lastName ?? "";
+        setFirstName(firstNameValue);
+        setLastName(lastNameValue);
       } catch (err: any) {
         setError(
           err.response?.data?.error?.message || "Failed to load profile"
         );
+        // Fallback to auth context user data if API fails
+        if (user) {
+          setFirstName(user.firstName ?? "");
+          setLastName(user.lastName ?? "");
+        }
       } finally {
         setLoading(false);
       }
@@ -55,15 +80,29 @@ const UserSettings = () => {
       setSuccess("");
 
       await apiClient.updateUser(user.id, {
-        first_name: firstName,
-        last_name: lastName,
+        first_name: firstName.trim() || undefined,
+        last_name: lastName.trim() || undefined,
       });
-      setProfile({ ...profile, first_name: firstName, last_name: lastName });
+      
+      // Update local profile state
+      setProfile({ ...profile, first_name: firstName.trim(), last_name: lastName.trim() });
+      
+      // Refresh user context to update the global user state
+      await refreshUser();
+      
       setSuccess("Profile updated successfully!");
+      toast({
+        title: "Profile updated",
+        description: "Your name has been updated successfully.",
+      });
     } catch (err: any) {
-      setError(
-        err.response?.data?.error?.message || "Failed to update profile"
-      );
+      const errorMessage = err.response?.data?.error?.message || "Failed to update profile";
+      setError(errorMessage);
+      toast({
+        title: "Failed to update profile",
+        description: errorMessage,
+        variant: "destructive",
+      });
     } finally {
       setSaving(false);
     }
@@ -71,90 +110,137 @@ const UserSettings = () => {
 
   if (loading) {
     return (
-      <div className="user-settings">
-        <h2>User Settings</h2>
-        <p>Loading your profile...</p>
+      <div className="min-h-screen bg-gradient-to-br from-purple-50 to-indigo-100 p-4">
+        <div className="max-w-2xl mx-auto pt-8">
+          <div className="flex items-center justify-center h-64">
+            <Loader2 className="h-8 w-8 animate-spin text-purple-600" />
+            <span className="ml-3 text-gray-600">Loading your profile...</span>
+          </div>
+        </div>
       </div>
     );
   }
 
   if (!profile) {
     return (
-      <div className="user-settings">
-        <h2>User Settings</h2>
-        <div className="error-message">Failed to load user profile</div>
+      <div className="min-h-screen bg-gradient-to-br from-purple-50 to-indigo-100 p-4">
+        <div className="max-w-2xl mx-auto pt-8">
+          <Card className="shadow-xl border-0">
+            <CardHeader>
+              <CardTitle className="text-2xl font-semibold">User Settings</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <Alert variant="destructive">
+                <AlertDescription>Failed to load user profile</AlertDescription>
+              </Alert>
+            </CardContent>
+          </Card>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="user-settings">
-      <h2>User Settings</h2>
+    <div className="min-h-screen bg-gradient-to-br from-purple-50 to-indigo-100 p-4">
+      <div className="max-w-2xl mx-auto pt-8">
+        <div className="mb-6">
+          <h1 className="text-3xl font-bold text-gray-900">User Settings</h1>
+          <p className="text-gray-600 mt-1">Manage your profile information</p>
+        </div>
 
-      <section className="profile-section">
-        <h3>Profile Information</h3>
-        <form onSubmit={handleSave} className="settings-form">
-          <div className="form-group">
-            <label htmlFor="email">Email:</label>
-            <input
-              type="email"
-              id="email"
-              value={profile.email}
-              disabled
-              className="readonly-input"
-            />
-            <small className="form-help">Email cannot be changed</small>
-          </div>
-
-          <div className="form-group">
-            <label htmlFor="firstName">First Name:</label>
-            <input
-              type="text"
-              id="firstName"
-              value={firstName}
-              onChange={(e) => setFirstName(e.target.value)}
-              disabled={saving}
-              placeholder="Enter your first name"
-            />
-          </div>
-
-          <div className="form-group">
-            <label htmlFor="lastName">Last Name:</label>
-            <input
-              type="text"
-              id="lastName"
-              value={lastName}
-              onChange={(e) => setLastName(e.target.value)}
-              disabled={saving}
-              placeholder="Enter your last name"
-            />
-          </div>
-
-          <div className="form-group">
-            <label>Account Type:</label>
-            <div className="account-info">
-              {profile.is_admin && (
-                <span className="role-badge admin">Admin</span>
-              )}
-              {profile.roles.map((role) => (
-                <span key={role} className="role-badge">
-                  {role.replace("_", " ").toUpperCase()}
-                </span>
-              ))}
-              {!profile.is_admin && profile.roles.length === 0 && (
-                <span className="role-badge">Student</span>
-              )}
+        <Card className="shadow-xl border-0">
+          <CardHeader>
+            <div className="flex items-center space-x-2">
+              <User className="h-5 w-5 text-purple-600" />
+              <CardTitle className="text-2xl font-semibold">Profile Information</CardTitle>
             </div>
-          </div>
+            <CardDescription>
+              Update your personal information. Your email cannot be changed.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={handleSave} className="space-y-6">
+              {/* Email Field */}
+              <div className="space-y-2">
+                <Label htmlFor="email" className="flex items-center space-x-2">
+                  <Mail className="h-4 w-4 text-gray-500" />
+                  <span>Email</span>
+                </Label>
+                <Input
+                  type="email"
+                  id="email"
+                  value={profile.email}
+                  disabled
+                  className="bg-gray-50 cursor-not-allowed"
+                />
+                <p className="text-sm text-gray-500">Email cannot be changed</p>
+              </div>
 
-          {error && <div className="error-message">{error}</div>}
-          {success && <div className="success-message">{success}</div>}
+              {/* First Name Field */}
+              <div className="space-y-2">
+                <Label htmlFor="firstName">First Name</Label>
+                <Input
+                  type="text"
+                  id="firstName"
+                  value={firstName}
+                  onChange={(e) => setFirstName(e.target.value)}
+                  disabled={saving}
+                  placeholder="Enter your first name"
+                  className="w-full"
+                />
+              </div>
 
-          <button type="submit" disabled={saving} className="save-button">
-            {saving ? "Saving..." : "Save Changes"}
-          </button>
-        </form>
-      </section>
+              {/* Last Name Field */}
+              <div className="space-y-2">
+                <Label htmlFor="lastName">Last Name</Label>
+                <Input
+                  type="text"
+                  id="lastName"
+                  value={lastName}
+                  onChange={(e) => setLastName(e.target.value)}
+                  disabled={saving}
+                  placeholder="Enter your last name"
+                  className="w-full"
+                />
+              </div>
+
+              {/* Error Message */}
+              {error && (
+                <Alert variant="destructive">
+                  <AlertDescription>{error}</AlertDescription>
+                </Alert>
+              )}
+
+              {/* Success Message */}
+              {success && (
+                <Alert className="border-green-200 bg-green-50">
+                  <AlertDescription className="text-green-800">
+                    {success}
+                  </AlertDescription>
+                </Alert>
+              )}
+
+              {/* Submit Button */}
+              <div className="flex justify-end space-x-3 pt-4">
+                <Button
+                  type="submit"
+                  disabled={saving}
+                  className="bg-purple-600 hover:bg-purple-700 text-white min-w-[120px]"
+                >
+                  {saving ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Saving...
+                    </>
+                  ) : (
+                    "Save Changes"
+                  )}
+                </Button>
+              </div>
+            </form>
+          </CardContent>
+        </Card>
+      </div>
     </div>
   );
 };

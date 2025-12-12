@@ -33,7 +33,7 @@ router.get(
       const { data: user, error } = await supabase
         .from("users")
         .select(
-          "id, workos_user_id, first_name, last_name, email, is_admin, settings, created_at, updated_at"
+          "id, workos_user_id, first_name, last_name, email, roles, is_admin, settings, created_at, updated_at"
         )
         .eq("id", id)
         .single();
@@ -265,7 +265,7 @@ router.put(
         .update(updatePayload)
         .eq("id", id)
         .select(
-          "id, workos_user_id, first_name, last_name, email, is_admin, settings, created_at, updated_at"
+          "id, workos_user_id, first_name, last_name, email, roles, is_admin, settings, created_at, updated_at"
         )
         .single();
 

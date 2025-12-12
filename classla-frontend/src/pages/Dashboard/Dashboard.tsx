@@ -34,18 +34,22 @@ interface Course {
 }
 
 const Dashboard: React.FC = () => {
-  const { user } = useAuth();
+  const { user, refreshUser } = useAuth();
   const { toast } = useToast();
   const navigate = useNavigate();
   const [courses, setCourses] = useState<Course[]>([]);
   const [loading, setLoading] = useState(true);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [joinDialogOpen, setJoinDialogOpen] = useState(false);
+  const [nameDialogOpen, setNameDialogOpen] = useState(false);
 
   // Form states
   const [newCourseName, setNewCourseName] = useState("");
   const [newCourseDescription, setNewCourseDescription] = useState("");
   const [joinCode, setJoinCode] = useState("");
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [savingName, setSavingName] = useState(false);
 
   useEffect(() => {
     const fetchCourses = async () => {
@@ -79,6 +83,16 @@ const Dashboard: React.FC = () => {
 
     fetchCourses();
   }, [user?.id]);
+
+  // Check if user needs to fill in their name
+  useEffect(() => {
+    if (user && !user.firstName && !user.lastName) {
+      setNameDialogOpen(true);
+    } else if (user && (user.firstName || user.lastName)) {
+      // If user has at least one name, ensure dialog is closed
+      setNameDialogOpen(false);
+    }
+  }, [user]);
 
   const handleCreateCourse = async () => {
     try {
@@ -158,6 +172,50 @@ const Dashboard: React.FC = () => {
     }
   };
 
+  const handleSaveName = async () => {
+    if (!user?.id) return;
+
+    if (!firstName.trim() && !lastName.trim()) {
+      toast({
+        title: "Name required",
+        description: "Please enter at least your first or last name",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      setSavingName(true);
+      await apiClient.updateUser(user.id, {
+        first_name: firstName.trim() || undefined,
+        last_name: lastName.trim() || undefined,
+      });
+
+      // Refresh user data to get updated name
+      await refreshUser();
+
+      toast({
+        title: "Name updated successfully!",
+        description: "Your name has been saved.",
+      });
+
+      setNameDialogOpen(false);
+      setFirstName("");
+      setLastName("");
+    } catch (error: any) {
+      console.error("Failed to update name:", error);
+      toast({
+        title: "Failed to update name",
+        description:
+          error.response?.data?.error?.message ||
+          "An error occurred while updating your name",
+        variant: "destructive",
+      });
+    } finally {
+      setSavingName(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -169,6 +227,83 @@ const Dashboard: React.FC = () => {
 
   return (
     <div className="space-y-8">
+      {/* Name Collection Dialog */}
+      <Dialog
+        open={nameDialogOpen}
+        onOpenChange={(open) => {
+          // Only allow closing if at least one name is filled in
+          if (!open && (!firstName.trim() && !lastName.trim())) {
+            return; // Prevent closing
+          }
+          setNameDialogOpen(open);
+        }}
+      >
+        <DialogContent
+          onInteractOutside={(e) => {
+            // Prevent closing by clicking outside if name is not filled
+            if (!firstName.trim() && !lastName.trim()) {
+              e.preventDefault();
+            }
+          }}
+          onEscapeKeyDown={(e) => {
+            // Prevent closing with Escape if name is not filled
+            if (!firstName.trim() && !lastName.trim()) {
+              e.preventDefault();
+            }
+          }}
+        >
+          <DialogHeader>
+            <DialogTitle>Welcome! Let's get to know you</DialogTitle>
+            <DialogDescription>
+              Please provide your name so we can personalize your experience.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="first-name">First Name</Label>
+              <Input
+                id="first-name"
+                placeholder="Enter your first name"
+                value={firstName}
+                onChange={(e) => setFirstName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && (firstName.trim() || lastName.trim())) {
+                    handleSaveName();
+                  }
+                }}
+                autoFocus
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="last-name">Last Name</Label>
+              <Input
+                id="last-name"
+                placeholder="Enter your last name"
+                value={lastName}
+                onChange={(e) => setLastName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && (firstName.trim() || lastName.trim())) {
+                    handleSaveName();
+                  }
+                }}
+              />
+            </div>
+            <p className="text-sm text-gray-500">
+              At least one name is required to continue.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button
+              onClick={handleSaveName}
+              disabled={savingName || (!firstName.trim() && !lastName.trim())}
+              className="bg-purple-600 hover:bg-purple-700"
+            >
+              {savingName ? "Saving..." : "Save"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Header */}
       <div className="flex justify-between items-center">
         <div>
