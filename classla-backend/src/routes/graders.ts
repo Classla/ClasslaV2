@@ -2,6 +2,7 @@ import { Router, Request, Response } from "express";
 import { supabase } from "../middleware/auth";
 import { authenticateToken } from "../middleware/auth";
 import { getCoursePermissions } from "../middleware/authorization";
+import { UserRole } from "../types/enums";
 import { Grader } from "../types/entities";
 import {
   CreateGraderRequest,
@@ -116,6 +117,59 @@ router.get(
         return;
       }
 
+      // For students, check visibility rules (reviewed_at or showScoreAfterSubmission)
+      // Instructors/TAs/Admins can always see all graders
+      if (!isAdmin) {
+        // Get the submission to check if user is the student
+        const { data: submission, error: submissionError } = await supabase
+          .from("submissions")
+          .select("student_id, course_id, assignment_id")
+          .eq("id", grader.submission_id)
+          .single();
+
+        if (!submissionError && submission && submission.student_id === userId) {
+          // Get user's role to check if they're a student
+          const { data: enrollment } = await supabase
+            .from("course_enrollments")
+            .select("role")
+            .eq("user_id", userId)
+            .eq("course_id", submission.course_id)
+            .single();
+
+          // If user is a student, check visibility rules
+          if (
+            enrollment &&
+            (enrollment.role === UserRole.STUDENT ||
+              enrollment.role === UserRole.AUDIT)
+          ) {
+            // Get assignment to check showScoreAfterSubmission setting
+            const { data: assignment } = await supabase
+              .from("assignments")
+              .select("settings")
+              .eq("id", submission.assignment_id)
+              .single();
+
+            const isReviewed = grader.reviewed_at !== null;
+            const showScoreAfterSubmission =
+              assignment?.settings?.showScoreAfterSubmission === true;
+
+            // If grader is not visible to students, return 403
+            if (!isReviewed && !showScoreAfterSubmission) {
+              res.status(403).json({
+                error: {
+                  code: "GRADE_NOT_VISIBLE",
+                  message:
+                    "This grade has not been released yet. It will be visible once reviewed by your instructor.",
+                  timestamp: new Date().toISOString(),
+                  path: req.path,
+                },
+              });
+              return;
+            }
+          }
+        }
+      }
+
       res.json(grader);
     } catch (error) {
       console.error("Error retrieving grader feedback:", error);
@@ -199,7 +253,35 @@ router.get(
         throw gradersError;
       }
 
-      res.json(graders || []);
+      // For students, filter graders based on visibility rules
+      // Instructors/TAs/Admins can always see all graders
+      if (
+        submission.student_id === userId &&
+        !permissions.canGrade &&
+        !permissions.canManage &&
+        !isAdmin
+      ) {
+        // Get assignment to check showScoreAfterSubmission setting
+        const { data: assignment } = await supabase
+          .from("assignments")
+          .select("settings")
+          .eq("id", submission.assignment_id)
+          .single();
+
+        const showScoreAfterSubmission =
+          assignment?.settings?.showScoreAfterSubmission === true;
+
+        // Filter to only include visible graders
+        const visibleGraders = (graders || []).filter((grader: any) => {
+          const isReviewed = grader.reviewed_at !== null;
+          return isReviewed || showScoreAfterSubmission;
+        });
+
+        res.json(visibleGraders);
+      } else {
+        // Instructors/TAs/Admins see all graders
+        res.json(graders || []);
+      }
     } catch (error) {
       console.error("Error retrieving grader feedback for submission:", error);
       res.status(500).json({

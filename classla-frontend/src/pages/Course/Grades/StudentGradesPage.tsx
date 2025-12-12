@@ -3,7 +3,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import { apiClient } from "../../../lib/api";
 import { useStudentGrades } from "../../../hooks/useGradingQueries";
 import { Submission, Grader } from "../../../types";
-import GradeItem from "./components/GradeItem";
+import GradesTable from "./components/GradesTable";
 import GradeItemSkeleton from "./components/GradeItemSkeleton";
 import { Alert, AlertDescription } from "../../../components/ui/alert";
 
@@ -37,6 +37,55 @@ const StudentGradesPage: React.FC = () => {
     isLoading: isLoadingGrades,
     error: gradesError,
   } = useStudentGrades(courseId || "");
+
+  // ALL HOOKS MUST BE CALLED BEFORE ANY CONDITIONAL RETURNS
+  // Helper function to get the most recent submission for an assignment (memoized)
+  const getMostRecentSubmission = useMemo(() => {
+    return (assignmentId: string): Submission | null => {
+      if (!data) return null;
+
+      const assignmentSubmissions = data.submissions.filter(
+        (sub) => sub.assignment_id === assignmentId
+      );
+
+      if (assignmentSubmissions.length === 0) return null;
+
+      // Submissions are already sorted by timestamp descending from backend
+      return assignmentSubmissions[0];
+    };
+  }, [data]);
+
+  // Helper function to get grader for a submission (memoized)
+  const getGraderForSubmission = useMemo(() => {
+    return (submissionId: string): Grader | null => {
+      if (!data) return null;
+
+      return (
+        data.graders.find((grader) => grader.submission_id === submissionId) ||
+        null
+      );
+    };
+  }, [data]);
+
+  // Sort assignments by due date or order_index (memoized)
+  const sortedAssignments = useMemo(() => {
+    if (!data) return [];
+
+    return [...data.assignments].sort((a, b) => {
+      // Try to get due dates for comparison
+      const aDueDateKeys = Object.keys(a.due_dates_map || {});
+      const bDueDateKeys = Object.keys(b.due_dates_map || {});
+
+      if (aDueDateKeys.length > 0 && bDueDateKeys.length > 0) {
+        const aDueDate = new Date(a.due_dates_map[aDueDateKeys[0]]);
+        const bDueDate = new Date(b.due_dates_map[bDueDateKeys[0]]);
+        return aDueDate.getTime() - bDueDate.getTime();
+      }
+
+      // Fall back to order_index
+      return a.order_index - b.order_index;
+    });
+  }, [data]);
 
   const isLoading = !courseId || isLoadingGrades;
   const error =
@@ -114,54 +163,6 @@ const StudentGradesPage: React.FC = () => {
     );
   }
 
-  // Helper function to get the most recent submission for an assignment (memoized)
-  const getMostRecentSubmission = useMemo(() => {
-    return (assignmentId: string): Submission | null => {
-      if (!data) return null;
-
-      const assignmentSubmissions = data.submissions.filter(
-        (sub) => sub.assignment_id === assignmentId
-      );
-
-      if (assignmentSubmissions.length === 0) return null;
-
-      // Submissions are already sorted by timestamp descending from backend
-      return assignmentSubmissions[0];
-    };
-  }, [data]);
-
-  // Helper function to get grader for a submission (memoized)
-  const getGraderForSubmission = useMemo(() => {
-    return (submissionId: string): Grader | null => {
-      if (!data) return null;
-
-      return (
-        data.graders.find((grader) => grader.submission_id === submissionId) ||
-        null
-      );
-    };
-  }, [data]);
-
-  // Sort assignments by due date or order_index (memoized)
-  const sortedAssignments = useMemo(() => {
-    if (!data) return [];
-
-    return [...data.assignments].sort((a, b) => {
-      // Try to get due dates for comparison
-      const aDueDateKeys = Object.keys(a.due_dates_map || {});
-      const bDueDateKeys = Object.keys(b.due_dates_map || {});
-
-      if (aDueDateKeys.length > 0 && bDueDateKeys.length > 0) {
-        const aDueDate = new Date(a.due_dates_map[aDueDateKeys[0]]);
-        const bDueDate = new Date(b.due_dates_map[bDueDateKeys[0]]);
-        return aDueDate.getTime() - bDueDate.getTime();
-      }
-
-      // Fall back to order_index
-      return a.order_index - b.order_index;
-    });
-  }, [data]);
-
   // Handle navigation to assignment
   const handleAssignmentClick = (assignmentId: string) => {
     navigate(`/course/${courseSlug}/assignment/${assignmentId}`);
@@ -169,31 +170,19 @@ const StudentGradesPage: React.FC = () => {
 
   return (
     <div className="container mx-auto px-4 py-8 bg-gray-50 min-h-screen">
-      <div className="max-w-4xl mx-auto">
-        <div className="mb-8">
+      <div className="max-w-6xl mx-auto">
+        <div className="mb-6">
           <h1 className="text-3xl font-bold text-gray-900 mb-2">My Grades</h1>
           <p className="text-gray-600">
             View your grades and feedback for all assignments
           </p>
         </div>
-        <div className="space-y-4">
-          {sortedAssignments.map((assignment) => {
-            const submission = getMostRecentSubmission(assignment.id);
-            const grader = submission
-              ? getGraderForSubmission(submission.id)
-              : null;
-
-            return (
-              <GradeItem
-                key={assignment.id}
-                assignment={assignment}
-                submission={submission}
-                grader={grader}
-                onClick={() => handleAssignmentClick(assignment.id)}
-              />
-            );
-          })}
-        </div>
+        <GradesTable
+          assignments={sortedAssignments}
+          getMostRecentSubmission={getMostRecentSubmission}
+          getGraderForSubmission={getGraderForSubmission}
+          onAssignmentClick={handleAssignmentClick}
+        />
       </div>
     </div>
   );

@@ -1081,20 +1081,8 @@ router.get(
         return;
       }
 
-      // Filter assignments to only those published to the student
-      const publishedAssignments = (assignments || []).filter(
-        (assignment: any) => {
-          const publishedTo = assignment.published_to || [];
-          // Check if published to course or student's section
-          return (
-            publishedTo.includes(courseId) ||
-            (enrollment.section_id &&
-              publishedTo.includes(enrollment.section_id))
-          );
-        }
-      );
-
-      // Fetch student's submissions with grader data
+      // Fetch student's submissions with grader data first
+      // Security: Only fetch submissions for this specific student (userId)
       const { data: submissions, error: submissionsError } = await supabase
         .from("submissions")
         .select(
@@ -1111,7 +1099,118 @@ router.get(
         throw submissionsError;
       }
 
+      // Get assignment IDs that the student has submissions for
+      const assignmentIdsWithSubmissions = new Set(
+        (submissions || []).map((sub: any) => sub.assignment_id)
+      );
+
+      // Filter assignments to only those:
+      // 1. Published to the student (course or section), OR
+      // 2. The student has submissions for (they've already accessed it)
+      const publishedAssignments = (assignments || []).filter(
+        (assignment: any) => {
+          // If student has a submission, they should see the assignment
+          if (assignmentIdsWithSubmissions.has(assignment.id)) {
+            return true;
+          }
+
+          // Otherwise, check if published to course or student's section
+          const publishedTo = assignment.published_to || [];
+          return (
+            publishedTo.includes(courseId) ||
+            (enrollment.section_id &&
+              publishedTo.includes(enrollment.section_id))
+          );
+        }
+      );
+
+      // Create a map of assignment_id -> assignment for quick lookup
+      const assignmentMap = new Map(
+        publishedAssignments.map((assignment: any) => [assignment.id, assignment])
+      );
+
+      // Get all submission IDs for this student
+      const allSubmissionIds = (submissions || []).map((sub: any) => sub.id);
+
+      // Fetch ALL graders for this student's submissions directly from the database
+      // This ensures we get graders even if they weren't in the nested query
+      let additionalGraders: any[] = [];
+      if (allSubmissionIds.length > 0) {
+        const { data: fetchedGraders, error: gradersError } = await supabase
+          .from("graders")
+          .select("*")
+          .in("submission_id", allSubmissionIds);
+
+        if (!gradersError && fetchedGraders) {
+          additionalGraders = fetchedGraders;
+        }
+      }
+
+      // Combine graders from nested query and separately fetched ones
+      const allGradersMap = new Map<string, any>();
+      
+      // Add graders from nested query
+      (submissions || []).forEach((submission: any) => {
+        if (submission.graders && submission.graders.length > 0) {
+          allGradersMap.set(submission.id, submission.graders[0]);
+        }
+      });
+
+      // Add separately fetched graders (they take precedence if there's a conflict)
+      additionalGraders.forEach((grader: any) => {
+        allGradersMap.set(grader.submission_id, grader);
+      });
+
+      // Filter graders based on visibility rules:
+      // 1. Grader is reviewed (reviewed_at IS NOT NULL), OR
+      // 2. Assignment has showScoreAfterSubmission enabled, OR
+      // 3. Submission status is "graded" (teacher has graded it, even if not marked as reviewed)
+      const visibleGraders: any[] = [];
+
+      (submissions || []).forEach((submission: any) => {
+        const grader = allGradersMap.get(submission.id);
+        
+        if (!grader) {
+          return; // No grader for this submission
+        }
+
+        const assignment = assignmentMap.get(submission.assignment_id);
+
+        if (!assignment) {
+          // Assignment not published to student, skip
+          return;
+        }
+
+        // Check visibility rules
+        // reviewed_at can be null, undefined, or a date string/timestamp
+        const isReviewed =
+          grader.reviewed_at !== null &&
+          grader.reviewed_at !== undefined &&
+          grader.reviewed_at !== "";
+        
+        // Handle assignment settings - could be object or need parsing
+        const assignmentSettings =
+          typeof assignment.settings === "string"
+            ? JSON.parse(assignment.settings)
+            : assignment.settings || {};
+        const showScoreAfterSubmission =
+          assignmentSettings.showScoreAfterSubmission === true;
+
+        // If submission is marked as "graded", show the grader even if not reviewed
+        // This handles cases where teachers grade but forget to mark as reviewed
+        const isGraded = submission.status === "graded" || submission.status === "returned";
+
+        if (isReviewed || showScoreAfterSubmission || isGraded) {
+          // Ensure grader has submission_id for frontend matching
+          visibleGraders.push({
+            ...grader,
+            submission_id: submission.id, // Explicitly set submission_id
+          });
+        }
+      });
+
       // Format submissions data
+      // Include all submissions (even without visible graders) so students can see submission status
       const formattedSubmissions = (submissions || []).map(
         (submission: any) => ({
           id: submission.id,
@@ -1128,18 +1227,34 @@ router.get(
         })
       );
 
-      // Format graders data
-      const graders = (submissions || [])
-        .filter(
-          (submission: any) =>
-            submission.graders && submission.graders.length > 0
-        )
-        .map((submission: any) => submission.graders[0]);
+      // Security check: Ensure all graders belong to this student's submissions
+      const studentSubmissionIds = new Set(
+        formattedSubmissions.map((s: any) => s.id)
+      );
+      const allGradersValid = visibleGraders.every(
+        (grader: any) =>
+          grader.submission_id && studentSubmissionIds.has(grader.submission_id)
+      );
+
+      if (!allGradersValid) {
+        console.error(
+          "Security violation: Attempted to return grader for another student's submission"
+        );
+        res.status(500).json({
+          error: {
+            code: "INTERNAL_SERVER_ERROR",
+            message: "Failed to retrieve student grades",
+            timestamp: new Date().toISOString(),
+            path: req.path,
+          },
+        });
+        return;
+      }
 
       res.json({
         assignments: publishedAssignments,
         submissions: formattedSubmissions,
-        graders: graders || [],
+        graders: visibleGraders,
       });
     } catch (error) {
       console.error("Error retrieving student grades:", error);
