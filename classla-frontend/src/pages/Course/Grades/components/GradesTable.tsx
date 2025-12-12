@@ -100,12 +100,40 @@ const GradesTable: React.FC<GradesTableProps> = ({
       );
     }
 
-    if (grader) {
+    // If submission status is "graded" or "returned" but no visible grader,
+    // it means it's been graded but not reviewed yet (and showScoreAfterSubmission is off)
+    if (
+      (submission.status === "graded" || submission.status === "returned") &&
+      !grader
+    ) {
       return (
-        <Badge className="bg-green-600 hover:bg-green-700 text-white">
-          ✓ Graded
+        <Badge variant="outline" className="bg-orange-50 text-orange-700">
+          Pending
         </Badge>
       );
+    }
+
+    // Check if grader exists and is reviewed
+    if (grader) {
+      const isReviewed =
+        grader.reviewed_at !== null &&
+        grader.reviewed_at !== undefined &&
+        grader.reviewed_at !== "";
+
+      if (isReviewed) {
+        return (
+          <Badge className="bg-green-600 hover:bg-green-700 text-white">
+            ✓ Graded
+          </Badge>
+        );
+      } else {
+        // Has a visible grader but not reviewed yet (showScoreAfterSubmission must be on)
+        return (
+          <Badge variant="outline" className="bg-orange-50 text-orange-700">
+            Pending
+          </Badge>
+        );
+      }
     }
 
     return (

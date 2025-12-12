@@ -771,7 +771,8 @@ router.put(
         if (reviewed === true) {
           updateData.reviewed_at = new Date();
         } else if (reviewed === false) {
-          updateData.reviewed_at = undefined;
+          // Set to null explicitly for Supabase/PostgreSQL
+          updateData.reviewed_at = null as any;
         }
       }
 
@@ -782,24 +783,47 @@ router.put(
       }
 
       // Update the grader entry
+      // Convert updateData to a plain object that Supabase can handle
+      // This ensures null values are properly serialized
+      const updatePayload: Record<string, any> = {};
+      for (const [key, value] of Object.entries(updateData)) {
+        // Include all values including null (which is valid for setting fields to null)
+        if (value !== undefined) {
+          updatePayload[key] = value;
+        }
+      }
+      
       const { data: updatedGrader, error: updateError } = await supabase
         .from("graders")
-        .update(updateData)
+        .update(updatePayload)
         .eq("id", id)
         .select()
         .single();
 
       if (updateError) {
+        console.error("Supabase update error details:", {
+          error: updateError,
+          updateData,
+          graderId: id,
+        });
         throw updateError;
       }
 
       res.json(updatedGrader);
     } catch (error) {
       console.error("Error auto-saving grader feedback:", error);
+      const errorMessage =
+        error instanceof Error ? error.message : "Unknown error";
+      const errorDetails =
+        error instanceof Error && "details" in error
+          ? (error as any).details
+          : undefined;
+      
       res.status(500).json({
         error: {
           code: "INTERNAL_SERVER_ERROR",
-          message: "Failed to auto-save grader feedback",
+          message: `Failed to auto-save grader feedback: ${errorMessage}`,
+          details: errorDetails,
           timestamp: new Date().toISOString(),
           path: req.path,
         },

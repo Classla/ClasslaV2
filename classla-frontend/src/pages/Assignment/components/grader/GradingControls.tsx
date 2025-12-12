@@ -154,6 +154,7 @@ export const GradingControls: React.FC<GradingControlsProps> = React.memo(
     const finalGrade = calculateFinalGrade(scoreModifier);
 
     // Debounced auto-save (500ms)
+    // Note: reviewed status is handled separately with immediate save, so we exclude it from debounced save
     useEffect(() => {
       if (!autoSave) return;
 
@@ -162,11 +163,10 @@ export const GradingControls: React.FC<GradingControlsProps> = React.memo(
         clearTimeout(saveTimeoutRef.current);
       }
 
-      // Only save if there are changes
+      // Only save if there are changes (excluding reviewed status which is saved immediately)
       const hasChanges =
         scoreModifier !== (grader?.score_modifier || "0") ||
-        feedback !== (grader?.feedback || "") ||
-        isReviewed !== !!grader?.reviewed_at;
+        feedback !== (grader?.feedback || "");
 
       if (hasChanges) {
         saveTimeoutRef.current = setTimeout(() => {
@@ -179,7 +179,7 @@ export const GradingControls: React.FC<GradingControlsProps> = React.memo(
           clearTimeout(saveTimeoutRef.current);
         }
       };
-    }, [scoreModifier, feedback, isReviewed, autoSave, grader]);
+    }, [scoreModifier, feedback, autoSave, grader]); // Removed isReviewed from dependencies
 
     const handleSave = async () => {
       setIsSaving(true);
@@ -190,11 +190,9 @@ export const GradingControls: React.FC<GradingControlsProps> = React.memo(
           feedback,
         };
 
-        // Only update reviewed status if the checkbox state changed
-        // Backend expects 'reviewed' boolean, not 'reviewed_at' timestamp
-        if (isReviewed !== !!grader?.reviewed_at) {
-          updates.reviewed = isReviewed;
-        }
+        // Note: reviewed status is NOT included in debounced auto-save
+        // It's handled separately with immediate save in handleReviewedChange
+        // This prevents race conditions where debounced save overwrites immediate save
 
         await onUpdate(updates);
 
@@ -281,7 +279,35 @@ export const GradingControls: React.FC<GradingControlsProps> = React.memo(
           return; // Don't update the checkbox if creation failed
         }
       }
+      
+      // Update local state immediately for responsive UI
       setIsReviewed(checked);
+      
+      // If auto-save is enabled, trigger immediate save for reviewed status changes
+      // This ensures the change is saved right away rather than waiting for debounce
+      if (autoSave && grader) {
+        // Clear any pending debounced saves to prevent them from overwriting this change
+        if (saveTimeoutRef.current) {
+          clearTimeout(saveTimeoutRef.current);
+          saveTimeoutRef.current = null;
+        }
+        
+        try {
+          const updates: any = {
+            reviewed: checked,
+          };
+          await onUpdate(updates);
+        } catch (error) {
+          console.error("Failed to save reviewed status:", error);
+          // Revert the checkbox state on error
+          setIsReviewed(!checked);
+          toast({
+            title: "Error",
+            description: "Failed to update reviewed status",
+            variant: "destructive",
+          });
+        }
+      }
     };
 
     // Handle focus on input fields - ensure grader exists before allowing input

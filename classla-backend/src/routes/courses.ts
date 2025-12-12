@@ -1196,11 +1196,11 @@ router.get(
         const showScoreAfterSubmission =
           assignmentSettings.showScoreAfterSubmission === true;
 
-        // If submission is marked as "graded", show the grader even if not reviewed
-        // This handles cases where teachers grade but forget to mark as reviewed
-        const isGraded = submission.status === "graded" || submission.status === "returned";
-
-        if (isReviewed || showScoreAfterSubmission || isGraded) {
+        // Grades should only be visible if:
+        // 1. Grader is reviewed (reviewed_at IS NOT NULL), OR
+        // 2. Assignment has showScoreAfterSubmission enabled
+        // Do NOT show grades just because status is "graded" - that would bypass the review requirement
+        if (isReviewed || showScoreAfterSubmission) {
           // Ensure grader has submission_id for frontend matching
           visibleGraders.push({
             ...grader,
