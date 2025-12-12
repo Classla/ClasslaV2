@@ -101,6 +101,8 @@ const CourseLayout: React.FC<CourseLayoutProps> = ({ children }) => {
     userRole === UserRole.INSTRUCTOR ||
     userRole === UserRole.ADMIN ||
     userRole === UserRole.TEACHING_ASSISTANT;
+  const isInstructorOrAdmin =
+    userRole === UserRole.INSTRUCTOR || userRole === UserRole.ADMIN;
 
   const navigationTabs = [
     { id: "summary", label: "Summary", icon: BookOpen, path: "summary" },
@@ -188,13 +190,15 @@ const CourseLayout: React.FC<CourseLayoutProps> = ({ children }) => {
               >
                 Dashboard
               </button>
-              <Button
-                onClick={() => navigate("/settings")}
-                variant="ghost"
-                className="text-purple-100 hover:bg-purple-500 hover:text-white border-0 transition-colors duration-200"
-              >
-                Settings
-              </Button>
+              {isInstructorOrAdmin && (
+                <Button
+                  onClick={() => navigate("/settings")}
+                  variant="ghost"
+                  className="text-purple-100 hover:bg-purple-500 hover:text-white border-0 transition-colors duration-200"
+                >
+                  Settings
+                </Button>
+              )}
             </nav>
           </div>
         </div>
