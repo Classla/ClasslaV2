@@ -1,10 +1,19 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
+import { createPortal } from "react-dom";
 import { useNavigate, useParams } from "react-router-dom";
 import { Tree } from "react-arborist";
 
 import { apiClient } from "../lib/api";
 import { useToast } from "../hooks/use-toast";
 import { Button } from "./ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "./ui/dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -59,6 +68,14 @@ const ModuleTree: React.FC<ModuleTreeProps> = ({ courseId, isInstructor }) => {
     y: number;
     show: boolean;
   }>({ x: 0, y: 0, show: false });
+  const [deleteFolderDialog, setDeleteFolderDialog] = useState<{
+    open: boolean;
+    folder: Folder | null;
+  }>({ open: false, folder: null });
+  const [deleteAssignmentDialog, setDeleteAssignmentDialog] = useState<{
+    open: boolean;
+    assignment: Assignment | null;
+  }>({ open: false, assignment: null });
 
   // Default to instructor false if not specified
   const effectiveIsInstructor = isInstructor ?? false;
@@ -362,14 +379,16 @@ const ModuleTree: React.FC<ModuleTreeProps> = ({ courseId, isInstructor }) => {
     }
   };
 
-  const handleDeleteFolder = async (folder: Folder) => {
+  const handleDeleteFolder = (folder: Folder) => {
     if (!effectiveIsInstructor) return;
+    setDeleteFolderDialog({ open: true, folder });
+  };
 
-    if (
-      !confirm(`Are you sure you want to delete the folder "${folder.name}"?`)
-    ) {
-      return;
-    }
+  const confirmDeleteFolder = async () => {
+    if (!deleteFolderDialog.folder) return;
+
+    const folder = deleteFolderDialog.folder;
+    setDeleteFolderDialog({ open: false, folder: null });
 
     try {
       await apiClient.deleteFolder(folder.id);
@@ -384,6 +403,68 @@ const ModuleTree: React.FC<ModuleTreeProps> = ({ courseId, isInstructor }) => {
       toast({
         title: "Error deleting folder",
         description: error.message || "Failed to delete folder",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleRenameAssignment = async (assignment: Assignment) => {
+    if (!effectiveIsInstructor) return;
+
+    const newName = prompt("Enter new assignment name:", assignment.name);
+    if (!newName?.trim() || newName.trim() === assignment.name) return;
+
+    try {
+      const response = await apiClient.updateAssignment(assignment.id, {
+        name: newName.trim(),
+      });
+
+      const updatedAssignment = response.data;
+      setAssignments((prev) =>
+        prev.map((a) => (a.id === assignment.id ? updatedAssignment : a))
+      );
+
+      toast({
+        title: "Assignment renamed",
+        description: "Assignment has been renamed successfully",
+      });
+    } catch (error: any) {
+      toast({
+        title: "Error renaming assignment",
+        description: error.message || "Failed to rename assignment",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleDeleteAssignment = (assignment: Assignment) => {
+    if (!effectiveIsInstructor) return;
+    setDeleteAssignmentDialog({ open: true, assignment });
+  };
+
+  const confirmDeleteAssignment = async () => {
+    if (!deleteAssignmentDialog.assignment) return;
+
+    const assignment = deleteAssignmentDialog.assignment;
+    setDeleteAssignmentDialog({ open: false, assignment: null });
+
+    // Optimistically update the UI immediately
+    const previousAssignments = assignments;
+    setAssignments((prev) => prev.filter((a) => a.id !== assignment.id));
+
+    try {
+      await apiClient.deleteAssignment(assignment.id);
+
+      toast({
+        title: "Assignment deleted",
+        description: "Assignment has been deleted successfully",
+      });
+    } catch (error: any) {
+      // Revert on error
+      setAssignments(previousAssignments);
+      toast({
+        title: "Error deleting assignment",
+        description: error.message || "Failed to delete assignment",
         variant: "destructive",
       });
     }
@@ -624,76 +705,111 @@ const ModuleTree: React.FC<ModuleTreeProps> = ({ courseId, isInstructor }) => {
       <>
         {nodeContent}
 
-        {/* Custom right-click context menu */}
-        {contextMenu.show && effectiveIsInstructor && !isEmptyIndicator && (
-          <>
-            {/* Backdrop to close menu */}
-            <div
-              className="fixed inset-0 z-40"
-              onClick={() => setContextMenu({ ...contextMenu, show: false })}
-            />
-            {/* Context menu */}
-            <div
-              className="fixed z-50 bg-white border border-gray-200 rounded-md shadow-lg py-1 min-w-[160px]"
-              style={{
-                left: contextMenu.x,
-                top: contextMenu.y,
-              }}
-            >
-              <button
-                className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100 flex items-center"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleCreateAssignment(nodeData.path);
-                  setContextMenu({ ...contextMenu, show: false });
+        {/* Custom right-click context menu - portalled outside */}
+        {contextMenu.show && effectiveIsInstructor && !isEmptyIndicator &&
+          createPortal(
+            <>
+              {/* Backdrop to close menu */}
+              <div
+                className="fixed inset-0 z-40"
+                onClick={() => setContextMenu({ ...contextMenu, show: false })}
+              />
+              {/* Context menu */}
+              <div
+                className="fixed z-50 bg-white border border-gray-200 rounded-md shadow-lg py-1 min-w-[160px]"
+                style={{
+                  left: contextMenu.x,
+                  top: contextMenu.y,
                 }}
               >
-                <Plus className="w-4 h-4 mr-2" />
-                Add Assignment
-              </button>
-              <button
-                className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100 flex items-center"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleCreateFolder(nodeData.path);
-                  setContextMenu({ ...contextMenu, show: false });
-                }}
-              >
-                <FolderIcon className="w-4 h-4 mr-2" />
-                Add Folder
-              </button>
+                {/* Only show "Add Assignment" and "Add Folder" when right-clicking on folders */}
+                {isFolder && (
+                  <>
+                    <button
+                      className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100 flex items-center"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleCreateAssignment(nodeData.path);
+                        setContextMenu({ ...contextMenu, show: false });
+                      }}
+                    >
+                      <Plus className="w-4 h-4 mr-2" />
+                      Add Assignment
+                    </button>
+                    <button
+                      className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100 flex items-center"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleCreateFolder(nodeData.path);
+                        setContextMenu({ ...contextMenu, show: false });
+                      }}
+                    >
+                      <FolderIcon className="w-4 h-4 mr-2" />
+                      Add Folder
+                    </button>
+                  </>
+                )}
 
-              {/* Folder-specific actions */}
-              {isFolder && folder && (
-                <>
-                  <hr className="my-1 border-gray-200" />
-                  <button
-                    className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100 flex items-center"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleRenameFolder(folder);
-                      setContextMenu({ ...contextMenu, show: false });
-                    }}
-                  >
-                    <Edit className="w-4 h-4 mr-2" />
-                    Rename Folder
-                  </button>
-                  <button
-                    className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100 flex items-center text-red-600"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleDeleteFolder(folder);
-                      setContextMenu({ ...contextMenu, show: false });
-                    }}
-                  >
-                    <Trash2 className="w-4 h-4 mr-2" />
-                    Delete Folder
-                  </button>
-                </>
-              )}
-            </div>
-          </>
-        )}
+                {/* Folder-specific actions */}
+                {isFolder && folder && (
+                  <>
+                    <hr className="my-1 border-gray-200" />
+                    <button
+                      className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100 flex items-center"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleRenameFolder(folder);
+                        setContextMenu({ ...contextMenu, show: false });
+                      }}
+                    >
+                      <Edit className="w-4 h-4 mr-2" />
+                      Rename Folder
+                    </button>
+                    <button
+                      className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100 flex items-center text-red-600"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDeleteFolder(folder);
+                        setContextMenu({ ...contextMenu, show: false });
+                      }}
+                    >
+                      <Trash2 className="w-4 h-4 mr-2" />
+                      Delete Folder
+                    </button>
+                  </>
+                )}
+
+                {/* Assignment-specific actions */}
+                {!isFolder && assignment && (
+                  <>
+                    <button
+                      className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100 flex items-center"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleRenameAssignment(assignment);
+                        setContextMenu({ ...contextMenu, show: false });
+                      }}
+                    >
+                      <Edit className="w-4 h-4 mr-2" />
+                      Rename Assignment
+                    </button>
+                    <button
+                      className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100 flex items-center text-red-600"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDeleteAssignment(assignment);
+                        setContextMenu({ ...contextMenu, show: false });
+                      }}
+                    >
+                      <Trash2 className="w-4 h-4 mr-2" />
+                      Delete Assignment
+                    </button>
+                  </>
+                )}
+              </div>
+            </>,
+            document.body
+          )}
       </>
     );
   };
@@ -766,49 +882,115 @@ const ModuleTree: React.FC<ModuleTreeProps> = ({ courseId, isInstructor }) => {
         </div>
       )}
 
-      {/* Root level context menu */}
-      {rootContextMenu.show && effectiveIsInstructor && (
-        <>
-          {/* Backdrop to close menu */}
-          <div
-            className="fixed inset-0 z-40"
-            onClick={() =>
-              setRootContextMenu({ ...rootContextMenu, show: false })
-            }
-          />
-          {/* Context menu */}
-          <div
-            className="fixed z-50 bg-white border border-gray-200 rounded-md shadow-lg py-1 min-w-[160px]"
-            style={{
-              left: rootContextMenu.x,
-              top: rootContextMenu.y,
-            }}
-          >
-            <button
-              className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100 flex items-center"
-              onClick={(e) => {
-                e.stopPropagation();
-                handleCreateAssignment([]);
-                setRootContextMenu({ ...rootContextMenu, show: false });
+      {/* Root level context menu - portalled outside */}
+      {rootContextMenu.show && effectiveIsInstructor &&
+        createPortal(
+          <>
+            {/* Backdrop to close menu */}
+            <div
+              className="fixed inset-0 z-40"
+              onClick={() =>
+                setRootContextMenu({ ...rootContextMenu, show: false })
+              }
+            />
+            {/* Context menu */}
+            <div
+              className="fixed z-50 bg-white border border-gray-200 rounded-md shadow-lg py-1 min-w-[160px]"
+              style={{
+                left: rootContextMenu.x,
+                top: rootContextMenu.y,
               }}
             >
-              <FileText className="w-4 h-4 mr-2" />
-              Create Assignment
-            </button>
-            <button
-              className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100 flex items-center"
-              onClick={(e) => {
-                e.stopPropagation();
-                handleCreateFolder([]);
-                setRootContextMenu({ ...rootContextMenu, show: false });
-              }}
+              <button
+                className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100 flex items-center"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleCreateAssignment([]);
+                  setRootContextMenu({ ...rootContextMenu, show: false });
+                }}
+              >
+                <FileText className="w-4 h-4 mr-2" />
+                Create Assignment
+              </button>
+              <button
+                className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100 flex items-center"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleCreateFolder([]);
+                  setRootContextMenu({ ...rootContextMenu, show: false });
+                }}
+              >
+                <FolderIcon className="w-4 h-4 mr-2" />
+                Create Folder
+              </button>
+            </div>
+          </>,
+          document.body
+        )}
+
+      {/* Delete Folder Confirmation Dialog */}
+      <Dialog
+        open={deleteFolderDialog.open}
+        onOpenChange={(open) =>
+          setDeleteFolderDialog({ open, folder: deleteFolderDialog.folder })
+        }
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Folder</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete the folder "
+              {deleteFolderDialog.folder?.name}"? This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setDeleteFolderDialog({ open: false, folder: null })}
             >
-              <FolderIcon className="w-4 h-4 mr-2" />
-              Create Folder
-            </button>
-          </div>
-        </>
-      )}
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={confirmDeleteFolder}>
+              Delete Folder
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Assignment Confirmation Dialog */}
+      <Dialog
+        open={deleteAssignmentDialog.open}
+        onOpenChange={(open) =>
+          setDeleteAssignmentDialog({
+            open,
+            assignment: deleteAssignmentDialog.assignment,
+          })
+        }
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Assignment</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete the assignment "
+              {deleteAssignmentDialog.assignment?.name}"? This action cannot be
+              undone. All submissions and grades will be permanently deleted.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() =>
+                setDeleteAssignmentDialog({ open: false, assignment: null })
+              }
+            >
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={confirmDeleteAssignment}>
+              Delete Assignment
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

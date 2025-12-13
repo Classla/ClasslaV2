@@ -1,8 +1,18 @@
 import React, { useState, useEffect } from "react";
-import { HelpCircle, ChevronDown, ChevronRight } from "lucide-react";
+import { useNavigate, useParams } from "react-router-dom";
+import { HelpCircle, ChevronDown, ChevronRight, Trash2 } from "lucide-react";
 import { Assignment, AssignmentSettings, RubricSchema } from "../../../types";
 import { apiClient } from "../../../lib/api";
 import { useToast } from "../../../hooks/use-toast";
+import { Button } from "../../../components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "../../../components/ui/dialog";
 import RubricEditor from "./grader/rubric/RubricEditor";
 
 interface AssignmentSettingsPanelProps {
@@ -15,7 +25,11 @@ const AssignmentSettingsPanel: React.FC<AssignmentSettingsPanelProps> = ({
   onAssignmentUpdated,
 }) => {
   const { toast } = useToast();
+  const navigate = useNavigate();
+  const { courseSlug } = useParams<{ courseSlug: string }>();
   const [isSaving, setIsSaving] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [rubricSchema, setRubricSchema] = useState<RubricSchema | null>(null);
   const [isLoadingRubric, setIsLoadingRubric] = useState(true);
   const [showRubricSection, setShowRubricSection] = useState(false);
@@ -145,6 +159,36 @@ const AssignmentSettingsPanel: React.FC<AssignmentSettingsPanelProps> = ({
         variant: "destructive",
       });
       throw error;
+    }
+  };
+
+  const handleDeleteAssignment = () => {
+    setDeleteDialogOpen(true);
+  };
+
+  const confirmDeleteAssignment = async () => {
+    setDeleteDialogOpen(false);
+
+    try {
+      setIsDeleting(true);
+      await apiClient.deleteAssignment(assignment.id);
+      
+      toast({
+        title: "Assignment deleted",
+        description: "Assignment has been deleted successfully.",
+      });
+
+      // Navigate back to course page
+      navigate(`/course/${courseSlug}`);
+    } catch (error: any) {
+      console.error("Failed to delete assignment:", error);
+      toast({
+        title: "Error deleting assignment",
+        description: error.message || "Failed to delete assignment",
+        variant: "destructive",
+      });
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -328,6 +372,50 @@ const AssignmentSettingsPanel: React.FC<AssignmentSettingsPanelProps> = ({
           <div className="text-sm text-gray-600 text-center">Saving...</div>
         </div>
       )}
+
+      {/* Delete Assignment Section */}
+      <div className="border-t border-gray-200 p-4">
+        <Button
+          onClick={handleDeleteAssignment}
+          disabled={isDeleting}
+          variant="destructive"
+          className="w-full"
+        >
+          <Trash2 className="w-4 h-4 mr-2" />
+          Delete Assignment
+        </Button>
+        <p className="text-xs text-gray-500 mt-2 text-center">
+          This action cannot be undone. All submissions and grades will be permanently deleted.
+        </p>
+      </div>
+
+      {/* Delete Assignment Confirmation Dialog */}
+      <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Assignment</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete the assignment "{assignment.name}"? This action cannot be undone. All submissions and grades will be permanently deleted.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setDeleteDialogOpen(false)}
+              disabled={isDeleting}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={confirmDeleteAssignment}
+              disabled={isDeleting}
+            >
+              {isDeleting ? "Deleting..." : "Delete Assignment"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

@@ -586,7 +586,30 @@ router.put(
         isAdmin
       );
 
-      if (!permissions.canManage) {
+      // Get user's role in the course
+      const userRole = await getUserCourseRole(userId, existingAssignment.course_id);
+
+      // Check if this is only a name update (rename) - TAs can rename but not update other fields
+      const isOnlyNameUpdate =
+        name !== undefined &&
+        settings === undefined &&
+        content === undefined &&
+        published_to === undefined &&
+        due_dates_map === undefined &&
+        module_path === undefined &&
+        is_lockdown === undefined &&
+        lockdown_time_map === undefined &&
+        order_index === undefined;
+
+      // TAs can only rename (update name), instructors/admins can update everything
+      const canUpdate =
+        isAdmin ||
+        permissions.canManage ||
+        (isOnlyNameUpdate &&
+          (userRole === UserRole.INSTRUCTOR ||
+            userRole === UserRole.TEACHING_ASSISTANT));
+
+      if (!canUpdate) {
         res.status(403).json({
           error: {
             code: "INSUFFICIENT_PERMISSIONS",
@@ -720,14 +743,23 @@ router.delete(
         return;
       }
 
-      // Check permissions for the course
+      // Check permissions for the course - allow instructors, TAs, and admins
       const permissions = await getCoursePermissions(
         userId,
         existingAssignment.course_id,
         isAdmin
       );
 
-      if (!permissions.canManage) {
+      // Get user's role in the course
+      const userRole = await getUserCourseRole(userId, existingAssignment.course_id);
+
+      // Only instructors, TAs, and admins can delete assignments
+      const canDelete =
+        isAdmin ||
+        userRole === UserRole.INSTRUCTOR ||
+        userRole === UserRole.TEACHING_ASSISTANT;
+
+      if (!canDelete) {
         res.status(403).json({
           error: {
             code: "INSUFFICIENT_PERMISSIONS",
