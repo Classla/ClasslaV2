@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from "express";
 import { supabase } from "./auth";
 import { UserRole } from "../types/enums";
+import { TAPermissions } from "../types/entities";
 import {
   AuthenticationError,
   AuthorizationError,
@@ -73,6 +74,181 @@ export const isEnrolledInCourse = async (
 };
 
 /**
+ * Get default TA permissions for a course
+ */
+export const getTAPermissionsDefault = async (
+  courseId: string
+): Promise<TAPermissions> => {
+  try {
+    const { data: course, error } = await supabase
+      .from("courses")
+      .select("settings")
+      .eq("id", courseId)
+      .single();
+
+    if (error || !course?.settings) {
+      console.log(`[getTAPermissionsDefault] No settings found for courseId=${courseId}`, { error, hasSettings: !!course?.settings });
+      // Return all false if no settings or course not found
+      return {
+        canCreate: false,
+        canEdit: false,
+        canDelete: false,
+        canViewStudents: false,
+        canViewGrades: false,
+      };
+    }
+
+    const defaultPerms = course.settings.ta_permissions_default;
+    console.log(`[getTAPermissionsDefault] courseId=${courseId}, defaultPerms:`, defaultPerms);
+    if (!defaultPerms || typeof defaultPerms !== "object") {
+      return {
+        canCreate: false,
+        canEdit: false,
+        canDelete: false,
+        canViewStudents: false,
+        canViewGrades: false,
+      };
+    }
+
+    return {
+      canCreate: defaultPerms.canCreate === true,
+      canEdit: defaultPerms.canEdit === true,
+      canDelete: defaultPerms.canDelete === true,
+      canViewStudents: defaultPerms.canViewStudents === true,
+      canViewGrades: defaultPerms.canViewGrades === true,
+    };
+  } catch (error) {
+    console.error("Error getting TA permissions default:", error);
+    return {
+      canCreate: false,
+      canEdit: false,
+      canDelete: false,
+      canViewStudents: false,
+      canViewGrades: false,
+    };
+  }
+};
+
+/**
+ * Get individual TA permissions override for a specific user
+ */
+export const getTAPermissionsOverride = async (
+  userId: string,
+  courseId: string
+): Promise<TAPermissions | null> => {
+  try {
+    const { data: course, error } = await supabase
+      .from("courses")
+      .select("settings")
+      .eq("id", courseId)
+      .single();
+
+    if (error || !course?.settings) {
+      console.log(`[getTAPermissionsOverride] No settings found for courseId=${courseId}`, { error, hasSettings: !!course?.settings });
+      return null;
+    }
+
+    const taPerms = course.settings.ta_permissions;
+    console.log(`[getTAPermissionsOverride] courseId=${courseId}, userId=${userId}, taPerms:`, taPerms);
+    if (!taPerms || typeof taPerms !== "object" || Array.isArray(taPerms)) {
+      return null;
+    }
+
+    const userPerms = taPerms[userId];
+    console.log(`[getTAPermissionsOverride] userPerms for userId=${userId}:`, userPerms);
+    if (!userPerms || typeof userPerms !== "object") {
+      return null;
+    }
+
+    return {
+      canCreate: userPerms.canCreate === true,
+      canEdit: userPerms.canEdit === true,
+      canDelete: userPerms.canDelete === true,
+      canViewStudents: userPerms.canViewStudents === true,
+      canViewGrades: userPerms.canViewGrades === true,
+    };
+  } catch (error) {
+    console.error("Error getting TA permissions override:", error);
+    return null;
+  }
+};
+
+/**
+ * Get resolved TA permissions for a user (checks override first, then default)
+ */
+export const getTAPermissions = async (
+  userId: string,
+  courseId: string
+): Promise<TAPermissions> => {
+  // Check for individual override first
+  const override = await getTAPermissionsOverride(userId, courseId);
+  if (override) {
+    console.log(`[getTAPermissions] Using override for userId=${userId}, courseId=${courseId}`, override);
+    return override;
+  }
+
+  // Fall back to default
+  const defaultPerms = await getTAPermissionsDefault(courseId);
+  console.log(`[getTAPermissions] Using default for userId=${userId}, courseId=${courseId}`, defaultPerms);
+  return defaultPerms;
+};
+
+/**
+ * Validate TA permissions object structure
+ */
+export const validateTAPermissions = (permissions: any): boolean => {
+  if (!permissions || typeof permissions !== "object") {
+    return false;
+  }
+
+  const requiredKeys = [
+    "canCreate",
+    "canEdit",
+    "canDelete",
+    "canViewStudents",
+    "canViewGrades",
+  ];
+
+  for (const key of requiredKeys) {
+    if (!(key in permissions)) {
+      return false;
+    }
+    if (typeof permissions[key] !== "boolean") {
+      return false;
+    }
+  }
+
+  return true;
+};
+
+/**
+ * Check if a TA has a specific permission
+ */
+export const hasTAPermission = async (
+  userId: string,
+  courseId: string,
+  permission: keyof TAPermissions
+): Promise<boolean> => {
+  const userRole = await getUserCourseRole(userId, courseId);
+  
+  // Only TAs have granular permissions
+  if (userRole !== UserRole.TEACHING_ASSISTANT) {
+    return false;
+  }
+
+  const taPerms = await getTAPermissions(userId, courseId);
+  const hasPermission = taPerms[permission] === true;
+  
+  // Debug logging
+  console.log(`[hasTAPermission] userId=${userId}, courseId=${courseId}, permission=${permission}, hasPermission=${hasPermission}`, {
+    taPerms,
+    userRole,
+  });
+  
+  return hasPermission;
+};
+
+/**
  * Get course permissions for a user
  */
 export const getCoursePermissions = async (
@@ -111,13 +287,17 @@ export const getCoursePermissions = async (
         canManage: true,
       };
 
-    case UserRole.TEACHING_ASSISTANT:
+    case UserRole.TEACHING_ASSISTANT: {
+      // Get TA-specific permissions from course settings
+      const taPerms = await getTAPermissions(userId, courseId);
+
       return {
-        canRead: true,
-        canWrite: false,
-        canGrade: true,
-        canManage: false,
+        canRead: true, // TAs can always read
+        canWrite: taPerms.canEdit || taPerms.canCreate, // Can write if can edit or create
+        canGrade: taPerms.canViewGrades, // Can grade if can view grades
+        canManage: taPerms.canDelete, // Can manage if can delete
       };
+    }
 
     case UserRole.STUDENT:
       return {

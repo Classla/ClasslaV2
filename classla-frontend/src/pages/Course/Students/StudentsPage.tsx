@@ -36,6 +36,8 @@ import {
 } from "lucide-react";
 import { Course, Section, User, CourseEnrollment, UserRole } from "../../../types";
 import { getDisplayName, getInitials } from "../../../lib/utils";
+import { hasTAPermission } from "../../../lib/taPermissions";
+import { useAuth } from "../../../contexts/AuthContext";
 
 interface StudentsPageProps {
   course?: Course;
@@ -57,6 +59,7 @@ const StudentsPage: React.FC<StudentsPageProps> = ({
 }) => {
   const { courseSlug } = useParams<{ courseSlug: string }>();
   const { toast } = useToast();
+  const { user } = useAuth();
 
   const [students, setStudents] = useState<EnrolledStudent[]>([]);
   const [sections, setSections] = useState<Section[]>([]);
@@ -66,11 +69,22 @@ const StudentsPage: React.FC<StudentsPageProps> = ({
   const [newSectionName, setNewSectionName] = useState("");
   const [showCreateSection, setShowCreateSection] = useState(false);
 
+  // Check if TA has canViewStudents permission
+  const canViewStudents = isInstructor && (
+    userRole !== UserRole.TEACHING_ASSISTANT ||
+    hasTAPermission(course, user?.id, userRole, "canViewStudents")
+  );
+
   useEffect(() => {
     if (course?.id) {
+      // Check permission before fetching
+      if (!canViewStudents && userRole === UserRole.TEACHING_ASSISTANT) {
+        setLoading(false);
+        return;
+      }
       fetchStudentsAndSections();
     }
-  }, [course?.id]);
+  }, [course?.id, canViewStudents, userRole]);
 
   const fetchStudentsAndSections = async () => {
     if (!course?.id) return;
@@ -83,6 +97,11 @@ const StudentsPage: React.FC<StudentsPageProps> = ({
         course.id
       );
       setCurrentUserEnrollment(currentUserResponse.data.data);
+
+      // Check permission before fetching
+      if (!canViewStudents && userRole === UserRole.TEACHING_ASSISTANT) {
+        throw new Error("You don't have permission to view students in this course");
+      }
 
       // Fetch enrolled users - instructors see all enrollments, students see only students
       const studentsResponse = isInstructor
@@ -296,6 +315,22 @@ const StudentsPage: React.FC<StudentsPageProps> = ({
             return aName.localeCompare(bName);
           })
       : instructorFilteredStudents;
+
+  // Show permission denied message for TAs without canViewStudents
+  if (!canViewStudents && userRole === UserRole.TEACHING_ASSISTANT) {
+    return (
+      <div className="p-8 text-center">
+        <div className="max-w-md mx-auto">
+          <h2 className="text-2xl font-bold text-gray-900 mb-2">
+            Permission Denied
+          </h2>
+          <p className="text-gray-600">
+            You don't have permission to view students in this course.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   if (loading) {
     return (

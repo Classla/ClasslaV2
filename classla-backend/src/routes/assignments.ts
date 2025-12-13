@@ -5,6 +5,7 @@ import {
   requireCoursePermission,
   getCoursePermissions,
   getUserCourseRole,
+  hasTAPermission,
 } from "../middleware/authorization";
 import { UserRole } from "../types/enums";
 import { Assignment } from "../types/entities";
@@ -414,7 +415,6 @@ router.get(
 router.post(
   "/assignment",
   authenticateToken,
-  requireCoursePermission("canManage"),
   async (req: Request, res: Response): Promise<void> => {
     try {
       const {
@@ -429,6 +429,45 @@ router.post(
         lockdown_time_map,
         order_index,
       } = req.body;
+      const { id: userId, isAdmin } = req.user!;
+
+      // Check permissions - instructors/admins can always create, TAs need canCreate permission
+      const permissions = await getCoursePermissions(userId, course_id, isAdmin);
+      const userRole = await getUserCourseRole(userId, course_id);
+
+      console.log(`[POST /assignment] Permission check:`, {
+        userId,
+        course_id,
+        userRole,
+        isAdmin,
+        permissions,
+      });
+
+      if (userRole === UserRole.TEACHING_ASSISTANT) {
+        const canCreate = await hasTAPermission(userId, course_id, "canCreate");
+        console.log(`[POST /assignment] TA canCreate check:`, { canCreate });
+        if (!canCreate) {
+          res.status(403).json({
+            error: {
+              code: "INSUFFICIENT_PERMISSIONS",
+              message: "Not authorized to create assignments in this course",
+              timestamp: new Date().toISOString(),
+              path: req.path,
+            },
+          });
+          return;
+        }
+      } else if (!permissions.canManage && !isAdmin) {
+        res.status(403).json({
+          error: {
+            code: "INSUFFICIENT_PERMISSIONS",
+            message: "Not authorized to create assignments in this course",
+            timestamp: new Date().toISOString(),
+            path: req.path,
+          },
+        });
+        return;
+      }
 
       // Validate required fields
       if (!name || !course_id) {
@@ -589,27 +628,21 @@ router.put(
       // Get user's role in the course
       const userRole = await getUserCourseRole(userId, existingAssignment.course_id);
 
-      // Check if this is only a name update (rename) - TAs can rename but not update other fields
-      const isOnlyNameUpdate =
-        name !== undefined &&
-        settings === undefined &&
-        content === undefined &&
-        published_to === undefined &&
-        due_dates_map === undefined &&
-        module_path === undefined &&
-        is_lockdown === undefined &&
-        lockdown_time_map === undefined &&
-        order_index === undefined;
-
-      // TAs can only rename (update name), instructors/admins can update everything
-      const canUpdate =
-        isAdmin ||
-        permissions.canManage ||
-        (isOnlyNameUpdate &&
-          (userRole === UserRole.INSTRUCTOR ||
-            userRole === UserRole.TEACHING_ASSISTANT));
-
-      if (!canUpdate) {
+      // Check permissions - instructors/admins can always edit, TAs need canEdit permission
+      if (userRole === UserRole.TEACHING_ASSISTANT) {
+        const canEdit = await hasTAPermission(userId, existingAssignment.course_id, "canEdit");
+        if (!canEdit) {
+          res.status(403).json({
+            error: {
+              code: "INSUFFICIENT_PERMISSIONS",
+              message: "Not authorized to edit assignments in this course",
+              timestamp: new Date().toISOString(),
+              path: req.path,
+            },
+          });
+          return;
+        }
+      } else if (!permissions.canManage && !isAdmin) {
         res.status(403).json({
           error: {
             code: "INSUFFICIENT_PERMISSIONS",
@@ -743,7 +776,7 @@ router.delete(
         return;
       }
 
-      // Check permissions for the course - allow instructors, TAs, and admins
+      // Check permissions for the course
       const permissions = await getCoursePermissions(
         userId,
         existingAssignment.course_id,
@@ -753,13 +786,21 @@ router.delete(
       // Get user's role in the course
       const userRole = await getUserCourseRole(userId, existingAssignment.course_id);
 
-      // Only instructors, TAs, and admins can delete assignments
-      const canDelete =
-        isAdmin ||
-        userRole === UserRole.INSTRUCTOR ||
-        userRole === UserRole.TEACHING_ASSISTANT;
-
-      if (!canDelete) {
+      // Check permissions - instructors/admins can always delete, TAs need canDelete permission
+      if (userRole === UserRole.TEACHING_ASSISTANT) {
+        const canDelete = await hasTAPermission(userId, existingAssignment.course_id, "canDelete");
+        if (!canDelete) {
+          res.status(403).json({
+            error: {
+              code: "INSUFFICIENT_PERMISSIONS",
+              message: "Not authorized to delete assignments in this course",
+              timestamp: new Date().toISOString(),
+              path: req.path,
+            },
+          });
+          return;
+        }
+      } else if (!permissions.canManage && !isAdmin) {
         res.status(403).json({
           error: {
             code: "INSUFFICIENT_PERMISSIONS",

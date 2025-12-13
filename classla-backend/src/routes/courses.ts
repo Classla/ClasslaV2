@@ -4,6 +4,9 @@ import { authenticateToken } from "../middleware/auth";
 import {
   requireCoursePermission,
   getCoursePermissions,
+  hasTAPermission,
+  getUserCourseRole,
+  validateTAPermissions,
 } from "../middleware/authorization";
 import { UserRole } from "../types/enums";
 import { Course } from "../types/entities";
@@ -387,12 +390,90 @@ router.put(
         return;
       }
 
+      // Validate TA permissions if provided in settings
+      if (settings !== undefined && typeof settings === "object") {
+        // Validate ta_permissions_default if provided
+        if (settings.ta_permissions_default !== undefined) {
+          if (!validateTAPermissions(settings.ta_permissions_default)) {
+            res.status(400).json({
+              error: {
+                code: "INVALID_TA_PERMISSIONS",
+                message: "Invalid ta_permissions_default structure",
+                timestamp: new Date().toISOString(),
+                path: req.path,
+              },
+            });
+            return;
+          }
+        }
+
+        // Validate ta_permissions (individual overrides) if provided
+        if (settings.ta_permissions !== undefined) {
+          if (typeof settings.ta_permissions !== "object" || Array.isArray(settings.ta_permissions)) {
+            res.status(400).json({
+              error: {
+                code: "INVALID_TA_PERMISSIONS",
+                message: "ta_permissions must be an object mapping user IDs to permission objects",
+                timestamp: new Date().toISOString(),
+                path: req.path,
+              },
+            });
+            return;
+          }
+
+          // Validate each individual permission override
+          for (const [userId, perms] of Object.entries(settings.ta_permissions)) {
+            if (!validateTAPermissions(perms)) {
+              res.status(400).json({
+                error: {
+                  code: "INVALID_TA_PERMISSIONS",
+                  message: `Invalid permissions structure for user ${userId}`,
+                  timestamp: new Date().toISOString(),
+                  path: req.path,
+                },
+              });
+              return;
+            }
+          }
+        }
+      }
+
       // Prepare update data
       const updateData: Partial<Course> = {};
 
       if (name !== undefined) updateData.name = name;
       if (description !== undefined) updateData.description = description;
-      if (settings !== undefined) updateData.settings = settings;
+      if (settings !== undefined) {
+        // Merge with existing settings to preserve other settings
+        const mergedSettings = {
+          ...existingCourse.settings,
+          ...settings,
+        };
+        
+        // Handle ta_permissions: if it's explicitly provided, always use it (even if empty)
+        // This allows removing individual overrides by sending an empty object
+        if (settings.ta_permissions !== undefined) {
+          if (settings.ta_permissions === null || 
+              (typeof settings.ta_permissions === 'object' && Object.keys(settings.ta_permissions).length === 0)) {
+            // Explicitly remove all individual overrides
+            delete mergedSettings.ta_permissions;
+          } else {
+            // Use the provided ta_permissions (this replaces existing overrides)
+            mergedSettings.ta_permissions = settings.ta_permissions;
+          }
+        }
+        // If ta_permissions is not in settings, keep existing overrides (don't change them)
+        
+        console.log("[PUT /course/:id] Updating settings:", {
+          receivedSettings: settings,
+          existingSettings: existingCourse.settings,
+          mergedSettings,
+          ta_permissions_default: mergedSettings.ta_permissions_default,
+          ta_permissions: mergedSettings.ta_permissions,
+        });
+        
+        updateData.settings = mergedSettings;
+      }
       if (thumbnail_url !== undefined) updateData.thumbnail_url = thumbnail_url;
       if (summary_content !== undefined)
         updateData.summary_content = summary_content;
@@ -626,6 +707,24 @@ router.get(
   async (req: Request, res: Response): Promise<void> => {
     try {
       const { id: courseId } = req.params;
+      const { id: userId, isAdmin } = req.user!;
+
+      // Check if user has canViewStudents permission
+      const userRole = await getUserCourseRole(userId, courseId);
+      if (userRole === UserRole.TEACHING_ASSISTANT) {
+        const canViewStudents = await hasTAPermission(userId, courseId, "canViewStudents");
+        if (!canViewStudents) {
+          res.status(403).json({
+            error: {
+              code: "INSUFFICIENT_PERMISSIONS",
+              message: "Not authorized to view students in this course",
+              timestamp: new Date().toISOString(),
+              path: req.path,
+            },
+          });
+          return;
+        }
+      }
 
       // Get all enrollments - students see instructors, TAs, and other students
       const { data: enrollments, error: enrollmentsError } = await supabase
@@ -725,6 +824,24 @@ router.get(
   async (req: Request, res: Response): Promise<void> => {
     try {
       const { id: courseId } = req.params;
+      const { id: userId, isAdmin } = req.user!;
+
+      // Check if user has canViewStudents permission (TAs need this to see enrollments)
+      const userRole = await getUserCourseRole(userId, courseId);
+      if (userRole === UserRole.TEACHING_ASSISTANT) {
+        const canViewStudents = await hasTAPermission(userId, courseId, "canViewStudents");
+        if (!canViewStudents) {
+          res.status(403).json({
+            error: {
+              code: "INSUFFICIENT_PERMISSIONS",
+              message: "Not authorized to view enrollments in this course",
+              timestamp: new Date().toISOString(),
+              path: req.path,
+            },
+          });
+          return;
+        }
+      }
 
       // Get all enrollments (including instructors, TAs, etc.)
       const { data: enrollments, error: enrollmentsError } = await supabase
@@ -924,7 +1041,22 @@ router.get(
       // Check course permissions - require canGrade or canManage
       const permissions = await getCoursePermissions(userId, courseId, isAdmin);
 
-      if (!permissions.canGrade && !permissions.canManage) {
+      // For TAs, also check canViewGrades permission
+      const userRole = await getUserCourseRole(userId, courseId);
+      if (userRole === UserRole.TEACHING_ASSISTANT) {
+        const canViewGrades = await hasTAPermission(userId, courseId, "canViewGrades");
+        if (!canViewGrades) {
+          res.status(403).json({
+            error: {
+              code: "INSUFFICIENT_PERMISSIONS",
+              message: "Not authorized to view grades in this course",
+              timestamp: new Date().toISOString(),
+              path: req.path,
+            },
+          });
+          return;
+        }
+      } else if (!permissions.canGrade && !permissions.canManage) {
         res.status(403).json({
           error: {
             code: "INSUFFICIENT_PERMISSIONS",

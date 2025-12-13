@@ -7,7 +7,8 @@ import { Card } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { Calendar, Users, Eye, Settings } from "lucide-react";
-import { Assignment, UserRole, RubricSchema } from "../../types";
+import { Assignment, UserRole, RubricSchema, Course } from "../../types";
+import { hasTAPermission } from "../../lib/taPermissions";
 import PublishAssignmentModal from "./components/PublishAssignmentModal";
 import DueDatesModal from "../Course/components/DueDatesModal";
 import AssignmentSettingsPanel from "./components/AssignmentSettingsPanel";
@@ -22,12 +23,15 @@ import "allotment/dist/style.css";
 import { calculateAssignmentPoints } from "../../utils/assignmentPoints";
 
 interface AssignmentPageProps {
+  course?: Course;
   userRole?: UserRole;
   isStudent?: boolean;
   isInstructor?: boolean;
 }
 
 const AssignmentPage: React.FC<AssignmentPageProps> = ({
+  course,
+  userRole,
   isStudent,
   isInstructor,
 }) => {
@@ -77,6 +81,13 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
   const effectiveIsStudent = isStudent ?? false;
   const effectiveIsInstructor = isInstructor ?? false;
   const rolesDetermined = isStudent !== undefined && isInstructor !== undefined;
+
+  // Check if TA has canEdit permission
+  const canEdit = useMemo(() => {
+    if (!effectiveIsInstructor) return false;
+    if (userRole !== UserRole.TEACHING_ASSISTANT) return true; // Instructors/admins always can edit
+    return hasTAPermission(course, user?.id, userRole, "canEdit");
+  }, [effectiveIsInstructor, userRole, course, user?.id]);
 
   // Check if user has instructional privileges (can see sidebar)
   const hasInstructionalPrivileges = effectiveIsInstructor; // This already covers instructor, TA, and admin roles
@@ -197,7 +208,7 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
   ]);
 
   const handleSaveName = async () => {
-    if (!assignment || !effectiveIsInstructor) return;
+    if (!assignment || !canEdit) return;
 
     // Don't save if name hasn't changed
     if (editedName === assignment.name) {
@@ -242,6 +253,10 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
   };
 
   const toggleSidebarPanel = (panel: "grader" | "settings") => {
+    // Prevent opening settings panel if TA doesn't have canEdit permission
+    if (panel === "settings" && !canEdit) {
+      return;
+    }
     const newPanel = activeSidebarPanel === panel ? null : panel;
     setActiveSidebarPanel(newPanel);
     // Reset selected student when closing grader panel
@@ -386,12 +401,12 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
                       ) : (
                         <h1
                           className={`text-3xl font-bold ${
-                            effectiveIsInstructor
+                            canEdit
                               ? "cursor-pointer hover:text-purple-100"
                               : ""
                           }`}
                           onClick={() =>
-                            effectiveIsInstructor && setIsEditing(true)
+                            canEdit && setIsEditing(true)
                           }
                         >
                           {assignment.name}
@@ -399,8 +414,8 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
                       )}
                     </div>
 
-                    {/* Publishing Status (Instructor only) */}
-                    {effectiveIsInstructor && (
+                    {/* Publishing Status (Instructor/TA with edit permission) */}
+                    {canEdit && (
                       <div className="flex items-center space-x-2">
                         <Users className="w-4 h-4" />
                         <Popover
@@ -450,8 +465,8 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
                   </div>
 
                   <div className="flex flex-col items-end space-y-3">
-                    {/* Management Buttons (Instructor only) */}
-                    {effectiveIsInstructor && (
+                    {/* Management Buttons (Instructor/TA with edit permission) */}
+                    {canEdit && (
                       <div className="flex items-center space-x-3">
                         <Button
                           onClick={handlePublishClick}
@@ -484,7 +499,7 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
               <Card className="h-full p-0 overflow-hidden">
                 {assignment && (
                   <>
-                    {effectiveIsInstructor ? (
+                    {canEdit ? (
                       selectedGradingStudent ? (
                         <AssignmentViewer
                           assignment={assignment}
@@ -625,11 +640,18 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
                     onStudentSelect={setSelectedGradingStudent}
                     selectedStudent={selectedGradingStudent}
                   />
-                ) : (
+                ) : canEdit ? (
                   <AssignmentSettingsPanel
                     assignment={assignment}
+                    course={course}
+                    userRole={userRole}
+                    isInstructor={effectiveIsInstructor}
                     onAssignmentUpdated={handleAssignmentUpdated}
                   />
+                ) : (
+                  <div className="p-4 text-center text-gray-500">
+                    You don't have permission to edit assignment settings.
+                  </div>
                 )}
               </div>
             </div>
@@ -651,17 +673,19 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
           >
             <Eye className="w-5 h-5" />
           </button>
-          <button
-            onClick={() => toggleSidebarPanel("settings")}
-            className={`w-12 h-12 flex items-center justify-center border-b border-gray-200 transition-colors ${
-              activeSidebarPanel === "settings"
-                ? "bg-purple-100 text-purple-600"
-                : "hover:bg-gray-200 text-gray-600"
-            }`}
-            title="Assignment Settings"
-          >
-            <Settings className="w-5 h-5" />
-          </button>
+          {canEdit && (
+            <button
+              onClick={() => toggleSidebarPanel("settings")}
+              className={`w-12 h-12 flex items-center justify-center border-b border-gray-200 transition-colors ${
+                activeSidebarPanel === "settings"
+                  ? "bg-purple-100 text-purple-600"
+                  : "hover:bg-gray-200 text-gray-600"
+              }`}
+              title="Assignment Settings"
+            >
+              <Settings className="w-5 h-5" />
+            </button>
+          )}
         </div>
       )}
 

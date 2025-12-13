@@ -49,7 +49,7 @@ const CoursePage: React.FC<CoursePageProps> = (props) => {
       case "students":
         return <StudentsPage {...props} />;
       case "gradebook":
-        return <GradebookPage {...props} />;
+        return <GradebookPage {...props} userRole={props.userRole} />;
       case "grades":
         return <StudentGradesPage />;
       case "settings":

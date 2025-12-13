@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useMemo } from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../../../contexts/AuthContext";
 import { apiClient } from "../../../lib/api";
@@ -14,6 +14,7 @@ import Logo from "../../../components/Logo";
 import ModuleTree from "../../../components/ModuleTree";
 import { BookOpen, Users, Settings, BarChart3, Plus, FileText, Folder } from "lucide-react";
 import { Course, UserRole } from "../../../types";
+import { hasTAPermission } from "../../../lib/taPermissions";
 import { Allotment } from "allotment";
 import "allotment/dist/style.css";
 
@@ -103,6 +104,13 @@ const CourseLayout: React.FC<CourseLayoutProps> = ({ children }) => {
     userRole === UserRole.TEACHING_ASSISTANT;
   const isInstructorOrAdmin =
     userRole === UserRole.INSTRUCTOR || userRole === UserRole.ADMIN;
+
+  // Check if TA has canCreate permission
+  const canCreate = useMemo(() => {
+    if (!isInstructor) return false;
+    if (userRole !== UserRole.TEACHING_ASSISTANT) return true; // Instructors/admins always can create
+    return hasTAPermission(course, user?.id, userRole, "canCreate");
+  }, [isInstructor, userRole, course, user?.id]);
 
   const navigationTabs = [
     { id: "summary", label: "Summary", icon: BookOpen, path: "summary" },
@@ -239,6 +247,7 @@ const CourseLayout: React.FC<CourseLayoutProps> = ({ children }) => {
                 <div className="mt-8 px-3 flex-1 min-h-0 flex flex-col">
                   <ModuleTree
                     courseId={course.id}
+                    course={course}
                     userRole={userRole || undefined}
                     isStudent={isStudent}
                     isInstructor={isInstructor}
@@ -247,7 +256,7 @@ const CourseLayout: React.FC<CourseLayoutProps> = ({ children }) => {
               </div>
 
               {/* Create button at bottom */}
-              {isInstructor && (
+              {canCreate && (
                 <div className="border-t border-gray-200 p-3">
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>

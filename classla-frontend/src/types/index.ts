@@ -7,12 +7,24 @@ export enum UserRole {
   AUDIT = "audit",
 }
 
+// TA Permissions interface
+export interface TAPermissions {
+  canCreate: boolean;
+  canEdit: boolean;
+  canDelete: boolean;
+  canViewStudents: boolean;
+  canViewGrades: boolean;
+}
+
 // Course entity
 export interface Course {
   id: string;
   name: string;
   description?: string; // Short text description of the course
-  settings: Record<string, any>; // Generic settings object
+  settings: Record<string, any> & {
+    ta_permissions_default?: TAPermissions;
+    ta_permissions?: Record<string, TAPermissions>;
+  };
   thumbnail_url: string;
   summary_content: string; // Rich content for course overview, objectives, and detailed information
   slug: string; // course join code, and how it will be shown in URL

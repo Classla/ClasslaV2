@@ -30,10 +30,13 @@ import {
   Edit,
   Trash2,
 } from "lucide-react";
-import { Assignment, Folder, UserRole } from "../types";
+import { Assignment, Folder, UserRole, Course } from "../types";
+import { hasTAPermission } from "../lib/taPermissions";
+import { useAuth } from "../contexts/AuthContext";
 
 interface ModuleTreeProps {
   courseId: string;
+  course?: Course;
   userRole?: UserRole;
   isStudent?: boolean;
   isInstructor?: boolean;
@@ -53,10 +56,30 @@ interface TreeNodeData {
   folder?: Folder;
 }
 
-const ModuleTree: React.FC<ModuleTreeProps> = ({ courseId, isInstructor }) => {
+const ModuleTree: React.FC<ModuleTreeProps> = ({ courseId, course, userRole, isInstructor }) => {
   const navigate = useNavigate();
   const { courseSlug } = useParams<{ courseSlug: string }>();
   const { toast } = useToast();
+  const { user } = useAuth();
+
+  // Check TA permissions
+  const canCreate = useMemo(() => {
+    if (!isInstructor) return false;
+    if (userRole !== UserRole.TEACHING_ASSISTANT) return true; // Instructors/admins always can create
+    return hasTAPermission(course, user?.id, userRole, "canCreate");
+  }, [isInstructor, userRole, course, user?.id]);
+
+  const canEdit = useMemo(() => {
+    if (!isInstructor) return false;
+    if (userRole !== UserRole.TEACHING_ASSISTANT) return true; // Instructors/admins always can edit
+    return hasTAPermission(course, user?.id, userRole, "canEdit");
+  }, [isInstructor, userRole, course, user?.id]);
+
+  const canDelete = useMemo(() => {
+    if (!isInstructor) return false;
+    if (userRole !== UserRole.TEACHING_ASSISTANT) return true; // Instructors/admins always can delete
+    return hasTAPermission(course, user?.id, userRole, "canDelete");
+  }, [isInstructor, userRole, course, user?.id]);
 
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [folders, setFolders] = useState<Folder[]>([]);
@@ -235,8 +258,8 @@ const ModuleTree: React.FC<ModuleTreeProps> = ({ courseId, isInstructor }) => {
 
       sortChildren(rootNodes);
       
-      // Add "+ create" node at the root level if instructor
-      if (effectiveIsInstructor) {
+      // Add "+ create" node at the root level if user can create
+      if (canCreate) {
         rootNodes.push({
           id: "create-node",
           name: "+ create",
@@ -250,7 +273,7 @@ const ModuleTree: React.FC<ModuleTreeProps> = ({ courseId, isInstructor }) => {
     };
 
     return buildTree();
-  }, [assignments, folders, effectiveIsInstructor]);
+  }, [assignments, folders, canCreate]);
 
   // Update tree height when container size changes
   useEffect(() => {
@@ -676,16 +699,18 @@ const ModuleTree: React.FC<ModuleTreeProps> = ({ courseId, isInstructor }) => {
             {nodeContent}
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" side="bottom" className="w-48">
-            <DropdownMenuItem
-              onClick={(e) => {
-                e.stopPropagation();
-                handleCreateAssignment([]);
-              }}
-              className="cursor-pointer"
-            >
-              <FileText className="w-4 h-4 mr-2" />
-              Create Assignment
-            </DropdownMenuItem>
+            {canCreate && (
+              <DropdownMenuItem
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleCreateAssignment([]);
+                }}
+                className="cursor-pointer"
+              >
+                <FileText className="w-4 h-4 mr-2" />
+                Create Assignment
+              </DropdownMenuItem>
+            )}
             <DropdownMenuItem
               onClick={(e) => {
                 e.stopPropagation();
@@ -783,23 +808,37 @@ const ModuleTree: React.FC<ModuleTreeProps> = ({ courseId, isInstructor }) => {
                 {!isFolder && assignment && (
                   <>
                     <button
-                      className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100 flex items-center"
+                      className={`w-full text-left px-3 py-2 text-sm flex items-center ${
+                        canEdit
+                          ? "hover:bg-gray-100"
+                          : "opacity-50 cursor-not-allowed text-gray-400"
+                      }`}
                       onClick={(e) => {
                         e.stopPropagation();
-                        handleRenameAssignment(assignment);
-                        setContextMenu({ ...contextMenu, show: false });
+                        if (canEdit) {
+                          handleRenameAssignment(assignment);
+                          setContextMenu({ ...contextMenu, show: false });
+                        }
                       }}
+                      disabled={!canEdit}
                     >
                       <Edit className="w-4 h-4 mr-2" />
                       Rename Assignment
                     </button>
                     <button
-                      className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100 flex items-center text-red-600"
+                      className={`w-full text-left px-3 py-2 text-sm flex items-center ${
+                        canDelete
+                          ? "hover:bg-gray-100 text-red-600"
+                          : "opacity-50 cursor-not-allowed text-gray-400"
+                      }`}
                       onClick={(e) => {
                         e.stopPropagation();
-                        handleDeleteAssignment(assignment);
-                        setContextMenu({ ...contextMenu, show: false });
+                        if (canDelete) {
+                          handleDeleteAssignment(assignment);
+                          setContextMenu({ ...contextMenu, show: false });
+                        }
                       }}
+                      disabled={!canDelete}
                     >
                       <Trash2 className="w-4 h-4 mr-2" />
                       Delete Assignment
@@ -834,7 +873,7 @@ const ModuleTree: React.FC<ModuleTreeProps> = ({ courseId, isInstructor }) => {
       {treeData.length === 0 ? (
         <div className="text-center py-8">
           <p className="text-gray-500 mb-4">No assignments yet</p>
-          {effectiveIsInstructor && (
+          {canCreate && (
             <Button
               onClick={() => handleCreateAssignment([])}
               className="bg-purple-600 hover:bg-purple-700"
@@ -901,17 +940,19 @@ const ModuleTree: React.FC<ModuleTreeProps> = ({ courseId, isInstructor }) => {
                 top: rootContextMenu.y,
               }}
             >
-              <button
-                className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100 flex items-center"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleCreateAssignment([]);
-                  setRootContextMenu({ ...rootContextMenu, show: false });
-                }}
-              >
-                <FileText className="w-4 h-4 mr-2" />
-                Create Assignment
-              </button>
+              {canCreate && (
+                <button
+                  className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100 flex items-center"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleCreateAssignment([]);
+                    setRootContextMenu({ ...rootContextMenu, show: false });
+                  }}
+                >
+                  <FileText className="w-4 h-4 mr-2" />
+                  Create Assignment
+                </button>
+              )}
               <button
                 className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100 flex items-center"
                 onClick={(e) => {

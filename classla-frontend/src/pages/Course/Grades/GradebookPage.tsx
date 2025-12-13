@@ -14,19 +14,30 @@ import {
   SelectTrigger,
   SelectValue,
 } from "../../../components/ui/select";
-import { Course, Submission, Grader, Section } from "../../../types";
+import { Course, Submission, Grader, Section, UserRole } from "../../../types";
+import { hasTAPermission } from "../../../lib/taPermissions";
+import { useAuth } from "../../../contexts/AuthContext";
 
 interface GradebookPageProps {
   course?: Course;
+  userRole?: UserRole;
   isInstructor?: boolean;
 }
 
 const GradebookPage: React.FC<GradebookPageProps> = ({
   course,
+  userRole,
   isInstructor,
 }) => {
   const navigate = useNavigate();
   const { toast } = useToast();
+  const { user } = useAuth();
+
+  // Check if TA has canViewGrades permission
+  const canViewGrades = isInstructor && (
+    userRole !== UserRole.TEACHING_ASSISTANT ||
+    hasTAPermission(course, user?.id, userRole, "canViewGrades")
+  );
 
   const [selectedSectionId, setSelectedSectionId] = useState<string | null>(
     null
@@ -37,14 +48,14 @@ const GradebookPage: React.FC<GradebookPageProps> = ({
     data: gradebookData,
     isLoading: isLoadingGradebook,
     error: gradebookError,
-  } = useCourseGradebook(course?.id || "", !!course?.id && !!isInstructor);
+  } = useCourseGradebook(course?.id || "", !!course?.id && !!canViewGrades);
 
   // Fetch sections using React Query
   const { data: sectionsData } = useCourseSections(course?.id || "");
 
   const sections: Section[] = sectionsData || [];
   const isLoading = isLoadingGradebook;
-  const error = !isInstructor
+  const error = !canViewGrades
     ? "You don't have permission to view the gradebook"
     : gradebookError
     ? (gradebookError as any).message

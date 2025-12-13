@@ -4,6 +4,7 @@ import { authenticateToken } from "../middleware/auth";
 import {
   getCoursePermissions,
   getUserCourseRole,
+  hasTAPermission,
 } from "../middleware/authorization";
 import { UserRole, SubmissionStatus } from "../types/enums";
 import { Submission } from "../types/entities";
@@ -341,7 +342,46 @@ router.get(
         isAdmin
       );
 
-      if (!permissions.canGrade && !permissions.canManage) {
+      // For TAs, need canViewGrades to access this endpoint (for grading)
+      // If they don't have canViewStudents, we'll anonymize the student names
+      const userRole = await getUserCourseRole(userId, assignment.course_id);
+      let shouldAnonymizeStudents = false;
+      
+      console.log(`[submissions/with-students] Permission check:`, {
+        userId,
+        assignmentId,
+        courseId: assignment.course_id,
+        userRole,
+        permissions,
+      });
+      
+      if (userRole === UserRole.TEACHING_ASSISTANT) {
+        const canViewStudents = await hasTAPermission(userId, assignment.course_id, "canViewStudents");
+        const canViewGrades = await hasTAPermission(userId, assignment.course_id, "canViewGrades");
+        
+        console.log(`[submissions/with-students] TA permissions:`, {
+          canViewStudents,
+          canViewGrades,
+        });
+        
+        if (!canViewGrades) {
+          res.status(403).json({
+            error: {
+              code: "INSUFFICIENT_PERMISSIONS",
+              message: "Not authorized to access submissions with students and grades for this assignment",
+              timestamp: new Date().toISOString(),
+              path: req.path,
+            },
+          });
+          return;
+        }
+        
+        // If they have canViewGrades but not canViewStudents, anonymize student names
+        if (!canViewStudents) {
+          shouldAnonymizeStudents = true;
+          console.log(`[submissions/with-students] Anonymizing student names for TA without canViewStudents`);
+        }
+      } else if (!permissions.canGrade && !permissions.canManage) {
         res.status(403).json({
           error: {
             code: "INSUFFICIENT_PERMISSIONS",
@@ -460,12 +500,13 @@ router.get(
           // Requirement 2.4: null submission if student hasn't submitted
           submission: submissionData?.submission || null,
           // Requirement 2.2: include enrollment information (name, section)
+          // Anonymize student names if TA doesn't have canViewStudents permission
           student: enrollment.user
             ? {
                 id: enrollment.user.id,
-                firstName: enrollment.user.first_name,
-                lastName: enrollment.user.last_name,
-                email: enrollment.user.email,
+                firstName: shouldAnonymizeStudents ? "Anonymous" : enrollment.user.first_name,
+                lastName: shouldAnonymizeStudents ? "" : enrollment.user.last_name,
+                email: shouldAnonymizeStudents ? "" : enrollment.user.email,
               }
             : null,
           // Requirement 2.5, 2.6: include grader if exists, null otherwise

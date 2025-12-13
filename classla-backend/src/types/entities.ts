@@ -140,3 +140,12 @@ export interface CourseEnrollment {
   role: UserRole;
   enrolled_at: Date;
 }
+
+// TA Permissions interface
+export interface TAPermissions {
+  canCreate: boolean;
+  canEdit: boolean;
+  canDelete: boolean;
+  canViewStudents: boolean;
+  canViewGrades: boolean;
+}

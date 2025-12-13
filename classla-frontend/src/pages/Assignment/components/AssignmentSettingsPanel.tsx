@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { HelpCircle, ChevronDown, ChevronRight, Trash2 } from "lucide-react";
-import { Assignment, AssignmentSettings, RubricSchema } from "../../../types";
+import { Assignment, AssignmentSettings, RubricSchema, Course, UserRole } from "../../../types";
 import { apiClient } from "../../../lib/api";
 import { useToast } from "../../../hooks/use-toast";
 import { Button } from "../../../components/ui/button";
@@ -13,26 +13,42 @@ import {
   DialogHeader,
   DialogTitle,
 } from "../../../components/ui/dialog";
+import { useAuth } from "../../../contexts/AuthContext";
+import { hasTAPermission } from "../../../lib/taPermissions";
 import RubricEditor from "./grader/rubric/RubricEditor";
 
 interface AssignmentSettingsPanelProps {
   assignment: Assignment;
+  course?: Course;
+  userRole?: UserRole;
+  isInstructor?: boolean;
   onAssignmentUpdated: (assignment: Assignment) => void;
 }
 
 const AssignmentSettingsPanel: React.FC<AssignmentSettingsPanelProps> = ({
   assignment,
+  course,
+  userRole,
+  isInstructor,
   onAssignmentUpdated,
 }) => {
   const { toast } = useToast();
   const navigate = useNavigate();
   const { courseSlug } = useParams<{ courseSlug: string }>();
+  const { user } = useAuth();
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [rubricSchema, setRubricSchema] = useState<RubricSchema | null>(null);
   const [isLoadingRubric, setIsLoadingRubric] = useState(true);
   const [showRubricSection, setShowRubricSection] = useState(false);
+
+  // Check if TA has delete permission
+  const canDelete = useMemo(() => {
+    if (!isInstructor) return false;
+    if (userRole !== UserRole.TEACHING_ASSISTANT) return true; // Instructors/admins always can delete
+    return hasTAPermission(course, user?.id, userRole, "canDelete");
+  }, [isInstructor, userRole, course, user?.id]);
 
   // Initialize settings with defaults
   const [settings, setSettings] = useState<AssignmentSettings>({
@@ -377,7 +393,7 @@ const AssignmentSettingsPanel: React.FC<AssignmentSettingsPanelProps> = ({
       <div className="border-t border-gray-200 p-4">
         <Button
           onClick={handleDeleteAssignment}
-          disabled={isDeleting}
+          disabled={isDeleting || !canDelete}
           variant="destructive"
           className="w-full"
         >
