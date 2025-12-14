@@ -23,7 +23,8 @@ import {
 } from "../../../components/ui/card";
 import { apiClient } from "../../../lib/api";
 import { useToast } from "../../../hooks/use-toast";
-import { Trash2, Save, Users, RotateCcw } from "lucide-react";
+import { Trash2, Save, Users, RotateCcw, FileText, Download } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../../components/ui/select";
 import { TAPermissions, UserRole, CourseEnrollment, User } from "../../../types";
 import { getDisplayName } from "../../../lib/utils";
 
@@ -61,6 +62,14 @@ const CourseSettingsPage: React.FC<CourseSettingsPageProps> = ({
     canViewGrades: false,
   });
   const [taPermissions, setTAPermissions] = useState<Record<string, TAPermissions>>({});
+  const [exportDialogOpen, setExportDialogOpen] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
+  const [organizations, setOrganizations] = useState<any[]>([]);
+  const [loadingOrganizations, setLoadingOrganizations] = useState(false);
+  const [exportFormData, setExportFormData] = useState({
+    organizationId: "",
+    name: course?.name || "",
+  });
 
   // Load TAs and permissions on mount
   useEffect(() => {
@@ -68,6 +77,34 @@ const CourseSettingsPage: React.FC<CourseSettingsPageProps> = ({
       loadTAsAndPermissions();
     }
   }, [course?.id, isInstructor]);
+
+  // Load organizations when export dialog opens
+  useEffect(() => {
+    if (exportDialogOpen && organizations.length === 0) {
+      loadOrganizations();
+    }
+  }, [exportDialogOpen]);
+
+  const loadOrganizations = async () => {
+    setLoadingOrganizations(true);
+    try {
+      const response = await apiClient.getOrganizations();
+      const memberships = response.data || [];
+      const orgs = memberships
+        .map((m: any) => m.organizations)
+        .filter((org: any) => org !== null);
+      setOrganizations(orgs);
+    } catch (error: any) {
+      console.error("Error loading organizations:", error);
+      toast({
+        title: "Error loading organizations",
+        description: error.message || "Failed to load organizations",
+        variant: "destructive",
+      });
+    } finally {
+      setLoadingOrganizations(false);
+    }
+  };
 
   const loadTAsAndPermissions = async () => {
     if (!course?.id) return;
@@ -232,6 +269,45 @@ const CourseSettingsPage: React.FC<CourseSettingsPageProps> = ({
     } finally {
       setIsDeleting(false);
       setDeleteDialogOpen(false);
+    }
+  };
+
+  const handleExportToTemplate = async () => {
+    if (!course?.id || !exportFormData.organizationId || !exportFormData.name.trim()) {
+      toast({
+        title: "Missing information",
+        description: "Please select an organization and enter a template name",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsExporting(true);
+    try {
+      await apiClient.exportCourseToTemplate(course.id, {
+        organizationId: exportFormData.organizationId,
+        name: exportFormData.name.trim(),
+      });
+
+      toast({
+        title: "Template created!",
+        description: `Course has been exported as template "${exportFormData.name}"`,
+      });
+
+      setExportDialogOpen(false);
+      setExportFormData({
+        organizationId: "",
+        name: course?.name || "",
+      });
+    } catch (error: any) {
+      console.error("Error exporting course to template:", error);
+      toast({
+        title: "Error exporting course",
+        description: error.message || "Failed to export course to template",
+        variant: "destructive",
+      });
+    } finally {
+      setIsExporting(false);
     }
   };
 
@@ -515,6 +591,97 @@ const CourseSettingsPage: React.FC<CourseSettingsPageProps> = ({
             </CardContent>
           </Card>
         </div>
+
+        {/* Export to Template Section */}
+        {!course?.is_template && (
+          <div className="pt-6 border-t">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <FileText className="h-5 w-5" />
+                  Export to Template
+                </CardTitle>
+                <CardDescription>
+                  Create a template from this course to share with your organization
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Dialog open={exportDialogOpen} onOpenChange={setExportDialogOpen}>
+                  <DialogTrigger asChild>
+                    <Button variant="outline" className="flex items-center gap-2">
+                      <Download className="h-4 w-4" />
+                      Export Course to Template
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent>
+                    <DialogHeader>
+                      <DialogTitle>Export Course to Template</DialogTitle>
+                      <DialogDescription>
+                        Create a template from this course. All assignments and folders will be copied, but student enrollments and grades will not be included.
+                      </DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-4 py-4">
+                      <div>
+                        <Label htmlFor="export-org">Organization</Label>
+                        <Select
+                          value={exportFormData.organizationId}
+                          onValueChange={(value) =>
+                            setExportFormData((prev) => ({ ...prev, organizationId: value }))
+                          }
+                        >
+                          <SelectTrigger id="export-org">
+                            <SelectValue placeholder="Select an organization" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {loadingOrganizations ? (
+                              <SelectItem value="loading" disabled>Loading...</SelectItem>
+                            ) : organizations.length === 0 ? (
+                              <SelectItem value="none" disabled>No organizations available</SelectItem>
+                            ) : (
+                              organizations.map((org: any) => (
+                                <SelectItem key={org.id} value={org.id}>
+                                  {org.name}
+                                </SelectItem>
+                              ))
+                            )}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div>
+                        <Label htmlFor="export-name">Template Name</Label>
+                        <Input
+                          id="export-name"
+                          value={exportFormData.name}
+                          onChange={(e) =>
+                            setExportFormData((prev) => ({ ...prev, name: e.target.value }))
+                          }
+                          placeholder="Enter template name"
+                        />
+                      </div>
+                    </div>
+                    <DialogFooter>
+                      <Button
+                        variant="outline"
+                        onClick={() => setExportDialogOpen(false)}
+                        disabled={isExporting}
+                      >
+                        Cancel
+                      </Button>
+                      <Button
+                        onClick={handleExportToTemplate}
+                        disabled={isExporting || !exportFormData.organizationId || !exportFormData.name.trim()}
+                        className="flex items-center gap-2"
+                      >
+                        <Download className="h-4 w-4" />
+                        {isExporting ? "Exporting..." : "Export to Template"}
+                      </Button>
+                    </DialogFooter>
+                  </DialogContent>
+                </Dialog>
+              </CardContent>
+            </Card>
+          </div>
+        )}
 
         {/* Action Buttons */}
         <div className="flex justify-between pt-6 border-t">

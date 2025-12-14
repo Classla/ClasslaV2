@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import { supabase } from "./auth";
-import { UserRole } from "../types/enums";
+import { UserRole, OrganizationRole } from "../types/enums";
 import { TAPermissions } from "../types/entities";
 import {
   AuthenticationError,
@@ -17,6 +17,19 @@ export interface CoursePermissions {
   canWrite: boolean;
   canGrade: boolean;
   canManage: boolean;
+}
+
+/**
+ * Interface for organization permissions
+ */
+export interface OrganizationPermissions {
+  canRead: boolean;
+  canCreateTemplates: boolean;
+  canCloneTemplates: boolean;
+  canDeleteOwnTemplates: boolean;
+  canDeleteAnyTemplates: boolean;
+  canManageMembers: boolean;
+  canUpdateOrganization: boolean;
 }
 
 /**
@@ -545,5 +558,382 @@ export const requireOwnershipOrElevated = (userIdParam: string = "userId") => {
         path: req.path,
       },
     });
+  };
+};
+
+/**
+ * Get user's role in a specific organization
+ */
+export const getUserOrganizationRole = async (
+  userId: string,
+  organizationId: string
+): Promise<OrganizationRole | null> => {
+  try {
+    const { data, error } = await supabase
+      .from("organization_memberships")
+      .select("role")
+      .eq("user_id", userId)
+      .eq("organization_id", organizationId)
+      .single();
+
+    if (error || !data) {
+      return null;
+    }
+
+    return data.role as OrganizationRole;
+  } catch (error) {
+    console.error("Error getting user organization role:", error);
+    return null;
+  }
+};
+
+/**
+ * Check if user is an admin of an organization
+ */
+export const isOrganizationAdmin = async (
+  userId: string,
+  organizationId: string
+): Promise<boolean> => {
+  const role = await getUserOrganizationRole(userId, organizationId);
+  return role === OrganizationRole.ADMIN;
+};
+
+/**
+ * Check if user is a member (or admin) of an organization
+ */
+/**
+ * Get the course or template ID from an assignment
+ * Returns { id, isTemplate }
+ */
+export const getAssignmentContext = (assignment: any): { id: string; isTemplate: boolean } => {
+  if (assignment.template_id) {
+    return { id: assignment.template_id, isTemplate: true };
+  }
+  return { id: assignment.course_id, isTemplate: false };
+};
+
+/**
+ * Get the course or template ID from a folder
+ * Returns { id, isTemplate }
+ */
+export const getFolderContext = (folder: any): { id: string; isTemplate: boolean } => {
+  if (folder.template_id) {
+    return { id: folder.template_id, isTemplate: true };
+  }
+  return { id: folder.course_id, isTemplate: false };
+};
+
+/**
+ * Check if user can access a course or template
+ * Returns permissions object and whether it's a template
+ */
+export const checkCourseOrTemplateAccess = async (
+  courseId: string,
+  userId: string,
+  isAdmin: boolean
+): Promise<{ canRead: boolean; isTemplate: boolean; organizationId?: string; permissions?: any }> => {
+  // Check if this is a template
+  const { data: template, error: templateError } = await supabase
+    .from("course_templates")
+    .select("organization_id")
+    .eq("id", courseId)
+    .is("deleted_at", null)
+    .single();
+
+  const isTemplate = !templateError && template !== null;
+
+  if (isTemplate) {
+    // For templates, check organization membership
+    const isMember = await isOrganizationMember(userId, template.organization_id);
+    return {
+      canRead: isMember,
+      isTemplate: true,
+      organizationId: template.organization_id,
+      permissions: isMember ? { canRead: true, canWrite: true, canGrade: false, canManage: true } : undefined,
+    };
+  } else {
+    // For regular courses, check course permissions
+    const permissions = await getCoursePermissions(userId, courseId, isAdmin);
+    return {
+      canRead: permissions.canRead,
+      isTemplate: false,
+      permissions,
+    };
+  }
+};
+
+export const isOrganizationMember = async (
+  userId: string,
+  organizationId: string
+): Promise<boolean> => {
+  const role = await getUserOrganizationRole(userId, organizationId);
+  return role !== null;
+};
+
+/**
+ * Get organization permissions for a user
+ */
+export const getOrganizationPermissions = async (
+  userId: string,
+  organizationId: string
+): Promise<OrganizationPermissions> => {
+  const role = await getUserOrganizationRole(userId, organizationId);
+
+  if (!role) {
+    // Not a member
+    return {
+      canRead: false,
+      canCreateTemplates: false,
+      canCloneTemplates: false,
+      canDeleteOwnTemplates: false,
+      canDeleteAnyTemplates: false,
+      canManageMembers: false,
+      canUpdateOrganization: false,
+    };
+  }
+
+  if (role === OrganizationRole.ADMIN) {
+    // Admins have full access
+    return {
+      canRead: true,
+      canCreateTemplates: true,
+      canCloneTemplates: true,
+      canDeleteOwnTemplates: true,
+      canDeleteAnyTemplates: true,
+      canManageMembers: true,
+      canUpdateOrganization: true,
+    };
+  }
+
+  // Members can create, clone, and delete own templates
+  return {
+    canRead: true,
+    canCreateTemplates: true,
+    canCloneTemplates: true,
+    canDeleteOwnTemplates: true,
+    canDeleteAnyTemplates: false,
+    canManageMembers: false,
+    canUpdateOrganization: false,
+  };
+};
+
+/**
+ * Check if user can delete a specific template
+ * Members can delete their own templates, admins can delete any
+ */
+export const canDeleteTemplate = async (
+  userId: string,
+  templateId: string
+): Promise<boolean> => {
+  try {
+    // Get the template
+    const { data: template, error: templateError } = await supabase
+      .from("course_templates")
+      .select("organization_id, created_by_id")
+      .eq("id", templateId)
+      .is("deleted_at", null)
+      .single();
+
+    if (templateError || !template) {
+      return false;
+    }
+
+    // Check if user is admin of the organization
+    const isAdmin = await isOrganizationAdmin(userId, template.organization_id);
+    if (isAdmin) {
+      return true;
+    }
+
+    // Check if user is the creator (and is a member)
+    const isMember = await isOrganizationMember(userId, template.organization_id);
+    if (isMember && template.created_by_id === userId) {
+      return true;
+    }
+
+    return false;
+  } catch (error) {
+    console.error("Error checking template delete permission:", error);
+    return false;
+  }
+};
+
+/**
+ * Middleware to require organization membership
+ */
+export const requireOrganizationMembership = (
+  organizationIdParam: string = "organizationId"
+) => {
+  return async (
+    req: Request,
+    res: Response,
+    next: NextFunction
+  ): Promise<void> => {
+    if (!req.user) {
+      res.status(401).json({
+        error: {
+          code: "AUTHENTICATION_REQUIRED",
+          message: "Authentication required",
+          timestamp: new Date().toISOString(),
+          path: req.path,
+        },
+      });
+      return;
+    }
+
+    const organizationId =
+      req.params[organizationIdParam] ||
+      req.body.organizationId ||
+      req.body.organization_id ||
+      req.query.organizationId;
+
+    if (!organizationId) {
+      res.status(400).json({
+        error: {
+          code: "MISSING_ORGANIZATION_ID",
+          message: "Organization ID is required",
+          timestamp: new Date().toISOString(),
+          path: req.path,
+        },
+      });
+      return;
+    }
+
+    const { id: userId } = req.user;
+    const isMember = await isOrganizationMember(userId, organizationId);
+
+    if (!isMember) {
+      res.status(403).json({
+        error: {
+          code: "NOT_ORGANIZATION_MEMBER",
+          message: "User is not a member of this organization",
+          timestamp: new Date().toISOString(),
+          path: req.path,
+        },
+      });
+      return;
+    }
+
+    next();
+  };
+};
+
+/**
+ * Middleware to require organization admin role
+ */
+export const requireOrganizationAdmin = (
+  organizationIdParam: string = "organizationId"
+) => {
+  return async (
+    req: Request,
+    res: Response,
+    next: NextFunction
+  ): Promise<void> => {
+    if (!req.user) {
+      res.status(401).json({
+        error: {
+          code: "AUTHENTICATION_REQUIRED",
+          message: "Authentication required",
+          timestamp: new Date().toISOString(),
+          path: req.path,
+        },
+      });
+      return;
+    }
+
+    const organizationId =
+      req.params[organizationIdParam] ||
+      req.body.organizationId ||
+      req.body.organization_id ||
+      req.query.organizationId;
+
+    if (!organizationId) {
+      res.status(400).json({
+        error: {
+          code: "MISSING_ORGANIZATION_ID",
+          message: "Organization ID is required",
+          timestamp: new Date().toISOString(),
+          path: req.path,
+        },
+      });
+      return;
+    }
+
+    const { id: userId } = req.user;
+    const isAdmin = await isOrganizationAdmin(userId, organizationId);
+
+    if (!isAdmin) {
+      res.status(403).json({
+        error: {
+          code: "INSUFFICIENT_ORGANIZATION_PERMISSIONS",
+          message: "Organization admin privileges required",
+          timestamp: new Date().toISOString(),
+          path: req.path,
+        },
+      });
+      return;
+    }
+
+    next();
+  };
+};
+
+/**
+ * Middleware to require specific organization permission
+ */
+export const requireOrganizationPermission = (
+  permission: keyof OrganizationPermissions,
+  organizationIdParam: string = "organizationId"
+) => {
+  return async (
+    req: Request,
+    res: Response,
+    next: NextFunction
+  ): Promise<void> => {
+    if (!req.user) {
+      res.status(401).json({
+        error: {
+          code: "AUTHENTICATION_REQUIRED",
+          message: "Authentication required",
+          timestamp: new Date().toISOString(),
+          path: req.path,
+        },
+      });
+      return;
+    }
+
+    const organizationId =
+      req.params[organizationIdParam] ||
+      req.body.organizationId ||
+      req.body.organization_id ||
+      req.query.organizationId;
+
+    if (!organizationId) {
+      res.status(400).json({
+        error: {
+          code: "MISSING_ORGANIZATION_ID",
+          message: "Organization ID is required",
+          timestamp: new Date().toISOString(),
+          path: req.path,
+        },
+      });
+      return;
+    }
+
+    const { id: userId } = req.user;
+    const permissions = await getOrganizationPermissions(userId, organizationId);
+
+    if (!permissions[permission]) {
+      res.status(403).json({
+        error: {
+          code: "INSUFFICIENT_ORGANIZATION_PERMISSIONS",
+          message: `Required permission: ${permission}`,
+          timestamp: new Date().toISOString(),
+          path: req.path,
+        },
+      });
+      return;
+    }
+
+    next();
   };
 };

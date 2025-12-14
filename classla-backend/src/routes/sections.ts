@@ -4,6 +4,7 @@ import { authenticateToken } from "../middleware/auth";
 import {
   requireCoursePermission,
   getCoursePermissions,
+  isOrganizationMember,
 } from "../middleware/authorization";
 import { Section } from "../types/entities";
 
@@ -54,10 +55,50 @@ const router = Router();
 router.get(
   "/sections/by-course/:courseId",
   authenticateToken,
-  requireCoursePermission("canRead", "courseId"),
   async (req: Request, res: Response): Promise<void> => {
     try {
       const { courseId } = req.params;
+      const { id: userId, isAdmin } = req.user!;
+
+      // Check if this is a template
+      const { data: template, error: templateError } = await supabase
+        .from("course_templates")
+        .select("organization_id")
+        .eq("id", courseId)
+        .is("deleted_at", null)
+        .single();
+
+      const isTemplate = !templateError && template !== null;
+
+      if (isTemplate) {
+        // For templates, check organization membership
+        const isMember = await isOrganizationMember(userId, template.organization_id);
+        if (!isMember) {
+          res.status(403).json({
+            error: {
+              code: "INSUFFICIENT_PERMISSIONS",
+              message: "Not authorized to access sections for this template",
+              timestamp: new Date().toISOString(),
+              path: req.path,
+            },
+          });
+          return;
+        }
+      } else {
+        // For regular courses, check course permissions
+        const permissions = await getCoursePermissions(userId, courseId, isAdmin);
+        if (!permissions.canRead) {
+          res.status(403).json({
+            error: {
+              code: "INSUFFICIENT_PERMISSIONS",
+              message: "Not authorized to access sections for this course",
+              timestamp: new Date().toISOString(),
+              path: req.path,
+            },
+          });
+          return;
+        }
+      }
 
       // Get all sections for the course
       const { data: sections, error: sectionsError } = await supabase

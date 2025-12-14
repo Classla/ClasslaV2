@@ -15,3 +15,9 @@ export enum SubmissionStatus {
   IN_PROGRESS = "in-progress",
   NOT_STARTED = "not-started",
 }
+
+// Organization role enum
+export enum OrganizationRole {
+  ADMIN = "admin",
+  MEMBER = "member",
+}

@@ -116,14 +116,16 @@ router.get(
 
       // Transform the data to include role information with course details
       const coursesWithRoles =
-        enrollments?.map((enrollment) => ({
-          ...enrollment.courses,
-          user_role: enrollment.role,
-          enrolled_at: enrollment.enrolled_at,
-        })) || [];
+        enrollments
+          ?.filter((enrollment) => enrollment.courses) // Filter out null courses
+          .map((enrollment) => ({
+            ...enrollment.courses,
+            user_role: enrollment.role,
+            enrolled_at: enrollment.enrolled_at,
+          })) || [];
 
       // Get student counts for each course
-      const courseIds = coursesWithRoles.map((course) => course.id);
+      const courseIds = coursesWithRoles.map((course: any) => course.id);
       const studentCounts: Record<string, number> = {};
 
       if (courseIds.length > 0) {
@@ -144,7 +146,7 @@ router.get(
       }
 
       // Add student_count to each course
-      const coursesWithStudentCounts = coursesWithRoles.map((course) => ({
+      const coursesWithStudentCounts = coursesWithRoles.map((course: any) => ({
         ...course,
         student_count: studentCounts[course.id] || 0,
       }));

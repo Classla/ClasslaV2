@@ -6,7 +6,9 @@ export const API_ROUTES = {
   ASSIGNMENTS: '/api/assignments',
   SUBMISSIONS: '/api/submissions',
   GRADERS: '/api/graders',
-  RUBRICS: '/api/rubrics'
+  RUBRICS: '/api/rubrics',
+  ORGANIZATIONS: '/api/organizations',
+  COURSE_TEMPLATES: '/api/course-templates'
 } as const;
 
 // Default pagination settings

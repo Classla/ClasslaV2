@@ -37,6 +37,12 @@ const Layout = () => {
                   Dashboard
                 </Link>
                 <Link
+                  to="/templates"
+                  className="text-purple-100 hover:text-white transition-colors duration-200"
+                >
+                  Templates
+                </Link>
+                <Link
                   to="/settings"
                   className="text-purple-100 hover:text-white transition-colors duration-200"
                 >

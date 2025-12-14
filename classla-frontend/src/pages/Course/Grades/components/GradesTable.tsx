@@ -117,8 +117,7 @@ const GradesTable: React.FC<GradesTableProps> = ({
     if (grader) {
       const isReviewed =
         grader.reviewed_at !== null &&
-        grader.reviewed_at !== undefined &&
-        grader.reviewed_at !== "";
+        grader.reviewed_at !== undefined;
 
       if (isReviewed) {
         return (

@@ -36,7 +36,7 @@ const GradebookPage: React.FC<GradebookPageProps> = ({
   // Check if TA has canViewGrades permission
   const canViewGrades = isInstructor && (
     userRole !== UserRole.TEACHING_ASSISTANT ||
-    hasTAPermission(course, user?.id, userRole, "canViewGrades")
+    hasTAPermission(course ?? null, user?.id, userRole, "canViewGrades")
   );
 
   const [selectedSectionId, setSelectedSectionId] = useState<string | null>(

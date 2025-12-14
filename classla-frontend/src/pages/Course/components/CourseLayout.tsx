@@ -51,14 +51,19 @@ const CourseLayout: React.FC<CourseLayoutProps> = ({ children }) => {
 
         setCourse(courseData);
 
-        // Fetch user role in this course
-        try {
-          const roleResponse = await apiClient.getUserRole(courseData.id);
-          setUserRole(roleResponse.data.data.role);
-        } catch (roleError) {
-          console.error("Failed to fetch user role:", roleError);
-          // Set a default role or leave as null - the UI will handle this gracefully
-          setUserRole(null);
+        // If it's a template, set user as instructor (templates don't have enrollments)
+        if (courseData.is_template) {
+          setUserRole(UserRole.INSTRUCTOR);
+        } else {
+          // Fetch user role in this course
+          try {
+            const roleResponse = await apiClient.getUserRole(courseData.id);
+            setUserRole(roleResponse.data.data.role);
+          } catch (roleError) {
+            console.error("Failed to fetch user role:", roleError);
+            // Set a default role or leave as null - the UI will handle this gracefully
+            setUserRole(null);
+          }
         }
       } catch (error: any) {
         console.error("Failed to fetch course data:", error);
@@ -112,15 +117,21 @@ const CourseLayout: React.FC<CourseLayoutProps> = ({ children }) => {
     return hasTAPermission(course, user?.id, userRole, "canCreate");
   }, [isInstructor, userRole, course, user?.id]);
 
+  const isTemplate = course?.is_template === true;
+
   const navigationTabs = [
     { id: "summary", label: "Summary", icon: BookOpen, path: "summary" },
-    {
-      id: "students",
-      label: "Students",
-      icon: Users,
-      path: "students",
-    },
-    ...(isInstructor
+    ...(!isTemplate
+      ? [
+          {
+            id: "students",
+            label: "Students",
+            icon: Users,
+            path: "students",
+          },
+        ]
+      : []),
+    ...(!isTemplate && isInstructor
       ? [
           {
             id: "gradebook",
@@ -129,7 +140,9 @@ const CourseLayout: React.FC<CourseLayoutProps> = ({ children }) => {
             path: "gradebook",
           },
         ]
-      : [{ id: "grades", label: "Grades", icon: BarChart3, path: "grades" }]),
+      : !isTemplate
+      ? [{ id: "grades", label: "Grades", icon: BarChart3, path: "grades" }]
+      : []),
     ...(isInstructor
       ? [
           {

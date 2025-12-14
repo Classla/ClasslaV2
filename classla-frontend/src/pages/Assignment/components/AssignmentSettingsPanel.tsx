@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { HelpCircle, ChevronDown, ChevronRight, Trash2 } from "lucide-react";
+import { HelpCircle, ChevronDown, ChevronRight, Trash2, Copy, ArrowRight } from "lucide-react";
+import { Label } from "../../../components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../../components/ui/select";
 import { Assignment, AssignmentSettings, RubricSchema, Course, UserRole } from "../../../types";
 import { apiClient } from "../../../lib/api";
 import { useToast } from "../../../hooks/use-toast";
@@ -12,6 +14,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  DialogTrigger,
 } from "../../../components/ui/dialog";
 import { useAuth } from "../../../contexts/AuthContext";
 import { hasTAPermission } from "../../../lib/taPermissions";
@@ -42,13 +45,24 @@ const AssignmentSettingsPanel: React.FC<AssignmentSettingsPanelProps> = ({
   const [rubricSchema, setRubricSchema] = useState<RubricSchema | null>(null);
   const [isLoadingRubric, setIsLoadingRubric] = useState(true);
   const [showRubricSection, setShowRubricSection] = useState(false);
+  const [cloneDialogOpen, setCloneDialogOpen] = useState(false);
+  const [isCloning, setIsCloning] = useState(false);
+  const [availableCourses, setAvailableCourses] = useState<any[]>([]);
+  const [loadingCourses, setLoadingCourses] = useState(false);
+  const [cloneTargetCourseId, setCloneTargetCourseId] = useState("");
 
   // Check if TA has delete permission
   const canDelete = useMemo(() => {
     if (!isInstructor) return false;
     if (userRole !== UserRole.TEACHING_ASSISTANT) return true; // Instructors/admins always can delete
-    return hasTAPermission(course, user?.id, userRole, "canDelete");
+    return hasTAPermission(course ?? null, user?.id, userRole, "canDelete");
   }, [isInstructor, userRole, course, user?.id]);
+
+  // Only instructors/admins can clone (not TAs)
+  const canClone = useMemo(() => {
+    if (!isInstructor) return false;
+    return userRole === UserRole.INSTRUCTOR || userRole === UserRole.ADMIN;
+  }, [isInstructor, userRole]);
 
   // Initialize settings with defaults
   const [settings, setSettings] = useState<AssignmentSettings>({
@@ -79,6 +93,70 @@ const AssignmentSettingsPanel: React.FC<AssignmentSettingsPanelProps> = ({
 
     loadRubricSchema();
   }, [assignment.id]);
+
+  // Load courses when clone dialog opens
+  useEffect(() => {
+    if (cloneDialogOpen && availableCourses.length === 0) {
+      loadAvailableCourses();
+    }
+  }, [cloneDialogOpen]);
+
+  const loadAvailableCourses = async () => {
+    if (!user?.id) return;
+    
+    setLoadingCourses(true);
+    try {
+      const response = await apiClient.getUserCourses(user.id);
+      const courses = response.data.data || [];
+      // Filter out the current course and templates
+      const filtered = courses.filter(
+        (c: any) => c.id !== course?.id && !c.is_template && !c.deleted_at
+      );
+      setAvailableCourses(filtered);
+    } catch (error: any) {
+      console.error("Error loading courses:", error);
+      toast({
+        title: "Error loading courses",
+        description: error.message || "Failed to load courses",
+        variant: "destructive",
+      });
+    } finally {
+      setLoadingCourses(false);
+    }
+  };
+
+  const handleCloneToCourse = async () => {
+    if (!cloneTargetCourseId) {
+      toast({
+        title: "Missing information",
+        description: "Please select a target course",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsCloning(true);
+    try {
+      await apiClient.cloneAssignmentToCourse(assignment.id, cloneTargetCourseId);
+
+      toast({
+        title: "Assignment cloned!",
+        description: "Assignment has been cloned to the selected course",
+      });
+
+      setCloneDialogOpen(false);
+      setCloneTargetCourseId("");
+    } catch (error: any) {
+      console.error("Error cloning assignment:", error);
+      toast({
+        title: "Error cloning assignment",
+        description: error.message || "Failed to clone assignment to course",
+        variant: "destructive",
+      });
+    } finally {
+      setIsCloning(false);
+    }
+  };
 
   const handleToggle = async (key: keyof typeof settings) => {
     const newValue = !settings[key];
@@ -380,6 +458,106 @@ const AssignmentSettingsPanel: React.FC<AssignmentSettingsPanelProps> = ({
             </div>
           )}
         </div>
+
+        {/* Clone to Another Course (Instructors/Admins only) */}
+        {canClone && !course?.is_template && (
+          <div className="space-y-2 pt-4 border-t border-gray-200">
+            <div className="flex items-start gap-2">
+              <HelpCircle className="w-4 h-4 text-purple-600 mt-0.5 flex-shrink-0" />
+              <div className="flex-1">
+                <h3 className="text-sm font-medium text-gray-900 mb-1">
+                  Clone to Another Course
+                </h3>
+                <p className="text-xs text-gray-600 mb-3">
+                  Copy this assignment to another course. Student data and grades will not be copied.
+                </p>
+                <Dialog open={cloneDialogOpen} onOpenChange={setCloneDialogOpen}>
+                  <DialogTrigger asChild>
+                    <Button variant="outline" className="w-full flex items-center gap-2">
+                      <Copy className="w-4 h-4" />
+                      Clone to Another Course
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent>
+                    <DialogHeader>
+                      <DialogTitle>Clone Assignment to Course</DialogTitle>
+                      <DialogDescription>
+                        Select a course to clone this assignment to. The assignment will be copied with all content, but student submissions and grades will not be included.
+                      </DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-4 py-4">
+                      <div>
+                        <Label htmlFor="clone-course">Target Course</Label>
+                        <Select
+                          value={cloneTargetCourseId}
+                          onValueChange={setCloneTargetCourseId}
+                        >
+                          <SelectTrigger id="clone-course">
+                            <SelectValue placeholder="Select a course" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {loadingCourses ? (
+                              <SelectItem value="loading" disabled>Loading courses...</SelectItem>
+                            ) : availableCourses.length === 0 ? (
+                              <SelectItem value="none" disabled>No courses available</SelectItem>
+                            ) : (
+                              availableCourses.map((c: any) => (
+                                <SelectItem key={c.id} value={c.id}>
+                                  {c.name}
+                                </SelectItem>
+                              ))
+                            )}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                    <DialogFooter>
+                      <Button
+                        variant="outline"
+                        onClick={() => setCloneDialogOpen(false)}
+                        disabled={isCloning}
+                      >
+                        Cancel
+                      </Button>
+                      <Button
+                        onClick={handleCloneToCourse}
+                        disabled={isCloning || !cloneTargetCourseId}
+                        className="flex items-center gap-2"
+                      >
+                        <ArrowRight className="w-4 h-4" />
+                        {isCloning ? "Cloning..." : "Clone Assignment"}
+                      </Button>
+                    </DialogFooter>
+                  </DialogContent>
+                </Dialog>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Delete Assignment Section */}
+        <div className="space-y-2 pt-4 border-t border-gray-200">
+          <div className="flex items-start gap-2">
+            <HelpCircle className="w-4 h-4 text-purple-600 mt-0.5 flex-shrink-0" />
+            <div className="flex-1">
+              <h3 className="text-sm font-medium text-gray-900 mb-1">
+                Delete Assignment
+              </h3>
+              <p className="text-xs text-gray-500 mb-3">
+                This action cannot be undone. All submissions and grades will be permanently deleted.
+              </p>
+              <Button
+                onClick={handleDeleteAssignment}
+                disabled={isDeleting || !canDelete}
+                variant="destructive"
+                className="w-full"
+              >
+                <Trash2 className="w-4 h-4 mr-2" />
+                Delete Assignment
+              </Button>
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* Save Status */}
@@ -388,22 +566,6 @@ const AssignmentSettingsPanel: React.FC<AssignmentSettingsPanelProps> = ({
           <div className="text-sm text-gray-600 text-center">Saving...</div>
         </div>
       )}
-
-      {/* Delete Assignment Section */}
-      <div className="border-t border-gray-200 p-4">
-        <Button
-          onClick={handleDeleteAssignment}
-          disabled={isDeleting || !canDelete}
-          variant="destructive"
-          className="w-full"
-        >
-          <Trash2 className="w-4 h-4 mr-2" />
-          Delete Assignment
-        </Button>
-        <p className="text-xs text-gray-500 mt-2 text-center">
-          This action cannot be undone. All submissions and grades will be permanently deleted.
-        </p>
-      </div>
 
       {/* Delete Assignment Confirmation Dialog */}
       <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>

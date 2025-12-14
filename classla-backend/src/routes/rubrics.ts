@@ -1,7 +1,11 @@
 import { Router, Request, Response } from "express";
 import { supabase } from "../middleware/auth";
 import { authenticateToken } from "../middleware/auth";
-import { getCoursePermissions } from "../middleware/authorization";
+import {
+  getCoursePermissions,
+  checkCourseOrTemplateAccess,
+  getAssignmentContext,
+} from "../middleware/authorization";
 import { RubricSchema, Rubric, RubricItem } from "../types/entities";
 import {
   CreateRubricSchemaRequest,
@@ -94,7 +98,7 @@ router.get(
       // Get the assignment to check permissions
       const { data: assignment, error: assignmentError } = await supabase
         .from("assignments")
-        .select("course_id")
+        .select("course_id, template_id")
         .eq("id", assignmentId)
         .single();
 
@@ -110,14 +114,17 @@ router.get(
         return;
       }
 
-      // Check course permissions
-      const permissions = await getCoursePermissions(
+      // Get assignment context (course or template)
+      const context = getAssignmentContext(assignment);
+      
+      // Check access (handles both courses and templates)
+      const access = await checkCourseOrTemplateAccess(
+        context.id,
         userId,
-        assignment.course_id,
-        isAdmin
+        isAdmin ?? false
       );
 
-      if (!permissions.canRead) {
+      if (!access.canRead) {
         res.status(403).json({
           error: {
             code: "INSUFFICIENT_PERMISSIONS",
@@ -251,7 +258,7 @@ router.post(
       // Get the assignment to check permissions
       const { data: assignment, error: assignmentError } = await supabase
         .from("assignments")
-        .select("course_id")
+        .select("course_id, template_id")
         .eq("id", assignment_id)
         .single();
 
@@ -267,12 +274,30 @@ router.post(
         return;
       }
 
-      // Check instructor permissions
-      const permissions = await getCoursePermissions(
+      // Get assignment context (course or template)
+      const context = getAssignmentContext(assignment);
+      
+      // Check access (handles both courses and templates)
+      const access = await checkCourseOrTemplateAccess(
+        context.id,
         userId,
-        assignment.course_id,
-        isAdmin
+        isAdmin ?? false
       );
+
+      if (!access.canRead) {
+        res.status(403).json({
+          error: {
+            code: "INSUFFICIENT_PERMISSIONS",
+            message:
+              "Not authorized to create rubric schemas for this assignment",
+            timestamp: new Date().toISOString(),
+            path: req.path,
+          },
+        });
+        return;
+      }
+
+      const permissions = access.permissions || { canRead: true, canWrite: true, canGrade: false, canManage: true };
 
       if (!permissions.canManage && !permissions.canGrade) {
         res.status(403).json({
@@ -374,7 +399,7 @@ router.put(
       // Get the assignment to check permissions
       const { data: assignment, error: assignmentError } = await supabase
         .from("assignments")
-        .select("course_id")
+        .select("course_id, template_id")
         .eq("id", existingSchema.assignment_id)
         .single();
 
@@ -390,12 +415,29 @@ router.put(
         return;
       }
 
-      // Check instructor permissions
-      const permissions = await getCoursePermissions(
+      // Get assignment context (course or template)
+      const context = getAssignmentContext(assignment);
+      
+      // Check access (handles both courses and templates)
+      const access = await checkCourseOrTemplateAccess(
+        context.id,
         userId,
-        assignment.course_id,
-        isAdmin
+        isAdmin ?? false
       );
+
+      if (!access.canRead) {
+        res.status(403).json({
+          error: {
+            code: "INSUFFICIENT_PERMISSIONS",
+            message: "Not authorized to update rubric schemas for this assignment",
+            timestamp: new Date().toISOString(),
+            path: req.path,
+          },
+        });
+        return;
+      }
+
+      const permissions = access.permissions || { canRead: true, canWrite: true, canGrade: false, canManage: true };
 
       if (!permissions.canManage && !permissions.canGrade) {
         res.status(403).json({
@@ -535,7 +577,7 @@ router.delete(
       // Get the assignment to check permissions
       const { data: assignment, error: assignmentError } = await supabase
         .from("assignments")
-        .select("course_id")
+        .select("course_id, template_id")
         .eq("id", existingSchema.assignment_id)
         .single();
 
@@ -551,12 +593,29 @@ router.delete(
         return;
       }
 
-      // Check instructor permissions
-      const permissions = await getCoursePermissions(
+      // Get assignment context (course or template)
+      const context = getAssignmentContext(assignment);
+      
+      // Check access (handles both courses and templates)
+      const access = await checkCourseOrTemplateAccess(
+        context.id,
         userId,
-        assignment.course_id,
-        isAdmin
+        isAdmin ?? false
       );
+
+      if (!access.canRead) {
+        res.status(403).json({
+          error: {
+            code: "INSUFFICIENT_PERMISSIONS",
+            message: "Not authorized to update rubric schemas for this assignment",
+            timestamp: new Date().toISOString(),
+            path: req.path,
+          },
+        });
+        return;
+      }
+
+      const permissions = access.permissions || { canRead: true, canWrite: true, canGrade: false, canManage: true };
 
       if (!permissions.canManage && !permissions.canGrade) {
         res.status(403).json({

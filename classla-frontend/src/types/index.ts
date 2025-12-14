@@ -7,6 +7,12 @@ export enum UserRole {
   AUDIT = "audit",
 }
 
+// Organization role enum
+export enum OrganizationRole {
+  ADMIN = "admin",
+  MEMBER = "member",
+}
+
 // TA Permissions interface
 export interface TAPermissions {
   canCreate: boolean;
@@ -32,6 +38,7 @@ export interface Course {
   created_at: Date;
   deleted_at?: Date;
   student_count?: number; // Number of students enrolled (role = 'student')
+  is_template?: boolean; // Whether this course is a template
 }
 
 // Section entity
@@ -250,6 +257,47 @@ export interface CreateGraderWithSubmissionResponse {
     submission: boolean;
     grader: boolean;
   };
+}
+
+// Organization entity
+export interface Organization {
+  id: string;
+  name: string;
+  slug: string; // Join code (similar to course slugs)
+  created_by_id: string;
+  created_at: Date;
+  updated_at: Date;
+}
+
+// Organization membership entity
+export interface OrganizationMembership {
+  id: string;
+  organization_id: string;
+  user_id: string;
+  role: OrganizationRole;
+  joined_at: Date;
+  users?: {
+    id: string;
+    first_name?: string;
+    last_name?: string;
+    email: string;
+  };
+  organizations?: Organization;
+}
+
+// Course template entity
+export interface CourseTemplate {
+  id: string;
+  name: string;
+  organization_id: string;
+  created_by_id: string;
+  settings: Record<string, any>;
+  thumbnail_url?: string;
+  summary_content?: string;
+  slug?: string;
+  created_at: Date;
+  updated_at: Date;
+  deleted_at?: Date;
 }
 
 // Autograding API types

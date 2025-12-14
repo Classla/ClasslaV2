@@ -301,6 +301,9 @@ export const apiClient = {
     }
   ) => api.put(`/assignment/${id}`, data),
   deleteAssignment: (id: string) => api.delete(`/assignment/${id}`),
+  duplicateAssignment: (id: string) => api.post(`/assignment/${id}/duplicate`),
+  cloneAssignmentToCourse: (id: string, targetCourseId: string) =>
+    api.post(`/assignment/${id}/clone-to-course`, { targetCourseId }),
 
   // Submission endpoints
   getSubmission: (id: string) => api.get(`/submission/${id}`),
@@ -416,6 +419,65 @@ export const apiClient = {
     assignment_id?: string;
     region?: string;
   }) => api.post("/s3buckets", data),
+
+  // Organization endpoints
+  getOrganizations: () => api.get("/organizations"),
+  getOrganization: (id: string) => api.get(`/organization/${id}`),
+  getOrganizationBySlug: (slug: string) =>
+    api.get(`/organization/by-slug/${slug}`),
+  createOrganization: (data: { name: string }) =>
+    api.post("/organization", data),
+  updateOrganization: (
+    id: string,
+    data: {
+      name?: string;
+    }
+  ) => api.put(`/organization/${id}`, data),
+  deleteOrganization: (id: string) => api.delete(`/organization/${id}`),
+  joinOrganization: (data: { slug: string }) =>
+    api.post("/organization/join", data),
+  getOrganizationMembers: (organizationId: string) =>
+    api.get(`/organization/${organizationId}/members`),
+  addOrganizationMember: (
+    organizationId: string,
+    data: { user_id: string; role?: string }
+  ) => api.post(`/organization/${organizationId}/members`, data),
+  updateOrganizationMember: (
+    organizationId: string,
+    userId: string,
+    data: { role: string }
+  ) => api.put(`/organization/${organizationId}/members/${userId}`, data),
+  removeOrganizationMember: (organizationId: string, userId: string) =>
+    api.delete(`/organization/${organizationId}/members/${userId}`),
+
+  // Course template endpoints
+  getTemplates: (organizationId: string) =>
+    api.get(`/organization/${organizationId}/templates`),
+  getTemplate: (id: string) => api.get(`/template/${id}`),
+  createTemplate: (
+    organizationId: string,
+    data: {
+      name: string;
+      settings?: any;
+      thumbnail_url?: string;
+      summary_content?: string;
+      slug?: string;
+    }
+  ) => api.post(`/organization/${organizationId}/templates`, data),
+  updateTemplate: (
+    id: string,
+    data: {
+      name?: string;
+      settings?: any;
+      thumbnail_url?: string;
+      summary_content?: string;
+      slug?: string;
+    }
+  ) => api.put(`/template/${id}`, data),
+  deleteTemplate: (id: string) => api.delete(`/template/${id}`),
+  cloneTemplate: (id: string) => api.post(`/template/${id}/clone`),
+  exportCourseToTemplate: (courseId: string, data: { organizationId: string; name: string }) =>
+    api.post(`/export-to-template/${courseId}`, data),
 };
 
 export default api;

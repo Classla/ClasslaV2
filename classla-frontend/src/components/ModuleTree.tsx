@@ -29,6 +29,7 @@ import {
   Folder as FolderIcon,
   Edit,
   Trash2,
+  Copy,
 } from "lucide-react";
 import { Assignment, Folder, UserRole, Course } from "../types";
 import { hasTAPermission } from "../lib/taPermissions";
@@ -66,19 +67,19 @@ const ModuleTree: React.FC<ModuleTreeProps> = ({ courseId, course, userRole, isI
   const canCreate = useMemo(() => {
     if (!isInstructor) return false;
     if (userRole !== UserRole.TEACHING_ASSISTANT) return true; // Instructors/admins always can create
-    return hasTAPermission(course, user?.id, userRole, "canCreate");
+    return hasTAPermission(course ?? null, user?.id, userRole, "canCreate");
   }, [isInstructor, userRole, course, user?.id]);
 
   const canEdit = useMemo(() => {
     if (!isInstructor) return false;
     if (userRole !== UserRole.TEACHING_ASSISTANT) return true; // Instructors/admins always can edit
-    return hasTAPermission(course, user?.id, userRole, "canEdit");
+    return hasTAPermission(course ?? null, user?.id, userRole, "canEdit");
   }, [isInstructor, userRole, course, user?.id]);
 
   const canDelete = useMemo(() => {
     if (!isInstructor) return false;
     if (userRole !== UserRole.TEACHING_ASSISTANT) return true; // Instructors/admins always can delete
-    return hasTAPermission(course, user?.id, userRole, "canDelete");
+    return hasTAPermission(course ?? null, user?.id, userRole, "canDelete");
   }, [isInstructor, userRole, course, user?.id]);
 
   const [assignments, setAssignments] = useState<Assignment[]>([]);
@@ -460,6 +461,29 @@ const ModuleTree: React.FC<ModuleTreeProps> = ({ courseId, course, userRole, isI
     }
   };
 
+  const handleDuplicateAssignment = async (assignment: Assignment) => {
+    if (!canCreate) return;
+
+    try {
+      const response = await apiClient.duplicateAssignment(assignment.id);
+      const newAssignment = response.data;
+
+      // Update local state
+      setAssignments((prev) => [...prev, newAssignment]);
+
+      toast({
+        title: "Assignment duplicated",
+        description: "Assignment has been duplicated successfully",
+      });
+    } catch (error: any) {
+      toast({
+        title: "Error duplicating assignment",
+        description: error.message || "Failed to duplicate assignment",
+        variant: "destructive",
+      });
+    }
+  };
+
   const handleDeleteAssignment = (assignment: Assignment) => {
     if (!effectiveIsInstructor) return;
     setDeleteAssignmentDialog({ open: true, assignment });
@@ -824,6 +848,24 @@ const ModuleTree: React.FC<ModuleTreeProps> = ({ courseId, course, userRole, isI
                     >
                       <Edit className="w-4 h-4 mr-2" />
                       Rename Assignment
+                    </button>
+                    <button
+                      className={`w-full text-left px-3 py-2 text-sm flex items-center ${
+                        canCreate
+                          ? "hover:bg-gray-100"
+                          : "opacity-50 cursor-not-allowed text-gray-400"
+                      }`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (canCreate) {
+                          handleDuplicateAssignment(assignment);
+                          setContextMenu({ ...contextMenu, show: false });
+                        }
+                      }}
+                      disabled={!canCreate}
+                    >
+                      <Copy className="w-4 h-4 mr-2" />
+                      Duplicate Assignment
                     </button>
                     <button
                       className={`w-full text-left px-3 py-2 text-sm flex items-center ${

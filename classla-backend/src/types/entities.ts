@@ -1,7 +1,7 @@
-import { UserRole, SubmissionStatus } from "./enums";
+import { UserRole, SubmissionStatus, OrganizationRole } from "./enums";
 
 // Re-export enums for convenience
-export { UserRole, SubmissionStatus };
+export { UserRole, SubmissionStatus, OrganizationRole };
 
 // Course entity
 export interface Course {
@@ -148,4 +148,38 @@ export interface TAPermissions {
   canDelete: boolean;
   canViewStudents: boolean;
   canViewGrades: boolean;
+}
+
+// Organization entity
+export interface Organization {
+  id: string;
+  name: string;
+  slug: string; // Join code (similar to course slugs)
+  created_by_id: string;
+  created_at: Date;
+  updated_at: Date;
+}
+
+// Organization membership entity
+export interface OrganizationMembership {
+  id: string;
+  organization_id: string;
+  user_id: string;
+  role: OrganizationRole;
+  joined_at: Date;
+}
+
+// Course template entity
+export interface CourseTemplate {
+  id: string;
+  name: string;
+  organization_id: string;
+  created_by_id: string;
+  settings: Record<string, any>;
+  thumbnail_url?: string;
+  summary_content?: string;
+  slug?: string;
+  created_at: Date;
+  updated_at: Date;
+  deleted_at?: Date;
 }

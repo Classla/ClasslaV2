@@ -86,7 +86,7 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
   const canEdit = useMemo(() => {
     if (!effectiveIsInstructor) return false;
     if (userRole !== UserRole.TEACHING_ASSISTANT) return true; // Instructors/admins always can edit
-    return hasTAPermission(course, user?.id, userRole, "canEdit");
+    return hasTAPermission(course ?? null, user?.id, userRole, "canEdit");
   }, [effectiveIsInstructor, userRole, course, user?.id]);
 
   // Check if user has instructional privileges (can see sidebar)
@@ -417,26 +417,35 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
                     {/* Publishing Status (Instructor/TA with edit permission) */}
                     {canEdit && (
                       <div className="flex items-center space-x-2">
-                        <Users className="w-4 h-4" />
-                        <Popover
-                          trigger={
-                            <button className="text-white hover:text-purple-100 text-sm flex items-center space-x-1">
-                              <span>
-                                Published to{" "}
-                                {assignment.published_to?.length || 0} students
-                              </span>
-                            </button>
-                          }
-                          content={
-                            <PublishedStudentsList assignment={assignment} />
-                          }
-                          className="left-0"
-                        />
+                        {course?.is_template ? (
+                          <div className="flex items-center space-x-1 text-white text-sm">
+                            <Users className="w-4 h-4" />
+                            <span>Course Template Assignment</span>
+                          </div>
+                        ) : (
+                          <>
+                            <Users className="w-4 h-4" />
+                            <Popover
+                              trigger={
+                                <button className="text-white hover:text-purple-100 text-sm flex items-center space-x-1">
+                                  <span>
+                                    Published to{" "}
+                                    {assignment.published_to?.length || 0} students
+                                  </span>
+                                </button>
+                              }
+                              content={
+                                <PublishedStudentsList assignment={assignment} />
+                              }
+                              className="left-0"
+                            />
+                          </>
+                        )}
                       </div>
                     )}
 
                     {/* Due Date and Status (Student view) */}
-                    {effectiveIsStudent && (
+                    {effectiveIsStudent && !course?.is_template && (
                       <div className="flex items-center space-x-4">
                         {userDueDate && (
                           <div className="flex items-center space-x-2">
@@ -466,7 +475,7 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
 
                   <div className="flex flex-col items-end space-y-3">
                     {/* Management Buttons (Instructor/TA with edit permission) */}
-                    {canEdit && (
+                    {canEdit && !course?.is_template && (
                       <div className="flex items-center space-x-3">
                         <Button
                           onClick={handlePublishClick}
@@ -662,17 +671,19 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
       {/* Right Sidebar Strip - Fixed, outside Allotment */}
       {hasInstructionalPrivileges && (
         <div className="w-12 bg-gray-100 border-l border-gray-200 flex flex-col flex-shrink-0">
-          <button
-            onClick={() => toggleSidebarPanel("grader")}
-            className={`w-12 h-12 flex items-center justify-center border-b border-gray-200 transition-colors ${
-              activeSidebarPanel === "grader"
-                ? "bg-purple-100 text-purple-600"
-                : "hover:bg-gray-200 text-gray-600"
-            }`}
-            title="Grader Panel"
-          >
-            <Eye className="w-5 h-5" />
-          </button>
+          {!course?.is_template && (
+            <button
+              onClick={() => toggleSidebarPanel("grader")}
+              className={`w-12 h-12 flex items-center justify-center border-b border-gray-200 transition-colors ${
+                activeSidebarPanel === "grader"
+                  ? "bg-purple-100 text-purple-600"
+                  : "hover:bg-gray-200 text-gray-600"
+              }`}
+              title="Grader Panel"
+            >
+              <Eye className="w-5 h-5" />
+            </button>
+          )}
           {canEdit && (
             <button
               onClick={() => toggleSidebarPanel("settings")}

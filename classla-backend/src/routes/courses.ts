@@ -52,6 +52,7 @@ const router = Router();
 /**
  * GET /course/by-slug/:slug
  * Retrieve course by slug with role-based access control
+ * Also handles template access via template ID as slug
  */
 router.get(
   "/course/by-slug/:slug",
@@ -61,7 +62,7 @@ router.get(
       const { slug } = req.params;
       const { id: userId, isAdmin } = req.user!;
 
-      // First get the course (case-insensitive)
+      // First try to get as a course (case-insensitive)
       const { data: course, error: courseError } = await supabase
         .from("courses")
         .select("*")
@@ -69,7 +70,61 @@ router.get(
         .is("deleted_at", null)
         .single();
 
+      // If not found as course, try as template (using ID)
       if (courseError || !course) {
+        // Check if slug is a UUID (template ID)
+        const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+        if (uuidRegex.test(slug)) {
+          const { data: template, error: templateError } = await supabase
+            .from("course_templates")
+            .select("*")
+            .eq("id", slug)
+            .is("deleted_at", null)
+            .single();
+
+          if (!templateError && template) {
+            // Check if user is a member of the organization
+            const { data: membership } = await supabase
+              .from("organization_memberships")
+              .select("role")
+              .eq("user_id", userId)
+              .eq("organization_id", template.organization_id)
+              .single();
+
+            if (!membership) {
+              res.status(403).json({
+                error: {
+                  code: "NOT_ORGANIZATION_MEMBER",
+                  message: "Not authorized to access this template",
+                  timestamp: new Date().toISOString(),
+                  path: req.path,
+                },
+              });
+              return;
+            }
+
+            // Return template formatted as course
+            const templateAsCourse = {
+              id: template.id,
+              name: template.name,
+              description: undefined,
+              settings: template.settings || {},
+              thumbnail_url: template.thumbnail_url || null,
+              summary_content: template.summary_content || null,
+              slug: template.slug || template.id,
+              created_by_id: template.created_by_id,
+              created_at: template.created_at,
+              deleted_at: template.deleted_at,
+              is_template: true,
+              student_count: 0,
+            };
+
+            res.json(templateAsCourse);
+            return;
+          }
+        }
+
+        // Not found as course or template
         res.status(404).json({
           error: {
             code: "COURSE_NOT_FOUND",
@@ -100,25 +155,41 @@ router.get(
         return;
       }
 
-      // Get student count for this course
-      const { count: studentCount, error: countError } = await supabase
-        .from("course_enrollments")
-        .select("*", { count: "exact", head: true })
-        .eq("course_id", course.id)
-        .eq("role", UserRole.STUDENT);
+      // Check if this course is a template
+      const { data: template, error: templateError } = await supabase
+        .from("course_templates")
+        .select("id")
+        .eq("id", course.id)
+        .is("deleted_at", null)
+        .single();
 
-      if (countError) {
-        console.error("Error counting students:", countError);
-        // Continue with 0 if count fails
+      const isTemplate = !templateError && template !== null;
+
+      // Get student count for this course (only if not a template)
+      let studentCount = 0;
+      if (!isTemplate) {
+        const { count, error: countError } = await supabase
+          .from("course_enrollments")
+          .select("*", { count: "exact", head: true })
+          .eq("course_id", course.id)
+          .eq("role", UserRole.STUDENT);
+
+        if (countError) {
+          console.error("Error counting students:", countError);
+          // Continue with 0 if count fails
+        } else {
+          studentCount = count || 0;
+        }
       }
 
-      // Add student_count to course object
-      const courseWithStudentCount = {
+      // Add student_count and is_template to course object
+      const courseWithMetadata = {
         ...course,
-        student_count: studentCount || 0,
+        student_count: studentCount,
+        is_template: isTemplate,
       };
 
-      res.json(courseWithStudentCount);
+      res.json(courseWithMetadata);
     } catch (error) {
       console.error("Error retrieving course by slug:", error);
       res.status(500).json({
@@ -184,7 +255,23 @@ router.get(
         return;
       }
 
-      res.json(course);
+      // Check if this course is a template
+      const { data: template, error: templateError } = await supabase
+        .from("course_templates")
+        .select("id")
+        .eq("id", course.id)
+        .is("deleted_at", null)
+        .single();
+
+      const isTemplate = !templateError && template !== null;
+
+      // Add is_template to course object
+      const courseWithMetadata = {
+        ...course,
+        is_template: isTemplate,
+      };
+
+      res.json(courseWithMetadata);
     } catch (error) {
       console.error("Error retrieving course by ID:", error);
       res.status(500).json({

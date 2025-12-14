@@ -72,7 +72,7 @@ const StudentsPage: React.FC<StudentsPageProps> = ({
   // Check if TA has canViewStudents permission
   const canViewStudents = isInstructor && (
     userRole !== UserRole.TEACHING_ASSISTANT ||
-    hasTAPermission(course, user?.id, userRole, "canViewStudents")
+    hasTAPermission(course ?? null, user?.id, userRole, "canViewStudents")
   );
 
   useEffect(() => {

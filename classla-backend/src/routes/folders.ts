@@ -5,7 +5,11 @@ import {
   requireCoursePermission,
   getCoursePermissions,
   getUserCourseRole,
+  isOrganizationMember,
+  checkCourseOrTemplateAccess,
+  getFolderContext,
 } from "../middleware/authorization";
+
 import { UserRole } from "../types/enums";
 
 const router = Router();
@@ -22,14 +26,20 @@ router.get(
       const { courseId } = req.params;
       const { id: userId, isAdmin } = req.user!;
 
-      // Check course permissions
-      const permissions = await getCoursePermissions(userId, courseId, isAdmin);
+      // Check access (handles both courses and templates)
+      const access = await checkCourseOrTemplateAccess(
+        courseId,
+        userId,
+        isAdmin ?? false
+      );
 
-      if (!permissions.canRead) {
+      if (!access.canRead) {
         res.status(403).json({
           error: {
             code: "INSUFFICIENT_PERMISSIONS",
-            message: "Not authorized to access folders for this course",
+            message: access.isTemplate
+              ? "Not authorized to access folders for this template"
+              : "Not authorized to access folders for this course",
             timestamp: new Date().toISOString(),
             path: req.path,
           },
@@ -37,31 +47,40 @@ router.get(
         return;
       }
 
-      // Get user's role in the course
-      const userRole = await getUserCourseRole(userId, courseId);
+      // For regular courses, check if user has instructor/TA role
+      if (!access.isTemplate) {
+        const userRole = await getUserCourseRole(userId, courseId);
 
-      // Only instructors, TAs, and admins can see folders
-      if (
-        userRole !== UserRole.INSTRUCTOR &&
-        userRole !== UserRole.TEACHING_ASSISTANT &&
-        !isAdmin
-      ) {
-        res.status(403).json({
-          error: {
-            code: "INSUFFICIENT_PERMISSIONS",
-            message: "Only instructors and TAs can access folder structure",
-            timestamp: new Date().toISOString(),
-            path: req.path,
-          },
-        });
-        return;
+        // Only instructors, TAs, and admins can see folders
+        if (
+          userRole !== UserRole.INSTRUCTOR &&
+          userRole !== UserRole.TEACHING_ASSISTANT &&
+          !isAdmin
+        ) {
+          res.status(403).json({
+            error: {
+              code: "INSUFFICIENT_PERMISSIONS",
+              message: "Only instructors and TAs can access folder structure",
+              timestamp: new Date().toISOString(),
+              path: req.path,
+            },
+          });
+          return;
+        }
       }
 
-      // Get all folders for the course
-      const { data: folders, error: foldersError } = await supabase
+      // Get all folders for the course or template
+      let query = supabase
         .from("folders")
-        .select("*")
-        .eq("course_id", courseId)
+        .select("*");
+      
+      if (access.isTemplate) {
+        query = query.eq("template_id", courseId);
+      } else {
+        query = query.eq("course_id", courseId);
+      }
+      
+      const { data: folders, error: foldersError } = await query
         .order("order_index", { ascending: true });
 
       if (foldersError) {
@@ -90,10 +109,10 @@ router.get(
 router.post(
   "/folder",
   authenticateToken,
-  requireCoursePermission("canManage"),
   async (req: Request, res: Response): Promise<void> => {
     try {
       const { course_id, path, name, order_index } = req.body;
+      const { id: userId, isAdmin } = req.user!;
 
       // Validate required fields
       if (!course_id || !path || !name) {
@@ -101,6 +120,39 @@ router.post(
           error: {
             code: "MISSING_REQUIRED_FIELDS",
             message: "course_id, path, and name are required",
+            timestamp: new Date().toISOString(),
+            path: req.path,
+          },
+        });
+        return;
+      }
+
+      // Check access (handles both courses and templates)
+      const access = await checkCourseOrTemplateAccess(
+        course_id,
+        userId,
+        isAdmin ?? false
+      );
+
+      if (!access.canRead) {
+        res.status(403).json({
+          error: {
+            code: "INSUFFICIENT_PERMISSIONS",
+            message: "Not authorized to create folders",
+            timestamp: new Date().toISOString(),
+            path: req.path,
+          },
+        });
+        return;
+      }
+
+      const permissions = access.permissions || { canRead: true, canWrite: true, canGrade: false, canManage: true };
+
+      if (!permissions.canManage) {
+        res.status(403).json({
+          error: {
+            code: "INSUFFICIENT_COURSE_PERMISSIONS",
+            message: "Required permission: canManage",
             timestamp: new Date().toISOString(),
             path: req.path,
           },
@@ -134,15 +186,25 @@ router.post(
         return;
       }
 
+      // Prepare insert data - use template_id if it's a template, otherwise course_id
+      const insertData: any = {
+        path,
+        name,
+        order_index: order_index || 0,
+      };
+
+      if (access.isTemplate) {
+        insertData.template_id = course_id; // course_id is actually template_id in this case
+        insertData.course_id = null;
+      } else {
+        insertData.course_id = course_id;
+        insertData.template_id = null;
+      }
+
       // Create the folder
       const { data: folder, error: folderError } = await supabase
         .from("folders")
-        .insert({
-          course_id,
-          path,
-          name,
-          order_index: order_index || 0,
-        })
+        .insert(insertData)
         .select()
         .single();
 
@@ -209,12 +271,29 @@ router.put(
         return;
       }
 
-      // Check permissions for the course
-      const permissions = await getCoursePermissions(
+      // Get folder context (course or template)
+      const context = getFolderContext(existingFolder);
+      
+      // Check access (handles both courses and templates)
+      const access = await checkCourseOrTemplateAccess(
+        context.id,
         userId,
-        existingFolder.course_id,
-        isAdmin
+        isAdmin ?? false
       );
+
+      if (!access.canRead) {
+        res.status(403).json({
+          error: {
+            code: "INSUFFICIENT_PERMISSIONS",
+            message: "Not authorized to update this folder",
+            timestamp: new Date().toISOString(),
+            path: req.path,
+          },
+        });
+        return;
+      }
+
+      const permissions = access.permissions || { canRead: true, canWrite: true, canGrade: false, canManage: true };
 
       if (!permissions.canManage) {
         res.status(403).json({
@@ -378,14 +457,17 @@ router.put(
         return;
       }
 
-      // Check permissions for the course
-      const permissions = await getCoursePermissions(
+      // Get folder context (course or template)
+      const context = getFolderContext(existingFolder);
+
+      // Check permissions
+      const access = await checkCourseOrTemplateAccess(
+        context.id,
         userId,
-        existingFolder.course_id,
-        isAdmin
+        isAdmin ?? false
       );
 
-      if (!permissions.canManage) {
+      if (!access.permissions?.canManage) {
         res.status(403).json({
           error: {
             code: "INSUFFICIENT_PERMISSIONS",
@@ -428,10 +510,17 @@ router.put(
       }
 
       // Find and update all nested folders
-      const { data: nestedFolders, error: nestedFoldersError } = await supabase
+      let nestedFoldersQuery = supabase
         .from("folders")
-        .select("*")
-        .eq("course_id", existingFolder.course_id);
+        .select("*");
+      
+      if (context.isTemplate) {
+        nestedFoldersQuery = nestedFoldersQuery.eq("template_id", context.id);
+      } else {
+        nestedFoldersQuery = nestedFoldersQuery.eq("course_id", context.id);
+      }
+      
+      const { data: nestedFolders, error: nestedFoldersError } = await nestedFoldersQuery;
 
       if (nestedFoldersError) {
         throw nestedFoldersError;
@@ -460,11 +549,17 @@ router.put(
       }
 
       // Find and update all nested assignments
-      const { data: nestedAssignments, error: nestedAssignmentsError } =
-        await supabase
-          .from("assignments")
-          .select("*")
-          .eq("course_id", existingFolder.course_id);
+      let nestedAssignmentsQuery = supabase
+        .from("assignments")
+        .select("*");
+      
+      if (context.isTemplate) {
+        nestedAssignmentsQuery = nestedAssignmentsQuery.eq("template_id", context.id);
+      } else {
+        nestedAssignmentsQuery = nestedAssignmentsQuery.eq("course_id", context.id);
+      }
+      
+      const { data: nestedAssignments, error: nestedAssignmentsError } = await nestedAssignmentsQuery;
 
       if (nestedAssignmentsError) {
         throw nestedAssignmentsError;
@@ -523,8 +618,26 @@ router.put(
       const { items } = req.body; // Array of { id, type: 'folder' | 'assignment', order_index }
       const { id: userId, isAdmin } = req.user!;
 
-      // Check permissions for the course
-      const permissions = await getCoursePermissions(userId, courseId, isAdmin);
+      // Check access (handles both courses and templates)
+      const access = await checkCourseOrTemplateAccess(
+        courseId,
+        userId,
+        isAdmin ?? false
+      );
+
+      if (!access.canRead) {
+        res.status(403).json({
+          error: {
+            code: "INSUFFICIENT_PERMISSIONS",
+            message: "Not authorized to reorder items",
+            timestamp: new Date().toISOString(),
+            path: req.path,
+          },
+        });
+        return;
+      }
+
+      const permissions = access.permissions || { canRead: true, canWrite: true, canGrade: false, canManage: true };
 
       if (!permissions.canManage) {
         res.status(403).json({
@@ -554,24 +667,38 @@ router.put(
       // Update folders
       const folderUpdates = items
         .filter((item) => item.type === "folder")
-        .map((item) =>
-          supabase
+        .map((item) => {
+          let query = supabase
             .from("folders")
             .update({ order_index: item.order_index })
-            .eq("id", item.id)
-            .eq("course_id", courseId)
-        );
+            .eq("id", item.id);
+          
+          if (access.isTemplate) {
+            query = query.eq("template_id", courseId);
+          } else {
+            query = query.eq("course_id", courseId);
+          }
+          
+          return query;
+        });
 
       // Update assignments
       const assignmentUpdates = items
         .filter((item) => item.type === "assignment")
-        .map((item) =>
-          supabase
+        .map((item) => {
+          let query = supabase
             .from("assignments")
             .update({ order_index: item.order_index })
-            .eq("id", item.id)
-            .eq("course_id", courseId)
-        );
+            .eq("id", item.id);
+          
+          if (access.isTemplate) {
+            query = query.eq("template_id", courseId);
+          } else {
+            query = query.eq("course_id", courseId);
+          }
+          
+          return query;
+        });
 
       // Execute all updates
       await Promise.all([...folderUpdates, ...assignmentUpdates]);

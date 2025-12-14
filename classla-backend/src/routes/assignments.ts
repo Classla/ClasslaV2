@@ -6,6 +6,9 @@ import {
   getCoursePermissions,
   getUserCourseRole,
   hasTAPermission,
+  isOrganizationMember,
+  getAssignmentContext,
+  checkCourseOrTemplateAccess,
 } from "../middleware/authorization";
 import { UserRole } from "../types/enums";
 import { Assignment } from "../types/entities";
@@ -105,6 +108,7 @@ const filterAssignmentContentForStudent = (content: string): string => {
   }
 };
 
+
 /**
  * Check if user can access assignment based on lockdown settings
  */
@@ -150,14 +154,16 @@ router.get(
       const { courseId } = req.params;
       const { id: userId, isAdmin } = req.user!;
 
-      // Check course permissions
-      const permissions = await getCoursePermissions(userId, courseId, isAdmin);
+      // Check access (handles both courses and templates)
+      const access = await checkCourseOrTemplateAccess(courseId, userId, isAdmin ?? false);
 
-      if (!permissions.canRead) {
+      if (!access.canRead) {
         res.status(403).json({
           error: {
             code: "INSUFFICIENT_PERMISSIONS",
-            message: "Not authorized to access assignments for this course",
+            message: access.isTemplate
+              ? "Not authorized to access assignments for this template"
+              : "Not authorized to access assignments for this course",
             timestamp: new Date().toISOString(),
             path: req.path,
           },
@@ -165,14 +171,26 @@ router.get(
         return;
       }
 
-      // Get user's role in the course
-      const userRole = await getUserCourseRole(userId, courseId);
+      // Get user's role - for templates, treat as instructor
+      let userRole: UserRole;
+      if (access.isTemplate) {
+        userRole = UserRole.INSTRUCTOR;
+      } else {
+        userRole = (await getUserCourseRole(userId, courseId)) || UserRole.STUDENT;
+      }
 
-      // Get all assignments for the course
-      const { data: assignments, error: assignmentsError } = await supabase
+      // Get all assignments for the course or template
+      let query = supabase
         .from("assignments")
-        .select("*")
-        .eq("course_id", courseId)
+        .select("*");
+      
+      if (access.isTemplate) {
+        query = query.eq("template_id", courseId);
+      } else {
+        query = query.eq("course_id", courseId);
+      }
+      
+      const { data: assignments, error: assignmentsError } = await query
         .order("created_at", { ascending: true });
 
       if (assignmentsError) {
@@ -276,8 +294,13 @@ router.get(
         return;
       }
 
-      // Get user's role in the course
-      const userRole = await getUserCourseRole(userId, assignment.course_id);
+      // Get assignment context (course or template)
+      const context = getAssignmentContext(assignment);
+      
+      // Get user's role - for templates, treat as instructor
+      const userRole = context.isTemplate
+        ? UserRole.INSTRUCTOR
+        : (await getUserCourseRole(userId, context.id)) || UserRole.STUDENT;
 
       // For students and audit users, apply content filtering and lockdown checks
       if (userRole === UserRole.STUDENT || userRole === UserRole.AUDIT) {
@@ -353,18 +376,23 @@ router.get(
         return;
       }
 
-      // Check course permissions
-      const permissions = await getCoursePermissions(
+      // Get assignment context (course or template)
+      const context = getAssignmentContext(assignment);
+      
+      // Check access (handles both courses and templates)
+      const access = await checkCourseOrTemplateAccess(
+        context.id,
         userId,
-        assignment.course_id,
-        isAdmin
+        isAdmin ?? false
       );
 
-      if (!permissions.canRead) {
+      if (!access.canRead) {
         res.status(403).json({
           error: {
             code: "INSUFFICIENT_PERMISSIONS",
-            message: "Not authorized to access this assignment",
+            message: access.isTemplate
+              ? "Not authorized to access this assignment in template"
+              : "Not authorized to access this assignment",
             timestamp: new Date().toISOString(),
             path: req.path,
           },
@@ -372,8 +400,10 @@ router.get(
         return;
       }
 
-      // Get user's role in the course
-      const userRole = await getUserCourseRole(userId, assignment.course_id);
+      // Get user's role - for templates, treat as instructor
+      const userRole = access.isTemplate
+        ? UserRole.INSTRUCTOR
+        : (await getUserCourseRole(userId, context.id)) || UserRole.STUDENT;
 
       // Only instructors, TAs, and admins get full content through this endpoint
       if (
@@ -431,9 +461,29 @@ router.post(
       } = req.body;
       const { id: userId, isAdmin } = req.user!;
 
-      // Check permissions - instructors/admins can always create, TAs need canCreate permission
-      const permissions = await getCoursePermissions(userId, course_id, isAdmin);
-      const userRole = await getUserCourseRole(userId, course_id);
+      // Check access (handles both courses and templates)
+      const access = await checkCourseOrTemplateAccess(course_id, userId, isAdmin ?? false);
+      
+      if (!access.canRead) {
+        res.status(403).json({
+          error: {
+            code: "INSUFFICIENT_PERMISSIONS",
+            message: access.isTemplate
+              ? "Not authorized to create assignments in this template"
+              : "Not authorized to create assignments in this course",
+            timestamp: new Date().toISOString(),
+            path: req.path,
+          },
+        });
+        return;
+      }
+
+      // Get user's role - for templates, treat as instructor
+      const userRole = access.isTemplate
+        ? UserRole.INSTRUCTOR
+        : (await getUserCourseRole(userId, course_id)) || UserRole.STUDENT;
+      
+      const permissions = access.permissions || { canRead: true, canWrite: true, canGrade: false, canManage: true };
 
       console.log(`[POST /assignment] Permission check:`, {
         userId,
@@ -441,9 +491,10 @@ router.post(
         userRole,
         isAdmin,
         permissions,
+        isTemplate: access.isTemplate,
       });
 
-      if (userRole === UserRole.TEACHING_ASSISTANT) {
+      if (userRole === UserRole.TEACHING_ASSISTANT && !access.isTemplate) {
         const canCreate = await hasTAPermission(userId, course_id, "canCreate");
         console.log(`[POST /assignment] TA canCreate check:`, { canCreate });
         if (!canCreate) {
@@ -500,10 +551,12 @@ router.post(
       }
 
       // Validate published_to sections exist if provided
+      // For templates, skip section validation (templates don't have sections)
       if (
         published_to &&
         Array.isArray(published_to) &&
-        published_to.length > 0
+        published_to.length > 0 &&
+        !access.isTemplate
       ) {
         const { data: sections, error: sectionsError } = await supabase
           .from("sections")
@@ -539,20 +592,30 @@ router.post(
         ...settings, // Allow override from request
       };
 
+      // Prepare insert data - use template_id if it's a template, otherwise course_id
+      const insertData: any = {
+        name,
+        settings: defaultSettings,
+        content: content || "",
+        published_to: published_to || [],
+        due_dates_map: due_dates_map || {},
+        module_path: module_path || [],
+        is_lockdown: is_lockdown || false,
+        lockdown_time_map: lockdown_time_map || {},
+        order_index: order_index || 0,
+      };
+
+      if (access.isTemplate) {
+        insertData.template_id = course_id; // course_id is actually template_id in this case
+        insertData.course_id = null;
+      } else {
+        insertData.course_id = course_id;
+        insertData.template_id = null;
+      }
+
       const { data: assignment, error: assignmentError } = await supabase
         .from("assignments")
-        .insert({
-          name,
-          course_id,
-          settings: defaultSettings,
-          content: content || "",
-          published_to: published_to || [],
-          due_dates_map: due_dates_map || {},
-          module_path: module_path || [],
-          is_lockdown: is_lockdown || false,
-          lockdown_time_map: lockdown_time_map || {},
-          order_index: order_index || 0,
-        })
+        .insert(insertData)
         .select()
         .single();
 
@@ -618,19 +681,38 @@ router.put(
         return;
       }
 
-      // Check permissions for the course
-      const permissions = await getCoursePermissions(
+      // Get assignment context (course or template)
+      const context = getAssignmentContext(existingAssignment);
+      
+      // Check access (handles both courses and templates)
+      const access = await checkCourseOrTemplateAccess(
+        context.id,
         userId,
-        existingAssignment.course_id,
-        isAdmin
+        isAdmin ?? false
       );
 
-      // Get user's role in the course
-      const userRole = await getUserCourseRole(userId, existingAssignment.course_id);
+      if (!access.canRead) {
+        res.status(403).json({
+          error: {
+            code: "INSUFFICIENT_PERMISSIONS",
+            message: access.isTemplate
+              ? "Not authorized to edit this assignment in template"
+              : "Not authorized to edit this assignment",
+            timestamp: new Date().toISOString(),
+            path: req.path,
+          },
+        });
+        return;
+      }
+
+      // Get user's role - for templates, treat as instructor
+      const userRole = access.isTemplate
+        ? UserRole.INSTRUCTOR
+        : (await getUserCourseRole(userId, context.id)) || UserRole.STUDENT;
 
       // Check permissions - instructors/admins can always edit, TAs need canEdit permission
-      if (userRole === UserRole.TEACHING_ASSISTANT) {
-        const canEdit = await hasTAPermission(userId, existingAssignment.course_id, "canEdit");
+      if (userRole === UserRole.TEACHING_ASSISTANT && !access.isTemplate) {
+        const canEdit = await hasTAPermission(userId, context.id, "canEdit");
         if (!canEdit) {
           res.status(403).json({
             error: {
@@ -642,7 +724,7 @@ router.put(
           });
           return;
         }
-      } else if (!permissions.canManage && !isAdmin) {
+      } else if (!access.permissions?.canManage && !isAdmin) {
         res.status(403).json({
           error: {
             code: "INSUFFICIENT_PERMISSIONS",
@@ -686,10 +768,12 @@ router.put(
           throw sectionsError;
         }
 
-        // Check if all sections belong to the same course
-        const invalidSections = sections?.filter(
-          (section) => section.course_id !== existingAssignment.course_id
-        );
+        // Check if all sections belong to the same course/template
+        // For templates, skip section validation (templates don't have sections)
+        const context = getAssignmentContext(existingAssignment);
+        const invalidSections = context.isTemplate
+          ? []
+          : sections?.filter((section) => section.course_id !== context.id) || [];
         if (invalidSections && invalidSections.length > 0) {
           res.status(400).json({
             error: {
@@ -776,19 +860,38 @@ router.delete(
         return;
       }
 
-      // Check permissions for the course
-      const permissions = await getCoursePermissions(
+      // Get assignment context (course or template)
+      const context = getAssignmentContext(existingAssignment);
+      
+      // Check access (handles both courses and templates)
+      const access = await checkCourseOrTemplateAccess(
+        context.id,
         userId,
-        existingAssignment.course_id,
-        isAdmin
+        isAdmin ?? false
       );
 
-      // Get user's role in the course
-      const userRole = await getUserCourseRole(userId, existingAssignment.course_id);
+      if (!access.canRead) {
+        res.status(403).json({
+          error: {
+            code: "INSUFFICIENT_PERMISSIONS",
+            message: access.isTemplate
+              ? "Not authorized to delete this assignment in template"
+              : "Not authorized to delete this assignment",
+            timestamp: new Date().toISOString(),
+            path: req.path,
+          },
+        });
+        return;
+      }
+
+      // Get user's role - for templates, treat as instructor
+      const userRole = access.isTemplate
+        ? UserRole.INSTRUCTOR
+        : (await getUserCourseRole(userId, context.id)) || UserRole.STUDENT;
 
       // Check permissions - instructors/admins can always delete, TAs need canDelete permission
-      if (userRole === UserRole.TEACHING_ASSISTANT) {
-        const canDelete = await hasTAPermission(userId, existingAssignment.course_id, "canDelete");
+      if (userRole === UserRole.TEACHING_ASSISTANT && !access.isTemplate) {
+        const canDelete = await hasTAPermission(userId, context.id, "canDelete");
         if (!canDelete) {
           res.status(403).json({
             error: {
@@ -800,7 +903,7 @@ router.delete(
           });
           return;
         }
-      } else if (!permissions.canManage && !isAdmin) {
+      } else if (!access.permissions?.canManage && !isAdmin) {
         res.status(403).json({
           error: {
             code: "INSUFFICIENT_PERMISSIONS",
@@ -973,12 +1076,31 @@ router.put(
         return;
       }
 
-      // Check permissions - only instructors/TAs/admins can set due dates
-      const permissions = await getCoursePermissions(
+      // Get assignment context (course or template)
+      const context = getAssignmentContext(assignment);
+      
+      // Check access (handles both courses and templates)
+      const access = await checkCourseOrTemplateAccess(
+        context.id,
         currentUserId,
-        assignment.course_id,
-        isAdmin
+        isAdmin ?? false
       );
+
+      if (!access.canRead) {
+        res.status(403).json({
+          error: {
+            code: "INSUFFICIENT_PERMISSIONS",
+            message: access.isTemplate
+              ? "Not authorized to set due dates for this assignment in template"
+              : "Not authorized to set due dates for this assignment",
+            timestamp: new Date().toISOString(),
+            path: req.path,
+          },
+        });
+        return;
+      }
+
+      const permissions = access.permissions || { canRead: true, canWrite: true, canGrade: false, canManage: true };
 
       if (!permissions.canManage && !permissions.canGrade) {
         res.status(403).json({
@@ -1200,12 +1322,31 @@ router.put(
         return;
       }
 
-      // Check permissions - only instructors/TAs/admins can set lockdown times
-      const permissions = await getCoursePermissions(
+      // Get assignment context (course or template)
+      const context = getAssignmentContext(assignment);
+      
+      // Check access (handles both courses and templates)
+      const access = await checkCourseOrTemplateAccess(
+        context.id,
         currentUserId,
-        assignment.course_id,
-        isAdmin
+        isAdmin ?? false
       );
+
+      if (!access.canRead) {
+        res.status(403).json({
+          error: {
+            code: "INSUFFICIENT_PERMISSIONS",
+            message: access.isTemplate
+              ? "Not authorized to set lockdown times for this assignment in template"
+              : "Not authorized to set lockdown times for this assignment",
+            timestamp: new Date().toISOString(),
+            path: req.path,
+          },
+        });
+        return;
+      }
+
+      const permissions = access.permissions || { canRead: true, canWrite: true, canGrade: false, canManage: true };
 
       if (!permissions.canManage && !permissions.canGrade) {
         res.status(403).json({
@@ -1262,6 +1403,298 @@ router.put(
         error: {
           code: "INTERNAL_SERVER_ERROR",
           message: "Failed to set lockdown time",
+          timestamp: new Date().toISOString(),
+          path: req.path,
+        },
+      });
+    }
+  }
+);
+
+/**
+ * POST /assignment/:id/duplicate
+ * Duplicate assignment within the same course/template
+ */
+router.post(
+  "/assignment/:id/duplicate",
+  authenticateToken,
+  async (req: Request, res: Response): Promise<void> => {
+    try {
+      const { id } = req.params;
+      const { id: userId, isAdmin } = req.user!;
+
+      // Get the existing assignment
+      const { data: existingAssignment, error: assignmentError } = await supabase
+        .from("assignments")
+        .select("course_id, template_id, name, settings, content, module_path, is_lockdown, order_index")
+        .eq("id", id)
+        .single();
+
+      if (assignmentError || !existingAssignment) {
+        res.status(404).json({
+          error: {
+            code: "ASSIGNMENT_NOT_FOUND",
+            message: "Assignment not found",
+            timestamp: new Date().toISOString(),
+            path: req.path,
+          },
+        });
+        return;
+      }
+
+      // Get assignment context (course or template)
+      const context = getAssignmentContext(existingAssignment);
+      
+      // Check access (handles both courses and templates)
+      const access = await checkCourseOrTemplateAccess(
+        context.id,
+        userId,
+        isAdmin ?? false
+      );
+
+      if (!access.canRead) {
+        res.status(403).json({
+          error: {
+            code: "INSUFFICIENT_PERMISSIONS",
+            message: "Not authorized to duplicate this assignment",
+            timestamp: new Date().toISOString(),
+            path: req.path,
+          },
+        });
+        return;
+      }
+
+      const permissions = access.permissions || { canRead: true, canWrite: true, canGrade: false, canManage: true };
+
+      // Check if user can create assignments
+      if (!permissions.canManage && !isAdmin) {
+        res.status(403).json({
+          error: {
+            code: "INSUFFICIENT_PERMISSIONS",
+            message: "Not authorized to create assignments",
+            timestamp: new Date().toISOString(),
+            path: req.path,
+          },
+        });
+        return;
+      }
+
+      // Create duplicate assignment
+      const insertData: any = {
+        name: `${existingAssignment.name} (Copy)`,
+        settings: existingAssignment.settings || {},
+        content: existingAssignment.content || "",
+        published_to: [], // Don't copy published_to
+        due_dates_map: {}, // Don't copy due dates
+        module_path: existingAssignment.module_path || [],
+        is_lockdown: existingAssignment.is_lockdown || false,
+        lockdown_time_map: {}, // Don't copy lockdown times
+        order_index: (existingAssignment.order_index || 0) + 1, // Place after original
+      };
+
+      if (context.isTemplate) {
+        insertData.template_id = context.id;
+        insertData.course_id = null;
+      } else {
+        insertData.course_id = context.id;
+        insertData.template_id = null;
+      }
+
+      const { data: newAssignment, error: createError } = await supabase
+        .from("assignments")
+        .insert(insertData)
+        .select()
+        .single();
+
+      if (createError) {
+        throw createError;
+      }
+
+      res.status(201).json(newAssignment);
+    } catch (error) {
+      console.error("Error duplicating assignment:", error);
+      res.status(500).json({
+        error: {
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Failed to duplicate assignment",
+          timestamp: new Date().toISOString(),
+          path: req.path,
+        },
+      });
+    }
+  }
+);
+
+/**
+ * POST /assignment/:id/clone-to-course
+ * Clone assignment to another course
+ */
+router.post(
+  "/assignment/:id/clone-to-course",
+  authenticateToken,
+  async (req: Request, res: Response): Promise<void> => {
+    try {
+      const { id } = req.params;
+      const { targetCourseId } = req.body;
+      const { id: userId, isAdmin } = req.user!;
+
+      if (!targetCourseId) {
+        res.status(400).json({
+          error: {
+            code: "MISSING_REQUIRED_FIELDS",
+            message: "targetCourseId is required",
+            timestamp: new Date().toISOString(),
+            path: req.path,
+          },
+        });
+        return;
+      }
+
+      // Get the existing assignment
+      const { data: existingAssignment, error: assignmentError } = await supabase
+        .from("assignments")
+        .select("course_id, template_id, name, settings, content, module_path, is_lockdown, order_index")
+        .eq("id", id)
+        .single();
+
+      if (assignmentError || !existingAssignment) {
+        res.status(404).json({
+          error: {
+            code: "ASSIGNMENT_NOT_FOUND",
+            message: "Assignment not found",
+            timestamp: new Date().toISOString(),
+            path: req.path,
+          },
+        });
+        return;
+      }
+
+      // Get assignment context (course or template)
+      const sourceContext = getAssignmentContext(existingAssignment);
+      
+      // Check access to source (handles both courses and templates)
+      const sourceAccess = await checkCourseOrTemplateAccess(
+        sourceContext.id,
+        userId,
+        isAdmin ?? false
+      );
+
+      if (!sourceAccess.canRead) {
+        res.status(403).json({
+          error: {
+            code: "INSUFFICIENT_PERMISSIONS",
+            message: "Not authorized to access source assignment",
+            timestamp: new Date().toISOString(),
+            path: req.path,
+          },
+        });
+        return;
+      }
+
+      // Only instructors/admins can clone (not TAs)
+      const sourcePermissions = sourceAccess.permissions || { canRead: true, canWrite: true, canGrade: false, canManage: true };
+      if (!sourcePermissions.canManage && !isAdmin) {
+        res.status(403).json({
+          error: {
+            code: "INSUFFICIENT_PERMISSIONS",
+            message: "Only instructors and admins can clone assignments",
+            timestamp: new Date().toISOString(),
+            path: req.path,
+          },
+        });
+        return;
+      }
+
+      // Check access to target course
+      const targetAccess = await checkCourseOrTemplateAccess(
+        targetCourseId,
+        userId,
+        isAdmin ?? false
+      );
+
+      if (!targetAccess.canRead) {
+        res.status(403).json({
+          error: {
+            code: "INSUFFICIENT_PERMISSIONS",
+            message: "Not authorized to access target course",
+            timestamp: new Date().toISOString(),
+            path: req.path,
+          },
+        });
+        return;
+      }
+
+      // For target course, check if user has create permission
+      // TAs can clone TO a course if they have canCreate permission
+      if (!targetAccess.isTemplate) {
+        const targetUserRole = await getUserCourseRole(userId, targetCourseId);
+        
+        if (targetUserRole === UserRole.TEACHING_ASSISTANT) {
+          const canCreate = await hasTAPermission(userId, targetCourseId, "canCreate");
+          if (!canCreate) {
+            res.status(403).json({
+              error: {
+                code: "INSUFFICIENT_PERMISSIONS",
+                message: "Not authorized to create assignments in target course",
+                timestamp: new Date().toISOString(),
+                path: req.path,
+              },
+            });
+            return;
+          }
+        } else if (targetUserRole !== UserRole.INSTRUCTOR && !isAdmin) {
+          // Only instructors/admins/TAs with canCreate can clone to a course
+          res.status(403).json({
+            error: {
+              code: "INSUFFICIENT_PERMISSIONS",
+              message: "Not authorized to create assignments in target course",
+              timestamp: new Date().toISOString(),
+              path: req.path,
+            },
+          });
+          return;
+        }
+      }
+      // For templates, organization membership is already checked by checkCourseOrTemplateAccess
+
+      // Create cloned assignment in target course
+      const insertData: any = {
+        name: existingAssignment.name,
+        settings: existingAssignment.settings || {},
+        content: existingAssignment.content || "",
+        published_to: [], // Don't copy published_to
+        due_dates_map: {}, // Don't copy due dates
+        module_path: existingAssignment.module_path || [],
+        is_lockdown: existingAssignment.is_lockdown || false,
+        lockdown_time_map: {}, // Don't copy lockdown times
+        order_index: existingAssignment.order_index || 0,
+      };
+
+      if (targetAccess.isTemplate) {
+        insertData.template_id = targetCourseId;
+        insertData.course_id = null;
+      } else {
+        insertData.course_id = targetCourseId;
+        insertData.template_id = null;
+      }
+
+      const { data: newAssignment, error: createError } = await supabase
+        .from("assignments")
+        .insert(insertData)
+        .select()
+        .single();
+
+      if (createError) {
+        throw createError;
+      }
+
+      res.status(201).json(newAssignment);
+    } catch (error) {
+      console.error("Error cloning assignment to course:", error);
+      res.status(500).json({
+        error: {
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Failed to clone assignment to course",
           timestamp: new Date().toISOString(),
           path: req.path,
         },
