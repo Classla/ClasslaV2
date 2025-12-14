@@ -48,7 +48,9 @@ const CourseSummaryPage: React.FC<CourseSummaryPageProps> = ({
               <h1 className="text-3xl font-bold">{course.name}</h1>
               <div className="flex items-center space-x-2">
                 <Users className="w-5 h-5" />
-                <span className="text-lg font-semibold">1</span>
+                <span className="text-lg font-semibold">
+                  {course.student_count ?? 0}
+                </span>
               </div>
             </div>
 

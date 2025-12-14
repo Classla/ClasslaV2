@@ -100,7 +100,25 @@ router.get(
         return;
       }
 
-      res.json(course);
+      // Get student count for this course
+      const { count: studentCount, error: countError } = await supabase
+        .from("course_enrollments")
+        .select("*", { count: "exact", head: true })
+        .eq("course_id", course.id)
+        .eq("role", UserRole.STUDENT);
+
+      if (countError) {
+        console.error("Error counting students:", countError);
+        // Continue with 0 if count fails
+      }
+
+      // Add student_count to course object
+      const courseWithStudentCount = {
+        ...course,
+        student_count: studentCount || 0,
+      };
+
+      res.json(courseWithStudentCount);
     } catch (error) {
       console.error("Error retrieving course by slug:", error);
       res.status(500).json({

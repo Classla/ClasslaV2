@@ -122,8 +122,35 @@ router.get(
           enrolled_at: enrollment.enrolled_at,
         })) || [];
 
+      // Get student counts for each course
+      const courseIds = coursesWithRoles.map((course) => course.id);
+      const studentCounts: Record<string, number> = {};
+
+      if (courseIds.length > 0) {
+        // Count students (role = 'student') for each course
+        const { data: studentEnrollments, error: countError } = await supabase
+          .from("course_enrollments")
+          .select("course_id")
+          .in("course_id", courseIds)
+          .eq("role", UserRole.STUDENT);
+
+        if (!countError && studentEnrollments) {
+          // Count students per course
+          studentEnrollments.forEach((enrollment) => {
+            const courseId = enrollment.course_id;
+            studentCounts[courseId] = (studentCounts[courseId] || 0) + 1;
+          });
+        }
+      }
+
+      // Add student_count to each course
+      const coursesWithStudentCounts = coursesWithRoles.map((course) => ({
+        ...course,
+        student_count: studentCounts[course.id] || 0,
+      }));
+
       const response: ApiResponse<any[]> = {
-        data: coursesWithRoles,
+        data: coursesWithStudentCounts,
         success: true,
       };
 

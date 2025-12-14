@@ -31,6 +31,7 @@ export interface Course {
   created_by_id: string; // user_id of creator
   created_at: Date;
   deleted_at?: Date;
+  student_count?: number; // Number of students enrolled (role = 'student')
 }
 
 // Section entity

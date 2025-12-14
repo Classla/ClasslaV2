@@ -68,7 +68,7 @@ const Dashboard: React.FC = () => {
           name: course.name,
           description: course.description || "",
           join_code: course.slug,
-          student_count: 0, // We'll need to add this to the backend response later
+          student_count: course.student_count || 0,
           thumbnail_url: course.thumbnail_url,
         }));
 
@@ -111,7 +111,7 @@ const Dashboard: React.FC = () => {
         name: response.data.name,
         description: response.data.description || "",
         join_code: response.data.slug,
-        student_count: 0,
+        student_count: response.data.student_count || 0,
         thumbnail_url: response.data.thumbnail_url,
       };
 
@@ -148,7 +148,7 @@ const Dashboard: React.FC = () => {
         name: response.data.course.name,
         description: response.data.course.description || "",
         join_code: response.data.course.slug,
-        student_count: 0,
+        student_count: response.data.course.student_count || 0,
         thumbnail_url: response.data.course.thumbnail_url,
       };
 
@@ -486,7 +486,9 @@ const Dashboard: React.FC = () => {
               <CardFooter className="pt-0">
                 <div className="flex items-center text-sm text-gray-500">
                   <Users className="w-4 h-4 mr-1" />
-                  <span>{course.student_count} students</span>
+                  <span>
+                    {course.student_count} {course.student_count === 1 ? "student" : "students"}
+                  </span>
                 </div>
               </CardFooter>
             </Card>
