@@ -3,6 +3,21 @@ import { asyncHandler } from "../middleware/errorHandler";
 
 const router = express.Router();
 
+// Types for IDE API responses
+interface ContainerResponse {
+  id: string;
+  status: string;
+  urls?: {
+    ide?: string;
+    [key: string]: string | undefined;
+  };
+  message?: string;
+  error?: {
+    message?: string;
+    [key: string]: unknown;
+  };
+}
+
 // IDE orchestration API base URL
 const IDE_API_BASE_URL =
   process.env.IDE_API_BASE_URL || "https://ide.classla.org/api";
@@ -58,7 +73,7 @@ router.post(
 
       clearTimeout(timeoutId);
 
-      const data = await response.json();
+      const data = (await response.json()) as ContainerResponse;
 
       if (!response.ok) {
         return res.status(response.status || 500).json({
@@ -147,7 +162,7 @@ router.get(
       }
 
       if (!response.ok) {
-        const data = await response.json();
+        const data = (await response.json()) as ContainerResponse;
         return res.status(response.status || 500).json({
           error: {
             code: "CONTAINER_CHECK_FAILED",
@@ -160,7 +175,7 @@ router.get(
         });
       }
 
-      const data = await response.json();
+      const data = (await response.json()) as ContainerResponse;
 
       // Return the container info
       return res.json({

@@ -201,7 +201,7 @@ router.get(
       // Get the submission to check permissions
       const { data: submission, error: submissionError } = await supabase
         .from("submissions")
-        .select("student_id, course_id")
+        .select("student_id, course_id, assignment_id")
         .eq("id", submissionId)
         .single();
 
