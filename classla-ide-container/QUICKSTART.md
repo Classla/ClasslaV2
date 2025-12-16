@@ -1,475 +1,117 @@
 # Quick Start Guide
 
-Get up and running in 5 minutes with passwordless access and auto-scaling VNC!
+Get the IDE container orchestration system running in minutes.
 
-## 1. Build the Image
+## Local Development
+
+### 1. Setup
 
 ```bash
-# For M1/M2 Mac (ARM)
-docker build --platform linux/arm64 -t fargate-dev-container .
-
-# For Intel Mac/Linux (x86)
-docker build -t fargate-dev-container .
-
-# OR use Make
-make build
+cd orchestration
+./scripts/setup-local.sh
 ```
 
-## 2. Run Locally (Simple Test)
+This will:
+- Initialize Docker Swarm
+- Create overlay network
+- Deploy Traefik for localhost
+- Create `.env` file template
+
+### 2. Build IDE Container
 
 ```bash
-# Basic run - no passwords needed for code-server!
-docker run -d \
-  -p 8080:8080 \
-  -p 6080:6080 \
-  -p 3000:3000 \
-  -e VNC_PASSWORD=myvnc123 \
-  -e ENABLE_INACTIVITY_SHUTDOWN=false \
-  --name dev-container \
-  fargate-dev-container
-
-# OR use Make
-make run VNC_PASSWORD=myvnc123
+cd ..
+docker build -t classla-ide-container:latest .
 ```
 
-**Note:** Includes Python 3.10, Node.js 18, and Java 17 out of the box!
-
-## 3. Access Your Environment
-
-**Optimized startup**: Containers are accessible in **<5 seconds** (production deployment).
-
-Wait 10-15 seconds for services to start (local testing), then open:
-
-- **VS Code (code-server):** http://localhost:8080
-  - Opens instantly, no password required! ✨
-- **GUI Desktop (noVNC):** http://localhost:6080
-  - Auto-connects and scales to your browser window! ✨
-- **Run Server API:** http://localhost:3000
-  - POST to `/run` to execute code remotely! ✨
-
-## 4. Test It Out
-
-### Test Code-Server
-
-1. Open http://localhost:8080 (loads immediately, no login)
-2. Create a new file: `/workspace/test.py`
-3. Write some Python code and run it in the terminal
-
-### Test GUI Applications
-
-1. Open http://localhost:6080 (auto-connects to desktop)
-2. Open a terminal (right-click desktop → Terminal)
-3. Run a GUI test:
+### 3. Start API
 
 ```bash
-export DISPLAY=:1
-python3 << 'EOF'
-import tkinter as tk
-root = tk.Tk()
-root.title("It Works!")
-tk.Label(root, text="Hello from your dev container!").pack(pady=20)
-tk.Button(root, text="Close", command=root.quit).pack()
-root.mainloop()
-EOF
+cd orchestration
+npm install
+npm start
 ```
 
-### Test VNC Auto-Scaling
+The queue maintainer will automatically spawn 10 pre-warmed containers in the background.
 
-1. With http://localhost:6080 open, resize your browser window
-2. The VNC desktop automatically scales to fit! ✨
-3. No scrollbars needed - perfect fit every time
-
-### Test Run Server API
-
-The Run Server allows you to remotely execute code in a tmux terminal session:
-
-**Setup:**
-
-1. Open VS Code at http://localhost:8080
-2. Open a terminal in VS Code (Terminal → New Terminal)
-3. **The terminal automatically attaches to the tmux session!** ✨
-
-**Test the API:**
+### 4. Test
 
 ```bash
-# Create a test Python file
-docker exec -it dev-container bash -c "echo 'print(\"Hello from API!\")' > /workspace/test.py"
-
-# Run it via API
-curl -X POST http://localhost:3000/run \
+# Start a container
+curl -X POST http://localhost:3001/api/containers/start \
+  -H "Authorization: Bearer test-api-key-12345" \
   -H "Content-Type: application/json" \
-  -d '{"filename": "test.py", "language": "python"}'
+  -d '{"s3Bucket": "test-bucket", "s3Region": "us-east-1"}'
 
-# Response:
-# {
-#   "status": "success",
-#   "message": "Executed: python3 test.py",
-#   "command": "python3 test.py",
-#   "tmux_session": "code_runner"
-# }
-
-# You'll see the output in the tmux terminal!
-# Any previously running process is killed with Ctrl+C first
+# Access container (use container ID from response)
+# VS Code: http://localhost/code/<container-id>
+# VNC: http://localhost/vnc/<container-id>
 ```
 
-**Tmux Quick Commands:**
+## Production Deployment
 
-- Detach from session: Press `Ctrl+B` then `D`
-- Reattach manually: `tmux attach -t code_runner` (if needed)
-- The session persists even when detached
-- New terminals automatically attach to the same session
-
-**Supported languages:**
-
-- `python` or `python3` → runs with `python3`
-- `node`, `nodejs`, or `javascript` → runs with `node`
-- `java` → runs with `java`
-- `bash` or `sh` → runs with `bash` or `sh`
-
-### Test Python with pip
+### 1. Server Setup
 
 ```bash
-# SSH into container
-docker exec -it dev-container su - user
-
-# Install Python packages via pip
-pip3 install requests flask
-
-# Now you have those packages available!
-python3 -c "import requests, flask; print('Success!')"
+# On your server
+docker swarm init --advertise-addr <server-ip>
+docker network create --driver overlay --attachable ide-network
 ```
 
-## 5. Using with S3 (Docker Swarm / Cloud)
-
-### Local S3 Testing with MinIO
+### 2. Configure Environment
 
 ```bash
-# Start with MinIO (local S3)
-docker-compose --profile with-s3 up -d
-
-# Create a bucket in MinIO console: http://localhost:9001
-# Login: minioadmin / minioadmin
-
-# Configure dev container to use MinIO
-docker run -d \
-  -p 8080:8080 \
-  -p 6080:6080 \
-  -e S3_BUCKET=my-test-bucket \
-  -e S3_REGION=us-east-1 \
-  -e VNC_PASSWORD=myvnc123 \
-  -e AWS_ACCESS_KEY_ID=minioadmin \
-  -e AWS_SECRET_ACCESS_KEY=minioadmin \
-  --link minio \
-  --name dev-container \
-  fargate-dev-container
+cd orchestration
+# Edit .env
+DOMAIN=yourdomain.com
+API_KEY=your-secure-key
+AWS_ACCESS_KEY_ID=your-key
+AWS_SECRET_ACCESS_KEY=your-secret
+PRE_WARMED_QUEUE_SIZE=10
 ```
 
-### Deploy to Docker Swarm
-
-```yaml
-# docker-stack.yml
-version: "3.8"
-services:
-  dev-container:
-    image: your-registry/fargate-dev-container:latest
-    ports:
-      - "8080:8080"
-      - "6080:6080"
-    environment:
-      - VNC_PASSWORD=changeme
-      - S3_BUCKET=my-workspace-bucket
-      - S3_REGION=us-east-1
-      - ENABLE_INACTIVITY_SHUTDOWN=false
-    deploy:
-      replicas: 1
-      placement:
-        constraints:
-          - node.role == worker
-      resources:
-        limits:
-          cpus: "2"
-          memory: 4G
-    networks:
-      - dev_network
-
-networks:
-  dev_network:
-    driver: overlay
-```
-
-Deploy:
+### 3. Deploy Traefik (HTTPS)
 
 ```bash
-docker stack deploy -c docker-stack.yml dev-env
+./scripts/deploy-traefik.sh
 ```
 
-### Deploy to AWS Fargate
+This sets up Traefik with Let's Encrypt SSL certificates.
+
+### 4. Build and Deploy
 
 ```bash
-# 1. Create ECR repository
-aws ecr create-repository --repository-name fargate-dev-container
+# Build orchestration API
+docker build -t ide-orchestration-api:latest -f Dockerfile .
 
-# 2. Login and push
-aws ecr get-login-password --region us-east-1 | \
-  docker login --username AWS --password-stdin YOUR_ACCOUNT.dkr.ecr.us-east-1.amazonaws.com
-
-docker tag fargate-dev-container YOUR_ACCOUNT.dkr.ecr.us-east-1.amazonaws.com/fargate-dev-container:latest
-docker push YOUR_ACCOUNT.dkr.ecr.us-east-1.amazonaws.com/fargate-dev-container:latest
-
-# 3. Create task definition and run service (see README.md for full example)
-
-# OR use the Makefile:
-make ecr-create-repo
-make push-ecr
+# Deploy
+./scripts/deploy-http.sh  # or deploy-traefik.sh for HTTPS
 ```
 
-## Common Commands
+### 5. Access
 
-```bash
-# View logs
-docker logs -f dev-container
-# OR
-make logs
+- API: `https://api.yourdomain.com`
+- Containers: `https://yourdomain.com/code/<container-id>`
+- Dashboard: `https://yourdomain.com/dashboard`
 
-# Open shell
-docker exec -it dev-container su - user
-# OR
-make shell
+## Pre-warmed Queue
 
-# Stop container
-docker stop dev-container
-# OR
-make stop
+The system maintains a queue of ready containers for instant startup:
 
-# Restart
-docker restart dev-container
-# OR
-make restart
+- **Default size**: 10 containers
+- **Startup time**: <1 second (vs ~15s without queue)
+- **Auto-replenishment**: Queue automatically refills when containers are used
 
-# Clean up
-docker stop dev-container
-docker rm dev-container
-# OR
-make clean
-```
+Configure via `PRE_WARMED_QUEUE_SIZE` in `.env`.
 
-## Environment Variables Cheat Sheet
+## Troubleshooting
 
-| Variable                     | Default       | Description                                               |
-| ---------------------------- | ------------- | --------------------------------------------------------- |
-| `VNC_PASSWORD`               | `vncpassword` | VNC password (embedded in URL for auto-connect)           |
-| `S3_BUCKET`                  | -             | S3 bucket name for workspace sync                         |
-| `S3_REGION`                  | `us-east-1`   | AWS region                                                |
-| `ENABLE_INACTIVITY_SHUTDOWN` | `true`        | Auto-shutdown after 10 min (set to `false` for local dev) |
-
-**Note:** No language configuration needed - Python, Node.js, and Java are pre-installed!
-
-## What's New in This Version?
-
-### ✅ Code-Server: No Password Required
-
-- Opens directly without login screen
-- No password configuration needed
-- Instant access to VS Code
-
-### ✅ VNC: Auto-Connect
-
-- No need to click "Connect" button
-- Password automatically authenticated via URL
-- Opens directly to desktop
-
-### ✅ VNC: Auto-Scaling
-
-- Desktop scales to fit browser window
-- Works on any screen size (laptop, tablet, desktop)
-- Resize browser = desktop resizes automatically
-- No scrollbars needed
-
-### ✅ Pre-installed Development Tools
-
-- Python 3.10 with tkinter and pip (no setup needed)
-- Node.js 18 LTS with npm
-- Java 17 with JavaFX and Swing support
-- Clean `$` prompt, instant terminal startup
-
-## Troubleshooting One-Liners
-
-```bash
-# Container won't start?
-docker logs dev-container
-
-# VNC not working?
-docker exec dev-container ps aux | grep vnc
-
-# Code-server not accessible?
-docker exec dev-container curl -I http://localhost:8080
-
-# VNC not auto-connecting?
-docker exec dev-container cat /opt/novnc/index.html | grep autoconnect
-
-# VNC not scaling?
-# Try Chrome/Firefox - check URL has "resize=scale"
-
-# S3 sync issues?
-docker exec -u user dev-container rclone lsd s3:your-bucket
-
-# Python not found?
-docker exec dev-container python3 --version
-
-# Node.js not found?
-docker exec dev-container node --version
-
-# Java not found?
-docker exec dev-container java -version
-```
-
-## Testing Checklist
-
-Before considering setup complete, verify:
-
-- [ ] Container stays running (check with `docker ps`)
-- [ ] Code-server loads instantly at http://localhost:8080
-- [ ] VNC desktop loads instantly at http://localhost:6080
-- [ ] VNC desktop scales when you resize browser
-- [ ] Can create and edit files in VS Code
-- [ ] Can run commands in VS Code terminal
-- [ ] Can open terminal in VNC desktop
-- [ ] Python GUI apps work (tkinter test above)
-- [ ] pip install works (`pip3 install requests`)
-- [ ] Node.js works (`node --version`)
-- [ ] Java works (`java -version`)
-- [ ] S3 sync works (if configured)
-
-## Security Note
-
-This container is configured for **easy access** with:
-
-- No code-server password
-- VNC password in URL for auto-connect
-
-**Recommended for:**
-
-- ✅ Local development (Docker Desktop)
-- ✅ Private VPCs (Docker Swarm)
-- ✅ Internal networks with firewall protection
-
-**Not recommended for:**
-
-- ❌ Public internet without additional security
-- ❌ Untrusted networks
-
-**For public deployment**, add:
-
-- Reverse proxy with authentication (Nginx, Traefik)
-- VPN for network-level security
-- Firewall rules to restrict access
-
-## Performance Tips
-
-### For M1/M2 Mac
-
-```bash
-# Use ARM build for native performance
-docker build --platform linux/arm64 -t fargate-dev-container .
-```
-
-### For Docker Swarm
-
-```bash
-# Disable auto-shutdown to keep container running
--e ENABLE_INACTIVITY_SHUTDOWN=false
-```
-
-### Resource Allocation
-
-Recommended Docker resource settings:
-
-- **Memory:** 4-6 GB
-- **CPUs:** 2-4 cores
-- **Disk:** 20+ GB
-
-## Advanced Usage
-
-### Custom VNC Resolution
-
-The default is 1920x1080. To change:
-
-Edit Dockerfile line with `vncserver` command:
-
-```bash
-vncserver :1 -geometry 1920x1080 -depth 24 -localhost no
-# Change to your preferred resolution, e.g.:
-vncserver :1 -geometry 2560x1440 -depth 24 -localhost no
-```
-
-### Persistent Workspace Volume
-
-```bash
-docker run -d \
-  -p 8080:8080 \
-  -p 6080:6080 \
-  -v $(pwd)/workspace:/workspace \
-  -e VNC_PASSWORD=myvnc123 \
-  --name dev-container \
-  fargate-dev-container
-```
-
-### Using with Docker Compose
-
-```yaml
-version: "3.8"
-services:
-  dev-container:
-    build: .
-    image: fargate-dev-container:latest
-    ports:
-      - "8080:8080"
-      - "6080:6080"
-    environment:
-      - VNC_PASSWORD=vncpassword
-      - ENABLE_INACTIVITY_SHUTDOWN=false
-    volumes:
-      - ./workspace:/workspace
-    restart: unless-stopped
-```
+- **Memory errors**: Increase Docker Desktop memory or adjust `MAX_MEMORY_PERCENT`
+- **Containers not starting**: Check resource limits in `.env`
+- **SSL issues**: Verify DNS points to server and ports 80/443 are open
+- **Queue not populating**: Check system resources allow spawning containers
 
 ## Next Steps
 
-- Read the full [README.md](README.md) for detailed documentation
-- Check out [INDEX.md](INDEX.md) for complete project overview
-- Review the [Makefile](Makefile) for all available commands
-- See [CHANGELOG_V2.md](CHANGELOG_V2.md) for technical details on changes
-
-## Need Help?
-
-1. Check container logs: `docker logs dev-container`
-2. Check service status: `docker exec dev-container ps aux`
-3. See full troubleshooting guide in [README.md](README.md#troubleshooting)
-4. Verify environment: `docker exec dev-container env`
-
-## Success Indicators
-
-When everything is working correctly:
-
-```bash
-$ docker ps
-# Shows: dev-container running with ports 8080->8080, 6080->6080
-
-$ curl -I http://localhost:8080
-# Returns: HTTP/1.1 200 OK
-
-$ curl -I http://localhost:6080
-# Returns: HTTP/1.1 200 OK
-```
-
-And in your browser:
-
-- http://localhost:8080 shows VS Code interface (no login)
-- http://localhost:6080 shows IceWM desktop (auto-connected)
-- Resizing browser window scales the VNC desktop
-
-**All working?** You're ready to develop! 🚀
-
----
-
-**Built for Docker Swarm and cloud deployments with passwordless access and auto-scaling VNC.**
+- See `orchestration/README.md` for detailed documentation
+- See `orchestration/ENVIRONMENT_VARIABLES.md` for all configuration options

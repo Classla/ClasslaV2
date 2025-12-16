@@ -16,6 +16,7 @@ import {
   healthMonitor,
   s3ValidationService,
   containerStatsService,
+  queueManager,
 } from "../services/serviceInstances.js";
 
 const router = Router();
@@ -61,28 +62,104 @@ router.post(
       const validatedRegion =
         s3ValidationResult.region || s3Region || config.awsRegion;
 
-      // Check system resources before starting
-      const resourceCheck = await resourceMonitor.canStartContainer();
-      if (!resourceCheck.allowed) {
-        throw resourceLimitExceeded(
-          resourceCheck.reason || "System resources exhausted"
+      // Check queue for available pre-warmed container first
+      let containerInfo;
+      let usedQueue = false;
+      const queueStats = queueManager.getStats();
+      console.log(
+        `[Containers] Queue status: ${queueStats.preWarmed} pre-warmed, ${queueStats.assigned} assigned, ${queueStats.running} running (target: ${queueStats.targetSize})`
+      );
+      
+      const queuedContainer = queueManager.getAvailableContainer();
+
+      if (queuedContainer) {
+        // Use pre-warmed container from queue
+        console.log(
+          `[Containers] ✅ Using pre-warmed container ${queuedContainer.containerId} from queue`
         );
+        usedQueue = true;
+
+        // Assign S3 bucket to the pre-warmed container
+        try {
+          await containerService.assignS3BucketToContainer(
+            queuedContainer.containerId,
+            {
+              bucket: s3Bucket,
+              region: validatedRegion,
+              accessKeyId: awsAccessKeyId || config.awsAccessKeyId,
+              secretAccessKey: awsSecretAccessKey || config.awsSecretAccessKey,
+            }
+          );
+
+          // Mark container as assigned in queue
+          queueManager.markAsAssigned(queuedContainer.containerId, s3Bucket);
+
+          // Get container info
+          const assignedContainerInfo = await containerService.getContainer(
+            queuedContainer.containerId
+          );
+          if (!assignedContainerInfo) {
+            throw new Error("Failed to get container info after S3 assignment");
+          }
+          // Pre-warmed containers are already running, so mark as running
+          containerInfo = {
+            ...assignedContainerInfo,
+            status: "running" as const, // Pre-warmed containers are already running
+          };
+        } catch (error) {
+          console.error(
+            `[Containers] Failed to assign S3 bucket to pre-warmed container:`,
+            error
+          );
+          // Return container to queue or remove it
+          queueManager.removeFromQueue(queuedContainer.containerId);
+          // Fall through to create new container
+          usedQueue = false;
+          containerInfo = undefined;
+        }
       }
 
-      // Create Docker Swarm service with Traefik labels
-      let containerInfo;
-      try {
-        containerInfo = await containerService.createContainer({
-          s3Bucket,
-          s3Region: validatedRegion,
-          awsAccessKeyId: awsAccessKeyId || config.awsAccessKeyId,
-          awsSecretAccessKey: awsSecretAccessKey || config.awsSecretAccessKey,
-          vncPassword,
-          domain: config.domain,
-        });
-      } catch (error) {
-        throw containerStartFailed(
-          error instanceof Error ? error : new Error(String(error))
+      // If no queue container available or assignment failed, create new container
+      if (!usedQueue || !containerInfo) {
+        if (!usedQueue) {
+          console.log(
+            `[Containers] ⚠️ No pre-warmed container available, creating new container`
+          );
+        } else {
+          console.log(
+            `[Containers] ⚠️ Pre-warmed container assignment failed, creating new container`
+          );
+        }
+        
+        // Check system resources before starting
+        const resourceCheck = await resourceMonitor.canStartContainer();
+        if (!resourceCheck.allowed) {
+          throw resourceLimitExceeded(
+            resourceCheck.reason || "System resources exhausted"
+          );
+        }
+
+        // Create Docker Swarm service with Traefik labels
+        try {
+          containerInfo = await containerService.createContainer({
+            s3Bucket,
+            s3Region: validatedRegion,
+            awsAccessKeyId: awsAccessKeyId || config.awsAccessKeyId,
+            awsSecretAccessKey: awsSecretAccessKey || config.awsSecretAccessKey,
+            vncPassword,
+            domain: config.domain,
+          });
+          console.log(
+            `[Containers] ✅ Created new container ${containerInfo.id} with status: ${containerInfo.status}`
+          );
+        } catch (error) {
+          throw containerStartFailed(
+            error instanceof Error ? error : new Error(String(error))
+          );
+        }
+      } else {
+        console.log(
+          `[Containers] ✅ Using pre-warmed container ${containerInfo.id} with status: ${containerInfo.status}`
         );
       }
 
@@ -94,27 +171,62 @@ router.post(
       );
 
       // Save container metadata to state manager
+      // Pre-warmed containers are already running, so use their actual status
       stateManager.saveContainer({
         id: containerInfo.id,
         serviceName: containerInfo.serviceName,
-        s3Bucket: containerInfo.s3Bucket,
+        s3Bucket: containerInfo.s3Bucket || s3Bucket, // Use provided bucket if container doesn't have it
         s3Region: validatedRegion,
-        status: "starting",
+        status: containerInfo.status, // Use actual status (running for pre-warmed, starting for new)
         createdAt: containerInfo.createdAt,
         urls: containerInfo.urls,
+        isPreWarmed: usedQueue,
         resourceLimits: {
           cpuLimit: `${config.containerCpuLimit} cores`,
           memoryLimit: `${config.containerMemoryLimit} bytes`,
         },
       });
 
+      // Trigger queue replenishment in background (don't wait)
+      if (usedQueue) {
+        // Queue was used, trigger background replenishment
+        setImmediate(() => {
+          // This will be handled by queue maintainer, but we can log it
+          console.log(
+            `[Containers] Queue container used, maintainer will replenish`
+          );
+        });
+      }
+
+      // Ensure containerInfo is defined before using it
+      if (!containerInfo) {
+        throw new Error("Container info is not available");
+      }
+
+      // Trigger immediate health check for fastest detection
+      // This starts aggressive polling (1s interval) and does an immediate check
+      healthMonitor.checkContainerImmediately(containerInfo.id).catch((error) => {
+        console.error(`[Containers] Error triggering immediate health check:`, error);
+      });
+
       // Return container info with URLs
+      // Pre-warmed containers are already running and ready
+      const message = usedQueue
+        ? "Container is ready. Services are available."
+        : "Container is starting. Services will be available shortly.";
+      
+      // Log the response for debugging
+      console.log(
+        `[Containers] Returning container ${containerInfo.id}: status=${containerInfo.status}, usedQueue=${usedQueue}, hasUrls=${!!containerInfo.urls?.codeServer}`
+      );
+      
       res.status(201).json({
         id: containerInfo.id,
         serviceName: containerInfo.serviceName,
-        status: containerInfo.status,
+        status: containerInfo.status, // "running" for pre-warmed, "starting" for new
         urls: containerInfo.urls,
-        message: "Container is starting. Services will be available shortly.",
+        message,
+        isPreWarmed: usedQueue, // Add flag to help frontend identify pre-warmed containers
       });
     } catch (error) {
       next(error);
@@ -343,6 +455,30 @@ router.post(
         }`
       );
 
+      // Actually stop the Docker service
+      try {
+        await containerService.stopContainer(id);
+        console.log(`[Inactivity Shutdown] Successfully stopped Docker service for container ${id}`);
+      } catch (error) {
+        // If service doesn't exist in Docker, that's okay - continue with state update
+        if (
+          error &&
+          typeof error === "object" &&
+          "statusCode" in error &&
+          error.statusCode === 404
+        ) {
+          console.warn(
+            `[Inactivity Shutdown] Service ide-${id} not found in Docker Swarm, updating state only`
+          );
+        } else {
+          console.error(
+            `[Inactivity Shutdown] Failed to stop Docker service for container ${id}:`,
+            error
+          );
+          // Continue anyway to update state
+        }
+      }
+
       // Update container status to 'stopped' and record shutdown reason as 'inactivity'
       stateManager.updateContainerLifecycle(id, {
         status: "stopped",
@@ -355,6 +491,9 @@ router.post(
 
       // Remove health monitoring state for this container
       healthMonitor.removeContainerHealth(id);
+      
+      // Remove from queue if it was in the queue
+      queueManager.removeFromQueue(id);
 
       res.json({
         message: `Container ${id} inactivity shutdown recorded`,
