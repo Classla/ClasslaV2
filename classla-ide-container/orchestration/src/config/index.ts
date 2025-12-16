@@ -32,6 +32,9 @@ interface Config {
 
   // Database
   databasePath: string;
+
+  // Pre-warmed Queue
+  preWarmedQueueSize: number;
 }
 
 function getEnvVar(key: string, defaultValue?: string): string {
@@ -98,6 +101,9 @@ const config: Config = {
     "DATABASE_PATH",
     path.join(process.cwd(), "data", "containers.sqlite")
   ),
+
+  // Pre-warmed Queue
+  preWarmedQueueSize: getEnvVarNumber("PRE_WARMED_QUEUE_SIZE", 10),
 };
 
 export { config };

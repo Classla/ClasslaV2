@@ -54,8 +54,9 @@ COPY --from=dashboard-builder /app/dist/dashboard ./dist/dashboard
 RUN mkdir -p /app/data && \
     chown -R node:node /app
 
-# Switch to non-root user
-USER node
+# Keep running as root for Docker socket access
+# This is necessary for the management service to control Docker containers
+# USER node
 
 # Expose API port
 EXPOSE 3001

@@ -13,7 +13,12 @@ import containersRouter from "./routes/containers";
 import healthRouter from "./routes/health";
 import dashboardRouter from "./routes/dashboard";
 import dashboardApiRouter from "./routes/dashboardApi";
-import { healthMonitor, stateManager } from "./services/serviceInstances";
+import {
+  healthMonitor,
+  stateManager,
+  queueMaintainer,
+  containerCleanupService,
+} from "./services/serviceInstances";
 
 const app: Express = express();
 
@@ -78,10 +83,15 @@ app.get("/", (_req: Request, res: Response) => {
 // Mount API routes
 // Inactivity shutdown callback is public (called from within containers)
 app.post("/api/containers/:id/inactivity-shutdown", containersRouter);
+app.post("/containers/:id/inactivity-shutdown", containersRouter); // Also mount without /api for strip-prefix
 // Container routes require authentication and rate limiting
+// Mount at both paths to work with and without strip-prefix middleware
 app.use("/api/containers", authenticate, rateLimitMiddleware, containersRouter);
+app.use("/containers", authenticate, rateLimitMiddleware, containersRouter);
 // Health endpoint is public (no authentication required)
+// Mount at both paths to work with and without strip-prefix middleware
 app.use("/api/health", healthRouter);
+app.use("/health", healthRouter);
 // Dashboard API routes (no authentication for now)
 app.use("/api/dashboard", dashboardApiRouter);
 // Dashboard routes (static files, no authentication for now)
@@ -105,18 +115,29 @@ app.use(errorHandler);
 // Start health monitoring
 healthMonitor.start();
 
+// Start queue maintainer
+queueMaintainer.start();
+console.log(`🔄 Queue maintainer started (target: ${config.preWarmedQueueSize} containers)`);
+
+// Start container cleanup service
+containerCleanupService.start();
+console.log(`🧹 Container cleanup service started`);
+
 // Start server
 const server = app.listen(config.port, () => {
   console.log(`🚀 IDE Orchestration API running on port ${config.port}`);
   console.log(`📝 Environment: ${config.nodeEnv}`);
   console.log(`🌐 Domain: ${config.domain}`);
   console.log(`💚 Health monitoring started`);
+  console.log(`🔄 Queue maintainer started (target: ${config.preWarmedQueueSize} containers)`);
 });
 
 // Graceful shutdown
 process.on("SIGTERM", () => {
   console.log("SIGTERM signal received: closing HTTP server");
+  queueMaintainer.stop();
   healthMonitor.stop();
+  containerCleanupService.stop();
   stateManager.close();
   stopCleanupInterval();
   server.close(() => {
@@ -127,7 +148,9 @@ process.on("SIGTERM", () => {
 
 process.on("SIGINT", () => {
   console.log("SIGINT signal received: closing HTTP server");
+  queueMaintainer.stop();
   healthMonitor.stop();
+  containerCleanupService.stop();
   stateManager.close();
   stopCleanupInterval();
   server.close(() => {

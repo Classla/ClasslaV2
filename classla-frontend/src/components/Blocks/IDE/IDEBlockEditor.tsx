@@ -99,6 +99,9 @@ const IDEBlockEditor: React.FC<IDEBlockEditorProps> = memo(
       modelSolution: 0,
       autoGrading: 0,
     });
+    
+    // Track ongoing status checks to prevent duplicate requests
+    const statusCheckInProgress = useRef<Set<string>>(new Set());
 
     // Cleanup polling intervals on unmount
     useEffect(() => {
@@ -109,9 +112,40 @@ const IDEBlockEditor: React.FC<IDEBlockEditorProps> = memo(
       };
     }, [pollingIntervals]);
 
+    // Clear container for a specific tab (keeps S3 bucket)
+    const clearContainer = useCallback(
+      (tab: TabType) => {
+        setContainers((prev) => ({ ...prev, [tab]: null }));
+        updateAttributes({
+          ideData: {
+            ...ideData,
+            [tab]: {
+              ...ideData[tab],
+              last_container_id: null,
+            },
+          },
+        });
+        toast({
+          title: "Container unavailable",
+          description:
+            "The container is no longer available. Please start a new one.",
+          variant: "destructive",
+        });
+      },
+      [ideData, updateAttributes, toast]
+    );
+
     // Check container status for a specific tab
     const checkContainerStatus = useCallback(
       async (tab: TabType, containerId: string): Promise<boolean> => {
+        // Prevent duplicate simultaneous checks
+        const checkKey = `${tab}-${containerId}`;
+        if (statusCheckInProgress.current.has(checkKey)) {
+          return false; // Already checking, skip
+        }
+
+        statusCheckInProgress.current.add(checkKey);
+
         try {
           const response = await apiClient.checkContainerStatus(containerId);
           const container = response.data;
@@ -125,26 +159,53 @@ const IDEBlockEditor: React.FC<IDEBlockEditorProps> = memo(
                 urls: container.urls,
               },
             }));
+            statusCheckInProgress.current.delete(checkKey);
             return true;
           }
+          // Container is not running, clear it
+          clearContainer(tab);
+          statusCheckInProgress.current.delete(checkKey);
           return false;
         } catch (error: any) {
-          if (error.statusCode === 404) {
-            // Container not found or stopped
+          statusCheckInProgress.current.delete(checkKey);
+          
+          // Don't clear container on rate limit errors - just log and return
+          // This prevents cascading failures when rate limited
+          if (error.statusCode === 429) {
+            console.warn(`Rate limited while checking container status for ${tab}`);
             return false;
           }
+          
+          if (error.statusCode === 404 || error.statusCode === 502) {
+            // Container not found, stopped, or gateway error - clear it
+            clearContainer(tab);
+            return false;
+          }
+          
+          // For other errors (network issues, etc.), don't clear container
+          // Might be temporary - let user retry manually
           console.error(`Failed to check container status for ${tab}:`, error);
           return false;
         }
       },
-      []
+      [clearContainer]
     );
 
-    // Poll container until ready
+
+    // Poll container until ready (only for newly created containers, not pre-warmed)
     const pollContainerUntilReady = useCallback(
       (tab: TabType, containerId: string) => {
-        const maxAttempts = 15; // 30 seconds max (15 * 2 seconds)
+        const maxAttempts = 30; // 15 seconds max (30 * 500ms) - faster polling
         pollingAttemptsRef.current[tab] = 0;
+
+        // First check immediately (no delay)
+        checkContainerStatus(tab, containerId).then((isReady) => {
+          if (isReady) {
+            setIsStarting((prev) => ({ ...prev, [tab]: false }));
+            pollingAttemptsRef.current[tab] = 0;
+            return; // Already ready, no need to poll
+          }
+        });
 
         const interval = setInterval(async () => {
           pollingAttemptsRef.current[tab]++;
@@ -169,7 +230,7 @@ const IDEBlockEditor: React.FC<IDEBlockEditorProps> = memo(
             setIsStarting((prev) => ({ ...prev, [tab]: false }));
             pollingAttemptsRef.current[tab] = 0;
           }
-        }, 2000); // Poll every 2 seconds
+        }, 500); // Poll every 500ms for faster detection
 
         setPollingIntervals((prev) => ({ ...prev, [tab]: interval }));
       },
@@ -235,9 +296,10 @@ const IDEBlockEditor: React.FC<IDEBlockEditorProps> = memo(
             userId: user.id,
           });
 
-          const containerId = containerResponse.data.id;
+          const containerData = containerResponse.data;
+          const containerId = containerData.id;
 
-          // Update block data with container ID
+          // Update block data with container ID immediately
           updateAttributes({
             ideData: {
               ...ideData,
@@ -248,8 +310,29 @@ const IDEBlockEditor: React.FC<IDEBlockEditorProps> = memo(
             },
           });
 
-          // Start polling for container readiness
-          pollContainerUntilReady(tab, containerId);
+          // If container has URLs and is running OR marked as pre-warmed, show it immediately
+          // Pre-warmed containers are already running with code-server ready
+          const isPreWarmed = containerData.isPreWarmed || (containerData.urls?.codeServer && containerData.status === "running");
+          
+          if (isPreWarmed) {
+            // Pre-warmed container - show immediately, no need to poll!
+            console.log(`[IDE] Using pre-warmed container ${containerId} - showing immediately`);
+            setContainers((prev) => ({
+              ...prev,
+              [tab]: {
+                id: containerId,
+                status: "running", // Force to running for pre-warmed
+                urls: containerData.urls,
+              },
+            }));
+            setIsStarting((prev) => ({ ...prev, [tab]: false }));
+            // Container is ready - S3 sync happens in background, code-server is already accessible
+          } else {
+            // New container or still starting - poll until ready
+            console.log(`[IDE] New container ${containerId} with status ${containerData.status} - polling until ready`);
+            // Start polling for container readiness
+            pollContainerUntilReady(tab, containerId);
+          }
         } catch (error: any) {
           console.error(`Failed to start container for ${tab}:`, error);
           setIsStarting((prev) => ({ ...prev, [tab]: false }));
@@ -268,19 +351,18 @@ const IDEBlockEditor: React.FC<IDEBlockEditorProps> = memo(
     useEffect(() => {
       const tabs: TabType[] = ["template", "modelSolution", "autoGrading"];
       
+      // Initial check only - don't poll repeatedly
       tabs.forEach((tab) => {
         const containerId = ideData[tab].last_container_id;
         if (containerId) {
-          // Check if container is still running
-          checkContainerStatus(tab, containerId).then((isRunning) => {
-            if (!isRunning) {
-              // Container is not running, clear it
-              setContainers((prev) => ({ ...prev, [tab]: null }));
-            }
+          // Check if container is still running (one time only)
+          checkContainerStatus(tab, containerId).catch((error) => {
+            // Silently fail - container will be cleared if it doesn't exist
+            console.debug(`Container ${containerId} not available for ${tab}`);
           });
         }
       });
-    }, [ideData, checkContainerStatus]);
+    }, [ideData.id]); // Only run when block ID changes, not on every container update
 
     // Handle tab change
     const handleTabChange = useCallback((value: string) => {
@@ -461,6 +543,7 @@ const IDEBlockEditor: React.FC<IDEBlockEditorProps> = memo(
                 onStart={() => startContainer("template")}
                 onRun={() => handleRun("template")}
                 onToggleDesktop={() => handleToggleDesktop("template")}
+                onClearContainer={() => clearContainer("template")}
               />
             </TabsContent>
 
@@ -481,6 +564,7 @@ const IDEBlockEditor: React.FC<IDEBlockEditorProps> = memo(
                 onStart={() => startContainer("modelSolution")}
                 onRun={() => handleRun("modelSolution")}
                 onToggleDesktop={() => handleToggleDesktop("modelSolution")}
+                onClearContainer={() => clearContainer("modelSolution")}
               />
             </TabsContent>
 
@@ -550,10 +634,12 @@ interface IDETabContentProps {
   onStart: () => void;
   onRun: () => void;
   onToggleDesktop: () => void;
+  onClearContainer: () => void;
 }
 
 const IDETabContent: React.FC<IDETabContentProps> = memo(
   ({
+    tab,
     container,
     isStarting,
     showDesktop,
@@ -562,9 +648,84 @@ const IDETabContent: React.FC<IDETabContentProps> = memo(
     onStart,
     onRun,
     onToggleDesktop,
+    onClearContainer,
   }) => {
     const IDE_API_BASE_URL =
       import.meta.env.VITE_IDE_API_BASE_URL || "https://ide.classla.org";
+    const iframeRef = useRef<HTMLIFrameElement>(null);
+
+    // Monitor iframe for 502 errors - check when iframe loads
+    useEffect(() => {
+      if (!container || !iframeRef.current) return;
+
+      const iframe = iframeRef.current;
+      let hasChecked = false;
+      let checkTimeout: NodeJS.Timeout | null = null;
+
+      const checkContainerHealth = async () => {
+        if (hasChecked) return;
+        hasChecked = true;
+
+        try {
+          // Wait a moment for iframe to load (or show error)
+          await new Promise(resolve => setTimeout(resolve, 3000));
+
+          // Check container status via our API
+          // This will tell us if the container is actually running and accessible
+          try {
+            const response = await fetch(`/api/ide-blocks/container/${container.id}`);
+            
+            if (!response.ok) {
+              // Container API returned error - container is down (502, 404, etc.)
+              console.error(`Container API returned ${response.status}, clearing container`);
+              onClearContainer();
+              return;
+            }
+
+            const data = await response.json();
+            // If container status is not running, clear it
+            if (data.status !== "running" || !data.urls?.codeServer) {
+              console.error("Container is not running or missing codeServer URL, clearing");
+              onClearContainer();
+              return;
+            }
+          } catch (apiError) {
+            // API check failed - might be network issue, but if it's a 502, clear container
+            console.error("Failed to check container via API, clearing container");
+            onClearContainer();
+          }
+        } catch (error) {
+          // Error in health check - clear container to be safe
+          console.error("Error in container health check, clearing container");
+          onClearContainer();
+        }
+      };
+
+      const handleLoad = () => {
+        // Iframe loaded - check if it's showing a 502 error
+        // Wait a bit for content to load, then check
+        checkTimeout = setTimeout(checkContainerHealth, 2000);
+      };
+
+      const handleError = () => {
+        // Iframe error event fired - clear container immediately
+        console.error("Iframe error event fired, clearing container");
+        onClearContainer();
+      };
+
+      // Check after a delay when container is set (in case iframe already loaded)
+      checkTimeout = setTimeout(checkContainerHealth, 3000);
+
+      iframe.addEventListener("load", handleLoad);
+      iframe.addEventListener("error", handleError);
+
+      return () => {
+        if (checkTimeout) clearTimeout(checkTimeout);
+        iframe.removeEventListener("load", handleLoad);
+        iframe.removeEventListener("error", handleError);
+      };
+    }, [container?.id, onClearContainer]);
+
 
     return (
       <div className="space-y-4">
@@ -632,6 +793,7 @@ const IDETabContent: React.FC<IDETabContentProps> = memo(
               {/* Code Server iframe */}
               <div className="relative" style={{ height: showDesktop ? "400px" : "600px" }}>
                 <iframe
+                  ref={iframeRef}
                   src={`${IDE_API_BASE_URL}/code/${container.id}/`}
                   className="w-full h-full border-0"
                   title="Code Server"

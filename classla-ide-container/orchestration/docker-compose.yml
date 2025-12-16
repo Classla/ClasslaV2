@@ -2,7 +2,7 @@ version: "3.8"
 
 services:
   traefik:
-    image: traefik:v2.10
+    image: traefik:v2.11
     command:
       - "--api.dashboard=true"
       - "--api.insecure=false"
@@ -16,7 +16,7 @@ services:
       # TLS Configuration
       - "--entrypoints.websecure.http.tls.options=default@file"
       # Security Headers
-      - "--entrypoints.websecure.http.middlewares=security-headers@docker"
+      - "--entrypoints.websecure.http.middlewares=security-headers@file"
       - "--certificatesresolvers.letsencrypt.acme.httpchallenge=true"
       - "--certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web"
       - "--certificatesresolvers.letsencrypt.acme.email=${ACME_EMAIL}"
@@ -40,7 +40,7 @@ services:
       labels:
         - "traefik.enable=true"
         # Traefik Dashboard
-        - "traefik.http.routers.traefik-dashboard.rule=Host(`traefik.${DOMAIN}`)"
+        - "traefik.http.routers.traefik-dashboard.rule=Host(`traefik.ide.classla.org`)"
         - "traefik.http.routers.traefik-dashboard.entrypoints=websecure"
         - "traefik.http.routers.traefik-dashboard.tls.certresolver=letsencrypt"
         - "traefik.http.routers.traefik-dashboard.service=api@internal"
@@ -54,13 +54,15 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=3001
-      - API_KEYS=${API_KEYS}
-      - DOMAIN=${DOMAIN}
+      - API_KEY=${API_KEY}
+      - DOMAIN=ide.classla.org
       - AWS_REGION=${AWS_REGION:-us-east-1}
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
       - DATABASE_PATH=/app/data/containers.db
       - LOG_LEVEL=${LOG_LEVEL:-info}
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
       - RESOURCE_CPU_LIMIT=${RESOURCE_CPU_LIMIT:-2}
       - RESOURCE_MEMORY_LIMIT=${RESOURCE_MEMORY_LIMIT:-4294967296}
       - RESOURCE_CPU_THRESHOLD=${RESOURCE_CPU_THRESHOLD:-90}
@@ -81,15 +83,23 @@ services:
           - node.role == manager
       labels:
         - "traefik.enable=true"
-        # Management API
-        - "traefik.http.routers.management-api.rule=Host(`api.${DOMAIN}`)"
+        # Management API - Main domain (ide.classla.org)
+        - "traefik.http.routers.management-api-main.rule=Host(`ide.classla.org`)"
+        - "traefik.http.routers.management-api-main.entrypoints=websecure"
+        - "traefik.http.routers.management-api-main.tls.certresolver=letsencrypt"
+        - "traefik.http.routers.management-api-main.service=management-api-main"
+        - "traefik.http.services.management-api-main.loadbalancer.server.port=3001"
+        # Management API - API subdomain
+        - "traefik.http.routers.management-api.rule=Host(`api.ide.classla.org`)"
         - "traefik.http.routers.management-api.entrypoints=websecure"
         - "traefik.http.routers.management-api.tls.certresolver=letsencrypt"
+        - "traefik.http.routers.management-api.service=management-api"
         - "traefik.http.services.management-api.loadbalancer.server.port=3001"
         # Dashboard UI
-        - "traefik.http.routers.dashboard.rule=Host(`dashboard.${DOMAIN}`)"
+        - "traefik.http.routers.dashboard.rule=Host(`dashboard.ide.classla.org`)"
         - "traefik.http.routers.dashboard.entrypoints=websecure"
         - "traefik.http.routers.dashboard.tls.certresolver=letsencrypt"
+        - "traefik.http.routers.dashboard.service=dashboard"
         - "traefik.http.services.dashboard.loadbalancer.server.port=3001"
 
 networks:

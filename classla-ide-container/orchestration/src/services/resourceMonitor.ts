@@ -69,9 +69,9 @@ export class ResourceMonitor {
       },
       memory: {
         total: memInfo.total,
-        used: memInfo.used,
+        used: memInfo.total - memInfo.available, // Actual used memory (excluding cache/buffers)
         available: memInfo.available,
-        usagePercent: (memInfo.used / memInfo.total) * 100,
+        usagePercent: ((memInfo.total - memInfo.available) / memInfo.total) * 100,
       },
       disk: {
         total: rootDisk.size,

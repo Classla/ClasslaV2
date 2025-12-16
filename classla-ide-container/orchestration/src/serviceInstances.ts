@@ -48,6 +48,6 @@ export const containerCleanupService = new ContainerCleanupService(
 );
 
 // Initialize existing container IDs on startup
-containerService.initializeExistingIds().catch((error) => {
+containerService.initializeExistingIds().catch((error: unknown) => {
   console.error("Failed to initialize existing container IDs:", error);
 });

@@ -95,6 +95,7 @@ RUN cd /opt && \
 
 # Create custom index page that auto-connects to VNC with scaling enabled
 # Uses VNC_BASE_PATH environment variable to preserve container ID in redirects
+# Also patches vnc.html to set correct websockify path for reverse proxy
 RUN echo '#!/bin/bash' > /usr/local/bin/create-novnc-index.sh && \
     echo 'VNC_PASSWORD=${VNC_PASSWORD:-vncpassword}' >> /usr/local/bin/create-novnc-index.sh && \
     echo 'VNC_BASE_PATH=${VNC_BASE_PATH:-}' >> /usr/local/bin/create-novnc-index.sh && \
@@ -110,6 +111,37 @@ RUN echo '#!/bin/bash' > /usr/local/bin/create-novnc-index.sh && \
     echo '</body>' >> /usr/local/bin/create-novnc-index.sh && \
     echo '</html>' >> /usr/local/bin/create-novnc-index.sh && \
     echo 'EOF' >> /usr/local/bin/create-novnc-index.sh && \
+    echo '' >> /usr/local/bin/create-novnc-index.sh && \
+    echo '# Patch vnc.html to set correct websockify path for reverse proxy' >> /usr/local/bin/create-novnc-index.sh && \
+    echo 'if [ -n "$VNC_BASE_PATH" ]; then' >> /usr/local/bin/create-novnc-index.sh && \
+    echo '    # Set websockify path to include base path' >> /usr/local/bin/create-novnc-index.sh && \
+    echo '    WEBSOCKIFY_PATH="${VNC_BASE_PATH}/websockify"' >> /usr/local/bin/create-novnc-index.sh && \
+    echo '    # Update the default path input value in vnc.html' >> /usr/local/bin/create-novnc-index.sh && \
+    echo '    sed -i "s|value=\"websockify\"|value=\"${WEBSOCKIFY_PATH}\"|g" /opt/novnc/vnc.html' >> /usr/local/bin/create-novnc-index.sh && \
+    echo '    # Create JavaScript file to set path' >> /usr/local/bin/create-novnc-index.sh && \
+    echo '    cat > /opt/novnc/vnc-path-override.js << '\''VNCJSEOF'\'' >> /usr/local/bin/create-novnc-index.sh && \
+    echo '// VNC_BASE_PATH_OVERRIDE: Set websockify path for reverse proxy' >> /usr/local/bin/create-novnc-index.sh && \
+    echo '(function() {' >> /usr/local/bin/create-novnc-index.sh && \
+    echo '  const websockifyPath = "${WEBSOCKIFY_PATH}";' >> /usr/local/bin/create-novnc-index.sh && \
+    echo '  window.addEventListener("DOMContentLoaded", function() {' >> /usr/local/bin/create-novnc-index.sh && \
+    echo '    const pathInput = document.getElementById("noVNC_setting_path");' >> /usr/local/bin/create-novnc-index.sh && \
+    echo '    if (pathInput) {' >> /usr/local/bin/create-novnc-index.sh && \
+    echo '      pathInput.value = websockifyPath;' >> /usr/local/bin/create-novnc-index.sh && \
+    echo '      pathInput.dispatchEvent(new Event("change", { bubbles: true }));' >> /usr/local/bin/create-novnc-index.sh && \
+    echo '    }' >> /usr/local/bin/create-novnc-index.sh && \
+    echo '    const urlParams = new URLSearchParams(window.location.search);' >> /usr/local/bin/create-novnc-index.sh && \
+    echo '    if (!urlParams.has("path")) {' >> /usr/local/bin/create-novnc-index.sh && \
+    echo '      urlParams.set("path", websockifyPath);' >> /usr/local/bin/create-novnc-index.sh && \
+    echo '      window.history.replaceState({}, "", window.location.pathname + "?" + urlParams.toString());' >> /usr/local/bin/create-novnc-index.sh && \
+    echo '    }' >> /usr/local/bin/create-novnc-index.sh && \
+    echo '  });' >> /usr/local/bin/create-novnc-index.sh && \
+    echo '})();' >> /usr/local/bin/create-novnc-index.sh && \
+    echo 'VNCJSEOF' >> /usr/local/bin/create-novnc-index.sh && \
+    echo '    # Inject script tag before error-handler.js (temporarily disabled due to build issues)' >> /usr/local/bin/create-novnc-index.sh && \
+    echo '    # if ! grep -q "vnc-path-override.js" /opt/novnc/vnc.html; then' >> /usr/local/bin/create-novnc-index.sh && \
+    echo '    #     sed -i "/app\\/error-handler.js/i<script src=\"vnc-path-override.js\"></script>" /opt/novnc/vnc.html' >> /usr/local/bin/create-novnc-index.sh && \
+    echo '    # fi' >> /usr/local/bin/create-novnc-index.sh && \
+    echo 'fi' >> /usr/local/bin/create-novnc-index.sh && \
     chmod +x /usr/local/bin/create-novnc-index.sh
 
 # ============================================================================
@@ -380,6 +412,58 @@ RUN echo '#!/usr/bin/env python3' > /usr/local/bin/run-server.py && \
     echo '    except Exception as e:' >> /usr/local/bin/run-server.py && \
     echo '        return jsonify({"error": str(e)}), 500' >> /usr/local/bin/run-server.py && \
     echo '' >> /usr/local/bin/run-server.py && \
+    echo 'S3_ASSIGNMENT_FILE = "/tmp/s3-assignment.json"' >> /usr/local/bin/run-server.py && \
+    echo 'S3_SYNC_TRIGGER_FILE = "/tmp/s3-sync-trigger"' >> /usr/local/bin/run-server.py && \
+    echo '' >> /usr/local/bin/run-server.py && \
+    echo '@app.route("/assign-s3-bucket", methods=["POST"])' >> /usr/local/bin/run-server.py && \
+    echo 'def assign_s3_bucket():' >> /usr/local/bin/run-server.py && \
+    echo '    """Assign S3 bucket to this container dynamically"""' >> /usr/local/bin/run-server.py && \
+    echo '    try:' >> /usr/local/bin/run-server.py && \
+    echo '        data = request.get_json()' >> /usr/local/bin/run-server.py && \
+    echo '        if not data:' >> /usr/local/bin/run-server.py && \
+    echo '            return jsonify({"error": "No JSON data provided"}), 400' >> /usr/local/bin/run-server.py && \
+    echo '        ' >> /usr/local/bin/run-server.py && \
+    echo '        bucket = data.get("bucket")' >> /usr/local/bin/run-server.py && \
+    echo '        if not bucket:' >> /usr/local/bin/run-server.py && \
+    echo '            return jsonify({"error": "bucket is required"}), 400' >> /usr/local/bin/run-server.py && \
+    echo '        ' >> /usr/local/bin/run-server.py && \
+    echo '        # Check if already assigned' >> /usr/local/bin/run-server.py && \
+    echo '        if os.path.exists(S3_ASSIGNMENT_FILE):' >> /usr/local/bin/run-server.py && \
+    echo '            try:' >> /usr/local/bin/run-server.py && \
+    echo '                import json' >> /usr/local/bin/run-server.py && \
+    echo '                with open(S3_ASSIGNMENT_FILE, "r") as f:' >> /usr/local/bin/run-server.py && \
+    echo '                    existing = json.load(f)' >> /usr/local/bin/run-server.py && \
+    echo '                    if existing.get("bucket") == bucket:' >> /usr/local/bin/run-server.py && \
+    echo '                        return jsonify({"status": "already_assigned", "bucket": bucket}), 200' >> /usr/local/bin/run-server.py && \
+    echo '                    else:' >> /usr/local/bin/run-server.py && \
+    echo '                        return jsonify({"error": f"S3 bucket already assigned: {existing.get(\"bucket\")}"}), 409' >> /usr/local/bin/run-server.py && \
+    echo '            except Exception:' >> /usr/local/bin/run-server.py && \
+    echo '                pass  # File exists but invalid, overwrite it' >> /usr/local/bin/run-server.py && \
+    echo '        ' >> /usr/local/bin/run-server.py && \
+    echo '        # Write S3 assignment config' >> /usr/local/bin/run-server.py && \
+    echo '        import json' >> /usr/local/bin/run-server.py && \
+    echo '        assignment = {' >> /usr/local/bin/run-server.py && \
+    echo '            "bucket": bucket,' >> /usr/local/bin/run-server.py && \
+    echo '            "region": data.get("region", "us-east-1"),' >> /usr/local/bin/run-server.py && \
+    echo '            "accessKeyId": data.get("accessKeyId"),' >> /usr/local/bin/run-server.py && \
+    echo '            "secretAccessKey": data.get("secretAccessKey")' >> /usr/local/bin/run-server.py && \
+    echo '        }' >> /usr/local/bin/run-server.py && \
+    echo '        ' >> /usr/local/bin/run-server.py && \
+    echo '        with open(S3_ASSIGNMENT_FILE, "w") as f:' >> /usr/local/bin/run-server.py && \
+    echo '            json.dump(assignment, f)' >> /usr/local/bin/run-server.py && \
+    echo '        ' >> /usr/local/bin/run-server.py && \
+    echo '        # Trigger rclone sync loop to start' >> /usr/local/bin/run-server.py && \
+    echo '        with open(S3_SYNC_TRIGGER_FILE, "w") as f:' >> /usr/local/bin/run-server.py && \
+    echo '            f.write("start")' >> /usr/local/bin/run-server.py && \
+    echo '        ' >> /usr/local/bin/run-server.py && \
+    echo '        return jsonify({' >> /usr/local/bin/run-server.py && \
+    echo '            "status": "success",' >> /usr/local/bin/run-server.py && \
+    echo '            "message": f"S3 bucket {bucket} assigned successfully",' >> /usr/local/bin/run-server.py && \
+    echo '            "bucket": bucket' >> /usr/local/bin/run-server.py && \
+    echo '        }), 200' >> /usr/local/bin/run-server.py && \
+    echo '    except Exception as e:' >> /usr/local/bin/run-server.py && \
+    echo '        return jsonify({"error": str(e)}), 500' >> /usr/local/bin/run-server.py && \
+    echo '' >> /usr/local/bin/run-server.py && \
     echo 'if __name__ == "__main__":' >> /usr/local/bin/run-server.py && \
     echo '    app.run(host="0.0.0.0", port=3000, debug=False)' >> /usr/local/bin/run-server.py && \
     chmod +x /usr/local/bin/run-server.py
@@ -388,12 +472,44 @@ RUN echo '#!/usr/bin/env python3' > /usr/local/bin/run-server.py && \
 RUN echo '#!/bin/bash' > /usr/local/bin/rclone-sync-loop.sh && \
     echo 'set -e' >> /usr/local/bin/rclone-sync-loop.sh && \
     echo 'echo "Starting rclone sync loop..."' >> /usr/local/bin/rclone-sync-loop.sh && \
+    echo 'S3_ASSIGNMENT_FILE="/tmp/s3-assignment.json"' >> /usr/local/bin/rclone-sync-loop.sh && \
+    echo 'WORKSPACE_PATH="/workspace"' >> /usr/local/bin/rclone-sync-loop.sh && \
+    echo '' >> /usr/local/bin/rclone-sync-loop.sh && \
+    echo '# Get S3 config from env var or assignment file' >> /usr/local/bin/rclone-sync-loop.sh && \
     echo 'if [ -z "$S3_BUCKET" ]; then' >> /usr/local/bin/rclone-sync-loop.sh && \
-    echo '    echo "ERROR: S3_BUCKET environment variable not set"' >> /usr/local/bin/rclone-sync-loop.sh && \
+    echo '    # Wait for assignment file if not present' >> /usr/local/bin/rclone-sync-loop.sh && \
+    echo '    if [ ! -f "$S3_ASSIGNMENT_FILE" ]; then' >> /usr/local/bin/rclone-sync-loop.sh && \
+    echo '        echo "Waiting for S3 bucket assignment..."' >> /usr/local/bin/rclone-sync-loop.sh && \
+    echo '        while [ ! -f "$S3_ASSIGNMENT_FILE" ]; do' >> /usr/local/bin/rclone-sync-loop.sh && \
+    echo '            sleep 2' >> /usr/local/bin/rclone-sync-loop.sh && \
+    echo '        done' >> /usr/local/bin/rclone-sync-loop.sh && \
+    echo '    fi' >> /usr/local/bin/rclone-sync-loop.sh && \
+    echo '    # Read assignment from file' >> /usr/local/bin/rclone-sync-loop.sh && \
+    echo '    echo "Reading S3 assignment from $S3_ASSIGNMENT_FILE..."' >> /usr/local/bin/rclone-sync-loop.sh && \
+    echo '    S3_BUCKET=$(python3 -c "import json; f=open(\"$S3_ASSIGNMENT_FILE\"); d=json.load(f); print(d.get(\"bucket\", \"\"))")' >> /usr/local/bin/rclone-sync-loop.sh && \
+    echo '    S3_REGION=$(python3 -c "import json; f=open(\"$S3_ASSIGNMENT_FILE\"); d=json.load(f); print(d.get(\"region\", \"us-east-1\"))")' >> /usr/local/bin/rclone-sync-loop.sh && \
+    echo '    AWS_ACCESS_KEY_ID=$(python3 -c "import json; f=open(\"$S3_ASSIGNMENT_FILE\"); d=json.load(f); print(d.get(\"accessKeyId\", \"\") or \"\")")' >> /usr/local/bin/rclone-sync-loop.sh && \
+    echo '    AWS_SECRET_ACCESS_KEY=$(python3 -c "import json; f=open(\"$S3_ASSIGNMENT_FILE\"); d=json.load(f); print(d.get(\"secretAccessKey\", \"\") or \"\")")' >> /usr/local/bin/rclone-sync-loop.sh && \
+    echo '    export S3_BUCKET S3_REGION' >> /usr/local/bin/rclone-sync-loop.sh && \
+    echo '    if [ -n "$AWS_ACCESS_KEY_ID" ]; then' >> /usr/local/bin/rclone-sync-loop.sh && \
+    echo '        export AWS_ACCESS_KEY_ID' >> /usr/local/bin/rclone-sync-loop.sh && \
+    echo '    fi' >> /usr/local/bin/rclone-sync-loop.sh && \
+    echo '    if [ -n "$AWS_SECRET_ACCESS_KEY" ]; then' >> /usr/local/bin/rclone-sync-loop.sh && \
+    echo '        export AWS_SECRET_ACCESS_KEY' >> /usr/local/bin/rclone-sync-loop.sh && \
+    echo '    fi' >> /usr/local/bin/rclone-sync-loop.sh && \
+    echo '    # Update rclone config with region' >> /usr/local/bin/rclone-sync-loop.sh && \
+    echo '    if [ -n "$S3_REGION" ]; then' >> /usr/local/bin/rclone-sync-loop.sh && \
+    echo '        sed -i "s/region = .*/region = $S3_REGION/" /home/user/.config/rclone/rclone.conf' >> /usr/local/bin/rclone-sync-loop.sh && \
+    echo '    fi' >> /usr/local/bin/rclone-sync-loop.sh && \
+    echo 'fi' >> /usr/local/bin/rclone-sync-loop.sh && \
+    echo '' >> /usr/local/bin/rclone-sync-loop.sh && \
+    echo 'if [ -z "$S3_BUCKET" ]; then' >> /usr/local/bin/rclone-sync-loop.sh && \
+    echo '    echo "ERROR: S3_BUCKET not set and assignment file not found"' >> /usr/local/bin/rclone-sync-loop.sh && \
     echo '    exit 1' >> /usr/local/bin/rclone-sync-loop.sh && \
     echo 'fi' >> /usr/local/bin/rclone-sync-loop.sh && \
+    echo '' >> /usr/local/bin/rclone-sync-loop.sh && \
+    echo 'echo "Using S3 bucket: $S3_BUCKET (region: ${S3_REGION:-us-east-1})"' >> /usr/local/bin/rclone-sync-loop.sh && \
     echo 'S3_PATH="s3:${S3_BUCKET}"' >> /usr/local/bin/rclone-sync-loop.sh && \
-    echo 'WORKSPACE_PATH="/workspace"' >> /usr/local/bin/rclone-sync-loop.sh && \
     echo '# Initial sync in background (non-blocking) - container can start immediately' >> /usr/local/bin/rclone-sync-loop.sh && \
     echo 'if [ -z "$(ls -A $WORKSPACE_PATH)" ]; then' >> /usr/local/bin/rclone-sync-loop.sh && \
     echo '    echo "Workspace is empty, performing initial download from S3 in background..."' >> /usr/local/bin/rclone-sync-loop.sh && \
@@ -444,6 +560,12 @@ RUN echo '#!/bin/bash' > /usr/local/bin/inactivity-monitor.sh && \
     echo '    exit 0' >> /usr/local/bin/inactivity-monitor.sh && \
     echo '}' >> /usr/local/bin/inactivity-monitor.sh && \
     echo 'while true; do' >> /usr/local/bin/inactivity-monitor.sh && \
+    echo '    # Skip inactivity shutdown for pre-warmed containers (no S3_BUCKET)' >> /usr/local/bin/inactivity-monitor.sh && \
+    echo '    if [ -z "$S3_BUCKET" ]; then' >> /usr/local/bin/inactivity-monitor.sh && \
+    echo '        echo "Pre-warmed container (no S3_BUCKET) - skipping inactivity monitor, waiting for S3 assignment..."' >> /usr/local/bin/inactivity-monitor.sh && \
+    echo '        sleep 60' >> /usr/local/bin/inactivity-monitor.sh && \
+    echo '        continue' >> /usr/local/bin/inactivity-monitor.sh && \
+    echo '    fi' >> /usr/local/bin/inactivity-monitor.sh && \
     echo '    if ! inotifywait -r -t $TIMEOUT_SECONDS -e modify -e create -e delete -e move "$WORKSPACE_PATH" &>/dev/null; then' >> /usr/local/bin/inactivity-monitor.sh && \
     echo '        shutdown_container' >> /usr/local/bin/inactivity-monitor.sh && \
     echo '        exit 0' >> /usr/local/bin/inactivity-monitor.sh && \
@@ -494,12 +616,25 @@ RUN echo '#!/bin/bash' > /usr/local/bin/entrypoint.sh && \
     echo '  websockify --web=/opt/novnc 6080 localhost:5901 &' >> /usr/local/bin/entrypoint.sh && \
     echo ') &' >> /usr/local/bin/entrypoint.sh && \
     echo '' >> /usr/local/bin/entrypoint.sh && \
-    echo '# Start rclone sync loop in background (non-blocking) - if S3_BUCKET is set' >> /usr/local/bin/entrypoint.sh && \
+    echo '# Start rclone sync loop - either from env var or wait for assignment' >> /usr/local/bin/entrypoint.sh && \
     echo 'if [ -n "$S3_BUCKET" ]; then' >> /usr/local/bin/entrypoint.sh && \
     echo '    echo "Starting rclone sync loop for bucket: $S3_BUCKET (background)..."' >> /usr/local/bin/entrypoint.sh && \
     echo '    su user -c "S3_BUCKET=$S3_BUCKET S3_REGION=$S3_REGION AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY /usr/local/bin/rclone-sync-loop.sh" &' >> /usr/local/bin/entrypoint.sh && \
     echo 'else' >> /usr/local/bin/entrypoint.sh && \
-    echo '    echo "WARNING: S3_BUCKET not set, skipping rclone sync"' >> /usr/local/bin/entrypoint.sh && \
+    echo '    echo "S3_BUCKET not set - container is pre-warmed, waiting for S3 assignment..."' >> /usr/local/bin/entrypoint.sh && \
+    echo '    # Start background process to wait for S3 assignment' >> /usr/local/bin/entrypoint.sh && \
+    echo '    (' >> /usr/local/bin/entrypoint.sh && \
+    echo '        S3_ASSIGNMENT_FILE="/tmp/s3-assignment.json"' >> /usr/local/bin/entrypoint.sh && \
+    echo '        S3_SYNC_TRIGGER_FILE="/tmp/s3-sync-trigger"' >> /usr/local/bin/entrypoint.sh && \
+    echo '        echo "Waiting for S3 bucket assignment..."' >> /usr/local/bin/entrypoint.sh && \
+    echo '        # Wait for assignment file to appear' >> /usr/local/bin/entrypoint.sh && \
+    echo '        while [ ! -f "$S3_ASSIGNMENT_FILE" ]; do' >> /usr/local/bin/entrypoint.sh && \
+    echo '            sleep 2' >> /usr/local/bin/entrypoint.sh && \
+    echo '        done' >> /usr/local/bin/entrypoint.sh && \
+    echo '        echo "S3 bucket assignment detected, starting sync loop..."' >> /usr/local/bin/entrypoint.sh && \
+    echo '        # Read assignment and start sync loop' >> /usr/local/bin/entrypoint.sh && \
+    echo '        su user -c "/usr/local/bin/rclone-sync-loop.sh" &' >> /usr/local/bin/entrypoint.sh && \
+    echo '    ) &' >> /usr/local/bin/entrypoint.sh && \
     echo 'fi' >> /usr/local/bin/entrypoint.sh && \
     echo '' >> /usr/local/bin/entrypoint.sh && \
     echo '# Start inactivity monitor (if enabled)' >> /usr/local/bin/entrypoint.sh && \

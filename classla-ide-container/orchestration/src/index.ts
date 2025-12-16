@@ -30,4 +30,3 @@ export type {
   ContainerQueueState,
 } from "./queueManager.js";
 export { QueueMaintainer } from "./queueMaintainer.js";
-export { ContainerCleanupService } from "./containerCleanupService.js";

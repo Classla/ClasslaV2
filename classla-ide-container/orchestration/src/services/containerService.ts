@@ -9,12 +9,13 @@ import {
 } from "../middleware/errors.js";
 
 export interface ContainerConfig {
-  s3Bucket: string;
+  s3Bucket?: string; // Optional for pre-warmed containers
   s3Region?: string;
   awsAccessKeyId?: string;
   awsSecretAccessKey?: string;
   vncPassword?: string;
   domain: string;
+  skipS3Bucket?: boolean; // If true, don't set S3_BUCKET env var (pre-warmed container)
 }
 
 export interface ContainerInfo {
@@ -69,12 +70,19 @@ export class ContainerService {
 
     // Generate environment variables for the container
     const env = [
-      `S3_BUCKET=${containerConfig.s3Bucket}`,
-      `S3_REGION=${containerConfig.s3Region || "us-east-1"}`,
       // Base paths for path-based routing
       `CODE_BASE_PATH=/code/${containerId}`,
       `VNC_BASE_PATH=/vnc/${containerId}`,
     ];
+
+    // Only set S3_BUCKET if not skipping (for pre-warmed containers)
+    if (!containerConfig.skipS3Bucket && containerConfig.s3Bucket) {
+      env.push(`S3_BUCKET=${containerConfig.s3Bucket}`);
+      env.push(`S3_REGION=${containerConfig.s3Region || "us-east-1"}`);
+    } else if (!containerConfig.skipS3Bucket) {
+      // If skipS3Bucket is false but no bucket provided, still set region
+      env.push(`S3_REGION=${containerConfig.s3Region || "us-east-1"}`);
+    }
 
     if (containerConfig.awsAccessKeyId) {
       env.push(`AWS_ACCESS_KEY_ID=${containerConfig.awsAccessKeyId}`);
@@ -224,7 +232,7 @@ export class ContainerService {
           containerId,
           containerConfig.domain
         ),
-        s3Bucket: containerConfig.s3Bucket,
+        s3Bucket: containerConfig.s3Bucket || "", // Empty string for pre-warmed containers
         createdAt: new Date(),
       };
 
@@ -441,6 +449,73 @@ export class ContainerService {
 
       return logStream as NodeJS.ReadableStream;
     } catch (error) {
+      throw dockerError(
+        error instanceof Error ? error : new Error(String(error))
+      );
+    }
+  }
+
+  /**
+   * Assign S3 bucket to a pre-warmed container via HTTP endpoint
+   */
+  async assignS3BucketToContainer(
+    containerId: string,
+    s3Config: {
+      bucket: string;
+      region?: string;
+      accessKeyId?: string;
+      secretAccessKey?: string;
+    }
+  ): Promise<void> {
+    try {
+      // Get container info to get the web server URL
+      const containerInfo = await this.getContainer(containerId);
+      if (!containerInfo) {
+        throw new Error(`Container ${containerId} not found`);
+      }
+
+      // Construct the web server URL (port 3000)
+      const webServerUrl = containerInfo.urls.webServer;
+      
+      // Call the /assign-s3-bucket endpoint
+      const response = await fetch(`${webServerUrl}/assign-s3-bucket`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          bucket: s3Config.bucket,
+          region: s3Config.region || "us-east-1",
+          accessKeyId: s3Config.accessKeyId,
+          secretAccessKey: s3Config.secretAccessKey,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(
+          `Failed to assign S3 bucket: ${response.status} ${errorText}`
+        );
+      }
+
+      const result = (await response.json()) as {
+        status?: string;
+        error?: string;
+      };
+      if (result.status !== "success" && result.status !== "already_assigned") {
+        throw new Error(
+          `S3 bucket assignment failed: ${result.error || "Unknown error"}`
+        );
+      }
+
+      console.log(
+        `[ContainerService] Successfully assigned S3 bucket ${s3Config.bucket} to container ${containerId}`
+      );
+    } catch (error) {
+      console.error(
+        `[ContainerService] Error assigning S3 bucket to container ${containerId}:`,
+        error
+      );
       throw dockerError(
         error instanceof Error ? error : new Error(String(error))
       );

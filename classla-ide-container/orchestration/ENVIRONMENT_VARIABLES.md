@@ -64,6 +64,12 @@ These variables control resource allocation for IDE containers:
 
 Valid values: `error`, `warn`, `info`, `debug`
 
+## Pre-warmed Queue
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `PRE_WARMED_QUEUE_SIZE` | Number of pre-warmed containers to maintain | `10` |
+
 ## Example .env File
 
 ```bash
@@ -97,6 +103,9 @@ CONTAINER_RESTART_MAX_ATTEMPTS=3
 
 # Optional: Logging
 LOG_LEVEL=info
+
+# Optional: Pre-warmed Queue
+PRE_WARMED_QUEUE_SIZE=10
 ```
 
 ## Notes

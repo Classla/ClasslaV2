@@ -30,6 +30,7 @@ interface ContainerRow {
   web_server_url: string;
   cpu_limit: string;
   memory_limit: string;
+  is_pre_warmed: number; // SQLite uses 0/1 for boolean
 }
 
 export interface ContainerMetadata {
@@ -43,6 +44,7 @@ export interface ContainerMetadata {
   stoppedAt?: Date;
   lastActivity?: Date;
   shutdownReason?: ShutdownReason;
+  isPreWarmed?: boolean;
   urls: {
     vnc: string;
     codeServer: string;
@@ -96,9 +98,17 @@ export class StateManager {
         code_server_url TEXT NOT NULL,
         web_server_url TEXT NOT NULL,
         cpu_limit TEXT NOT NULL,
-        memory_limit TEXT NOT NULL
+        memory_limit TEXT NOT NULL,
+        is_pre_warmed INTEGER DEFAULT 0
       )
     `);
+
+    // Add is_pre_warmed column if it doesn't exist (for existing databases)
+    try {
+      this.db.exec(`ALTER TABLE containers ADD COLUMN is_pre_warmed INTEGER DEFAULT 0`);
+    } catch (error) {
+      // Column already exists, ignore
+    }
 
     // Create index on status for faster filtering
     this.db.exec(`
@@ -120,8 +130,8 @@ export class StateManager {
         id, service_name, s3_bucket, s3_region, status,
         created_at, started_at, stopped_at, last_activity, shutdown_reason,
         vnc_url, code_server_url, web_server_url,
-        cpu_limit, memory_limit
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        cpu_limit, memory_limit, is_pre_warmed
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     stmt.run(
@@ -139,7 +149,8 @@ export class StateManager {
       container.urls.codeServer,
       container.urls.webServer,
       container.resourceLimits.cpuLimit,
-      container.resourceLimits.memoryLimit
+      container.resourceLimits.memoryLimit,
+      container.isPreWarmed ? 1 : 0
     );
   }
 
@@ -336,6 +347,7 @@ export class StateManager {
       stoppedAt: row.stopped_at ? new Date(row.stopped_at) : undefined,
       lastActivity: row.last_activity ? new Date(row.last_activity) : undefined,
       shutdownReason: row.shutdown_reason as ShutdownReason | undefined,
+      isPreWarmed: row.is_pre_warmed === 1,
       urls: {
         vnc: row.vnc_url,
         codeServer: row.code_server_url,
