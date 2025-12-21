@@ -106,7 +106,8 @@ if [ "$PRODUCTION" = "true" ]; then
   export HTTPS_REDIRECT="true"
   
   # Set management API labels for production
-  export MANAGEMENT_API_MAIN_RULE="Host(\`${DOMAIN}\`)"
+  # Only match /api paths to avoid conflicting with container routes
+  export MANAGEMENT_API_MAIN_RULE="Host(\`${DOMAIN}\`) && PathPrefix(\`/api\`)"
   export MANAGEMENT_API_MAIN_ENTRYPOINT="websecure"
   export MANAGEMENT_API_MAIN_TLS="letsencrypt"
   export MANAGEMENT_API_MAIN_SERVICE="management-api-main"

@@ -16,7 +16,9 @@ services:
       # (only active in production when ENABLE_HTTPS=true)
       - "--entrypoints.websecure.address=:443"
       - "--entrypoints.websecure.http.tls.options=default@file"
-      - "--entrypoints.websecure.http.middlewares=security-headers@file"
+      # Note: security-headers middleware removed from entrypoint level
+      # It will be applied selectively to routes that need it (management-api, dashboard)
+      # Container routes use container-iframe-headers middleware instead
       - "--certificatesresolvers.letsencrypt.acme.httpchallenge=true"
       - "--certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web"
       - "--certificatesresolvers.letsencrypt.acme.email=${ACME_EMAIL:-}"
@@ -92,21 +94,25 @@ services:
         - "traefik.http.routers.ide-api.middlewares=ide-api-stripprefix"
         # Production mode: Additional routes (only created when DOMAIN is not localhost)
         # These use environment variables that are only set in production mode by start.sh
-        - "traefik.http.routers.management-api-main.rule=${MANAGEMENT_API_MAIN_RULE:-Host(`invalid.localhost`)}"
+        - "traefik.http.routers.management-api-main.rule=${MANAGEMENT_API_MAIN_RULE:-Host(`invalid.localhost`) && PathPrefix(`/api`)}"
         - "traefik.http.routers.management-api-main.entrypoints=${MANAGEMENT_API_MAIN_ENTRYPOINT:-web}"
         - "traefik.http.routers.management-api-main.tls.certresolver=${MANAGEMENT_API_MAIN_TLS:-}"
         - "traefik.http.routers.management-api-main.service=${MANAGEMENT_API_MAIN_SERVICE:-management-api-main}"
         - "traefik.http.services.management-api-main.loadbalancer.server.port=${MANAGEMENT_API_MAIN_SERVICE_PORT:-3001}"
+        - "traefik.http.middlewares.management-api-main-strip.stripprefix.prefixes=/api"
+        - "traefik.http.routers.management-api-main.middlewares=management-api-main-strip,security-headers@file"
         - "traefik.http.routers.management-api.rule=${MANAGEMENT_API_SUBDOMAIN_RULE:-Host(`invalid-api.localhost`)}"
         - "traefik.http.routers.management-api.entrypoints=${MANAGEMENT_API_ENTRYPOINT:-web}"
         - "traefik.http.routers.management-api.tls.certresolver=${MANAGEMENT_API_TLS:-}"
         - "traefik.http.routers.management-api.service=${MANAGEMENT_API_SERVICE:-management-api}"
         - "traefik.http.services.management-api.loadbalancer.server.port=${MANAGEMENT_API_SERVICE_PORT:-3001}"
+        - "traefik.http.routers.management-api.middlewares=security-headers@file"
         - "traefik.http.routers.dashboard.rule=${DASHBOARD_RULE:-Host(`invalid-dashboard.localhost`)}"
         - "traefik.http.routers.dashboard.entrypoints=${DASHBOARD_ENTRYPOINT:-web}"
         - "traefik.http.routers.dashboard.tls.certresolver=${DASHBOARD_TLS:-}"
         - "traefik.http.routers.dashboard.service=${DASHBOARD_SERVICE:-dashboard}"
         - "traefik.http.services.dashboard.loadbalancer.server.port=${DASHBOARD_SERVICE_PORT:-3001}"
+        - "traefik.http.routers.dashboard.middlewares=security-headers@file"
 
 networks:
   ide-network:

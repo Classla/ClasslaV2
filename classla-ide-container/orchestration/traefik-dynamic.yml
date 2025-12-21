@@ -34,6 +34,19 @@ http:
           X-XSS-Protection: "1; mode=block"
           Permissions-Policy: "geolocation=(), microphone=(), camera=()"
 
+    # Middleware for IDE containers - allows iframe embedding
+    # This overrides the restrictive security-headers for container routes
+    # Note: Middlewares are applied in order, and later ones override earlier ones
+    container-iframe-headers:
+      headers:
+        # Disable frame denial (overrides frameDeny from security-headers)
+        frameDeny: false
+        # Override CSP to allow iframe embedding from any origin
+        contentSecurityPolicy: "default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: https:; frame-ancestors *; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data: https:; connect-src 'self' ws: wss: https:; worker-src 'self' blob:;"
+        # Override X-Frame-Options to allow embedding
+        customResponseHeaders:
+          X-Frame-Options: ""
+
 tls:
   options:
     default:

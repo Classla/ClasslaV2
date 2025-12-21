@@ -74,7 +74,8 @@ export class TraefikService {
     labels[`traefik.http.routers.vnc-${containerId}.service`] = `vnc-${containerId}`;
     labels[`traefik.http.services.vnc-${containerId}.loadbalancer.server.port`] = "6080";
     labels[`traefik.http.middlewares.vnc-${containerId}-strip.stripprefix.prefixes`] = `/vnc/${containerId}`;
-    labels[`traefik.http.routers.vnc-${containerId}.middlewares`] = `vnc-${containerId}-strip`;
+    // Add iframe-friendly headers middleware to allow embedding from any origin
+    labels[`traefik.http.routers.vnc-${containerId}.middlewares`] = `vnc-${containerId}-strip,container-iframe-headers@file`;
 
     // code-server service (port 8080)
     labels[`traefik.http.routers.code-${containerId}.rule`] = buildRule(`/code/${containerId}`);
@@ -83,10 +84,9 @@ export class TraefikService {
     labels[`traefik.http.routers.code-${containerId}.service`] = `code-${containerId}`;
     labels[`traefik.http.services.code-${containerId}.loadbalancer.server.port`] = "8080";
     labels[`traefik.http.middlewares.code-${containerId}-strip.stripprefix.prefixes`] = `/code/${containerId}`;
-    // Note: nginx inside the container handles CSP header modification for localhost
-    // No need to add CSP headers in Traefik - nginx strips code-server's restrictive CSP
-    // and adds a permissive one with frame-ancestors *
-    labels[`traefik.http.routers.code-${containerId}.middlewares`] = `code-${containerId}-strip`;
+    // Add iframe-friendly headers middleware to allow embedding from any origin
+    // This overrides the restrictive security-headers middleware applied at entrypoint level
+    labels[`traefik.http.routers.code-${containerId}.middlewares`] = `code-${containerId}-strip,container-iframe-headers@file`;
 
     // web server service (port 3000)
     labels[`traefik.http.routers.web-${containerId}.rule`] = buildRule(`/web/${containerId}`);
@@ -95,7 +95,8 @@ export class TraefikService {
     labels[`traefik.http.routers.web-${containerId}.service`] = `web-${containerId}`;
     labels[`traefik.http.services.web-${containerId}.loadbalancer.server.port`] = "3000";
     labels[`traefik.http.middlewares.web-${containerId}-strip.stripprefix.prefixes`] = `/web/${containerId}`;
-    labels[`traefik.http.routers.web-${containerId}.middlewares`] = `web-${containerId}-strip`;
+    // Add iframe-friendly headers middleware to allow embedding from any origin
+    labels[`traefik.http.routers.web-${containerId}.middlewares`] = `web-${containerId}-strip,container-iframe-headers@file`;
 
     // Store domain and container ID
     labels["ide.domain"] = domain;
