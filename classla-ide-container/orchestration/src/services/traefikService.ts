@@ -51,10 +51,24 @@ export class TraefikService {
 
     // Always use path-based routing
     // Set high priority so IDE container routes are matched before management-api catch-all
-    const priority = 10;
+    // Priority 20 ensures containers match before management-api (which has no priority, defaulting to 0)
+    const priority = 20;
+    
+    // Build rule with Host constraint for domain-based routing (not localhost/IP)
+    // For domain-based routing, we need to match both Host and PathPrefix
+    // For localhost/IP, just use PathPrefix
+    const buildRule = (pathPrefix: string): string => {
+      if (useHttp) {
+        // Localhost or IP: just use PathPrefix
+        return `PathPrefix(\`${pathPrefix}\`) || PathPrefix(\`${pathPrefix}/\`)`;
+      } else {
+        // Domain: add Host constraint to ensure we match before management-api router
+        return `Host(\`${domain}\`) && (PathPrefix(\`${pathPrefix}\`) || PathPrefix(\`${pathPrefix}/\`))`;
+      }
+    };
     
     // noVNC service (port 6080)
-    labels[`traefik.http.routers.vnc-${containerId}.rule`] = `PathPrefix(\`/vnc/${containerId}\`) || PathPrefix(\`/vnc/${containerId}/\`)`;
+    labels[`traefik.http.routers.vnc-${containerId}.rule`] = buildRule(`/vnc/${containerId}`);
     labels[`traefik.http.routers.vnc-${containerId}.entrypoints`] = entrypoints;
     labels[`traefik.http.routers.vnc-${containerId}.priority`] = String(priority);
     labels[`traefik.http.routers.vnc-${containerId}.service`] = `vnc-${containerId}`;
@@ -63,7 +77,7 @@ export class TraefikService {
     labels[`traefik.http.routers.vnc-${containerId}.middlewares`] = `vnc-${containerId}-strip`;
 
     // code-server service (port 8080)
-    labels[`traefik.http.routers.code-${containerId}.rule`] = `PathPrefix(\`/code/${containerId}\`) || PathPrefix(\`/code/${containerId}/\`)`;
+    labels[`traefik.http.routers.code-${containerId}.rule`] = buildRule(`/code/${containerId}`);
     labels[`traefik.http.routers.code-${containerId}.entrypoints`] = entrypoints;
     labels[`traefik.http.routers.code-${containerId}.priority`] = String(priority);
     labels[`traefik.http.routers.code-${containerId}.service`] = `code-${containerId}`;
@@ -75,7 +89,7 @@ export class TraefikService {
     labels[`traefik.http.routers.code-${containerId}.middlewares`] = `code-${containerId}-strip`;
 
     // web server service (port 3000)
-    labels[`traefik.http.routers.web-${containerId}.rule`] = `PathPrefix(\`/web/${containerId}\`) || PathPrefix(\`/web/${containerId}/\`)`;
+    labels[`traefik.http.routers.web-${containerId}.rule`] = buildRule(`/web/${containerId}`);
     labels[`traefik.http.routers.web-${containerId}.entrypoints`] = entrypoints;
     labels[`traefik.http.routers.web-${containerId}.priority`] = String(priority);
     labels[`traefik.http.routers.web-${containerId}.service`] = `web-${containerId}`;
