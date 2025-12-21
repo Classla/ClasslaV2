@@ -225,8 +225,13 @@ cd "$SCRIPT_DIR/orchestration"
 if [ "$PRODUCTION" = "true" ]; then
   # Create a temporary compose file with HTTPS redirect enabled
   TEMP_COMPOSE=$(mktemp)
+  # Get absolute path to orchestration directory for bind mounts
+  ORCHESTRATION_DIR=$(pwd)
   # Copy the base compose file
   cp docker-compose.yml "$TEMP_COMPOSE"
+  # Convert relative path to absolute path for traefik-dynamic.yml
+  # Docker Swarm requires absolute paths for bind mounts
+  sed -i.bak "s|./traefik-dynamic.yml|${ORCHESTRATION_DIR}/traefik-dynamic.yml|g" "$TEMP_COMPOSE"
   # Add HTTPS redirect flags after the web entrypoint line
   sed -i.bak '/--entrypoints.web.address=:80/a\
       - "--entrypoints.web.http.redirections.entryPoint.to=websecure"\
