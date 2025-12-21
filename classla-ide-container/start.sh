@@ -144,16 +144,26 @@ if [ "$PRODUCTION" = "true" ]; then
     fi
   fi
   
-  if [ -z "$AWS_ACCESS_KEY_ID" ] || [ "$AWS_ACCESS_KEY_ID" = "" ] || [ "$AWS_ACCESS_KEY_ID" = "dummy-key" ]; then
+  if [ -z "$AWS_ACCESS_KEY_ID" ] || [ "$AWS_ACCESS_KEY_ID" = "" ]; then
     echo "❌ Error: AWS_ACCESS_KEY_ID is required for production mode"
     echo "   Please set AWS_ACCESS_KEY_ID in your .env file or environment"
     exit 1
   fi
   
-  if [ -z "$AWS_SECRET_ACCESS_KEY" ] || [ "$AWS_SECRET_ACCESS_KEY" = "" ] || [ "$AWS_SECRET_ACCESS_KEY" = "dummy-secret" ]; then
+  if [ "$AWS_ACCESS_KEY_ID" = "dummy-key" ]; then
+    echo "⚠️  Warning: Using dummy AWS credentials. S3 operations will fail."
+    echo "   Please update AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY in orchestration/.env"
+  fi
+  
+  if [ -z "$AWS_SECRET_ACCESS_KEY" ] || [ "$AWS_SECRET_ACCESS_KEY" = "" ]; then
     echo "❌ Error: AWS_SECRET_ACCESS_KEY is required for production mode"
     echo "   Please set AWS_SECRET_ACCESS_KEY in your .env file or environment"
     exit 1
+  fi
+  
+  if [ "$AWS_SECRET_ACCESS_KEY" = "dummy-secret" ]; then
+    echo "⚠️  Warning: Using dummy AWS credentials. S3 operations will fail."
+    echo "   Please update AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY in orchestration/.env"
   fi
   
   echo "✓ Production environment variables validated"
