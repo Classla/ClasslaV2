@@ -1,6 +1,6 @@
 import { Router, Request, Response, NextFunction } from "express";
-import { ContainerStatus } from "../services/stateManager.js";
-import { config } from "../config/index.js";
+import { ContainerStatus } from "../services/stateManager";
+import { config } from "../config/index";
 import {
   invalidS3Bucket,
   invalidParameter,
@@ -8,7 +8,7 @@ import {
   containerNotFound,
   containerStartFailed,
   containerStopFailed,
-} from "../middleware/errors.js";
+} from "../middleware/errors";
 import {
   containerService,
   stateManager,
@@ -17,7 +17,10 @@ import {
   s3ValidationService,
   containerStatsService,
   queueManager,
-} from "../services/serviceInstances.js";
+  queueMaintainer,
+} from "../services/serviceInstances";
+import axios from "axios";
+import https from "https";
 
 const router = Router();
 
@@ -29,6 +32,7 @@ router.post(
   "/start",
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
+      console.log("[Containers] POST /start received");
       // Validate request body
       const {
         s3Bucket,
@@ -67,55 +71,158 @@ router.post(
       let usedQueue = false;
       const queueStats = queueManager.getStats();
       console.log(
-        `[Containers] Queue status: ${queueStats.preWarmed} pre-warmed, ${queueStats.assigned} assigned, ${queueStats.running} running (target: ${queueStats.targetSize})`
+        `[Containers] ========================================`
+      );
+      console.log(
+        `[Containers] POST /start - Queue status: ${queueStats.preWarmed} pre-warmed, ${queueStats.assigned} assigned, ${queueStats.running} running (target: ${queueStats.targetSize})`
+      );
+      console.log(
+        `[Containers] Total containers tracked: ${queueStats.total}`
       );
       
       const queuedContainer = queueManager.getAvailableContainer();
+      
+      if (queuedContainer) {
+        console.log(
+          `[Containers] ✅ Found pre-warmed container ${queuedContainer.containerId} in queue (state: ${queuedContainer.state})`
+        );
+      } else {
+        console.log(
+          `[Containers] ⚠️ No pre-warmed container available in queue (queue size: ${queueStats.preWarmed}, total tracked: ${queueStats.total})`
+        );
+      }
 
       if (queuedContainer) {
         // Use pre-warmed container from queue
         console.log(
           `[Containers] ✅ Using pre-warmed container ${queuedContainer.containerId} from queue`
         );
-        usedQueue = true;
-
-        // Assign S3 bucket to the pre-warmed container
-        try {
-          await containerService.assignS3BucketToContainer(
-            queuedContainer.containerId,
-            {
-              bucket: s3Bucket,
-              region: validatedRegion,
-              accessKeyId: awsAccessKeyId || config.awsAccessKeyId,
-              secretAccessKey: awsSecretAccessKey || config.awsSecretAccessKey,
+        
+        // Verify the pre-warmed container is actually accessible before using it
+        // This ensures Traefik routing is working
+        const containerInState = stateManager.getContainer(queuedContainer.containerId);
+        if (!containerInState || !containerInState.urls?.codeServer) {
+          console.warn(
+            `[Containers] ⚠️ Pre-warmed container ${queuedContainer.containerId} missing URLs, skipping and creating new container`
+          );
+        } else {
+          // Verify code-server is accessible through Traefik
+          // Retry up to 3 times with delays to account for Traefik route registration
+          let verified = false;
+          const maxRetries = 3;
+          const retryDelay = 1000; // 1 second between retries
+          
+          for (let attempt = 1; attempt <= maxRetries; attempt++) {
+            try {
+              const codeServerUrl = containerInState.urls.codeServer;
+              // For localhost URLs, use Traefik service name for internal Docker network access
+              // This is the same fix we applied to the health monitor
+              let checkUrl = `${codeServerUrl}/`;
+              if (codeServerUrl.includes('localhost')) {
+                checkUrl = checkUrl.replace('http://localhost', 'http://ide-local_traefik:80');
+              }
+              
+              console.log(
+                `[Containers] Verifying pre-warmed container ${queuedContainer.containerId} accessibility (attempt ${attempt}/${maxRetries}) at ${checkUrl}...`
+              );
+              
+              // In local mode, disable SSL certificate validation to handle self-signed certs
+              const axiosConfig: any = {
+                timeout: 3000,
+                validateStatus: () => true,
+                maxRedirects: 5,
+              };
+              
+              // For local development, disable SSL verification if using HTTPS
+              if (config.nodeEnv === "local" || checkUrl.includes("localhost") || checkUrl.includes("ide-local_traefik")) {
+                axiosConfig.httpsAgent = new https.Agent({
+                  rejectUnauthorized: false,
+                });
+              }
+              
+              const response = await axios.get(checkUrl, axiosConfig);
+              
+              // Must return 200, 302, or 401 to be considered ready
+              if (response.status === 200 || response.status === 302 || response.status === 401) {
+                console.log(
+                  `[Containers] ✅ Pre-warmed container ${queuedContainer.containerId} verified accessible (status: ${response.status}, attempt ${attempt}/${maxRetries})`
+                );
+                verified = true;
+                break; // Success, exit retry loop
+              } else if (response.status === 404) {
+                // 404 means Traefik routing not ready yet
+                if (attempt < maxRetries) {
+                  console.log(
+                    `[Containers] ⏳ Pre-warmed container ${queuedContainer.containerId} not accessible yet (404, attempt ${attempt}/${maxRetries}), retrying in ${retryDelay}ms...`
+                  );
+                  await new Promise((resolve) => setTimeout(resolve, retryDelay));
+                } else {
+                  console.warn(
+                    `[Containers] ⚠️ Pre-warmed container ${queuedContainer.containerId} not accessible after ${maxRetries} attempts (status: ${response.status}), skipping and creating new container`
+                  );
+                }
+              } else {
+                console.warn(
+                  `[Containers] ⚠️ Pre-warmed container ${queuedContainer.containerId} returned unexpected status ${response.status} (attempt ${attempt}/${maxRetries}), skipping and creating new container`
+                );
+                break; // Unexpected status, don't retry
+              }
+            } catch (error: any) {
+              if (attempt < maxRetries) {
+                console.log(
+                  `[Containers] ⏳ Pre-warmed container ${queuedContainer.containerId} verification failed (${error.message || String(error)}, attempt ${attempt}/${maxRetries}), retrying in ${retryDelay}ms...`
+                );
+                await new Promise((resolve) => setTimeout(resolve, retryDelay));
+              } else {
+                console.warn(
+                  `[Containers] ⚠️ Pre-warmed container ${queuedContainer.containerId} verification failed after ${maxRetries} attempts (${error.message || String(error)}), skipping and creating new container`
+                );
+              }
             }
-          );
-
-          // Mark container as assigned in queue
-          queueManager.markAsAssigned(queuedContainer.containerId, s3Bucket);
-
-          // Get container info
-          const assignedContainerInfo = await containerService.getContainer(
-            queuedContainer.containerId
-          );
-          if (!assignedContainerInfo) {
-            throw new Error("Failed to get container info after S3 assignment");
           }
-          // Pre-warmed containers are already running, so mark as running
-          containerInfo = {
-            ...assignedContainerInfo,
-            status: "running" as const, // Pre-warmed containers are already running
-          };
-        } catch (error) {
-          console.error(
-            `[Containers] Failed to assign S3 bucket to pre-warmed container:`,
-            error
-          );
-          // Return container to queue or remove it
-          queueManager.removeFromQueue(queuedContainer.containerId);
-          // Fall through to create new container
-          usedQueue = false;
-          containerInfo = undefined;
+          
+          if (verified) {
+            usedQueue = true;
+
+              // Assign S3 bucket to the pre-warmed container
+              try {
+                await containerService.assignS3BucketToContainer(
+                  queuedContainer.containerId,
+                  {
+                    bucket: s3Bucket,
+                    region: validatedRegion,
+                    accessKeyId: awsAccessKeyId || config.awsAccessKeyId,
+                    secretAccessKey: awsSecretAccessKey || config.awsSecretAccessKey,
+                  }
+                );
+
+                // Mark container as assigned in queue
+                queueManager.markAsAssigned(queuedContainer.containerId, s3Bucket);
+
+                // Get container info
+                const assignedContainerInfo = await containerService.getContainer(
+                  queuedContainer.containerId
+                );
+                if (!assignedContainerInfo) {
+                  throw new Error("Failed to get container info after S3 assignment");
+                }
+                // Pre-warmed containers are already running, so mark as running
+                containerInfo = {
+                  ...assignedContainerInfo,
+                  status: "running" as const, // Pre-warmed containers are already running
+                };
+              } catch (error) {
+                console.error(
+                  `[Containers] Failed to assign S3 bucket to pre-warmed container:`,
+                  error
+                );
+                // Return container to pre-warmed state so it can be reused
+                queueManager.returnToQueue(queuedContainer.containerId);
+                // Fall through to create new container
+                usedQueue = false;
+                containerInfo = undefined;
+              }
+          }
         }
       }
 
@@ -187,14 +294,20 @@ router.post(
         },
       });
 
-      // Trigger queue replenishment in background (don't wait)
+      // Trigger queue replenishment immediately when a pre-warmed container is used
       if (usedQueue) {
-        // Queue was used, trigger background replenishment
+        // Queue was used, trigger immediate replenishment in background
         setImmediate(() => {
-          // This will be handled by queue maintainer, but we can log it
           console.log(
-            `[Containers] Queue container used, maintainer will replenish`
+            `[Containers] Queue container used, triggering immediate queue replenishment`
           );
+          // Trigger queue maintainer to check and spawn replacement immediately
+          queueMaintainer.maintainQueue().catch((error) => {
+            console.error(
+              `[Containers] Error triggering queue replenishment:`,
+              error
+            );
+          });
         });
       }
 
@@ -302,6 +415,8 @@ router.get(
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { id } = req.params;
+      console.log(`[Containers] ========================================`);
+      console.log(`[Containers] GET /:id received for container ${id}`);
 
       // Validate container ID parameter
       if (!id || typeof id !== "string") {
@@ -310,16 +425,40 @@ router.get(
 
       // Query container from state manager
       const container = stateManager.getContainer(id);
-
+      console.log(`[Containers] Container ${id} in state manager: ${container ? '✅ found' : '❌ not found'}`);
+      
       if (!container) {
+        // Log all containers in state manager for debugging
+        const allContainers = stateManager.listContainers();
+        console.log(`[Containers] Total containers in state manager: ${allContainers.length}`);
+        console.log(`[Containers] Container IDs in state manager: ${allContainers.map(c => `${c.id}:${c.status}`).join(', ') || 'none'}`);
+        console.log(`[Containers] Container ${id} not found in state manager, returning 404`);
         throw containerNotFound(id);
       }
+      
+      console.log(`[Containers] Container ${id} found. Status: ${container.status}, hasUrls: ${!!container.urls}, codeServerUrl: ${container.urls?.codeServer || 'none'}`);
 
       // Fetch current status from Docker Swarm
       const liveContainer = await containerService.getContainer(id);
 
       // Merge state manager data with live Docker data
-      const status = liveContainer ? liveContainer.status : container.status;
+      // If liveContainer is null, the service doesn't exist in Docker Swarm, so it's stopped
+      // If liveContainer exists, use its status (which reflects actual Docker state)
+      let status: ContainerStatus;
+      if (!liveContainer) {
+        // Service doesn't exist in Docker Swarm - container is stopped
+        status = "stopped";
+        // Update state manager to reflect stopped status if it's not already
+        if (container.status !== "stopped") {
+          stateManager.updateContainerLifecycle(id, {
+            status: "stopped",
+            stoppedAt: container.stoppedAt || new Date(),
+          });
+        }
+      } else {
+        // Use live status from Docker Swarm
+        status = liveContainer.status;
+      }
 
       // Calculate uptime if container is running
       let uptime: number | undefined;
@@ -349,6 +488,7 @@ router.get(
         shutdownReason: container.shutdownReason,
         resourceLimits: container.resourceLimits,
         health,
+        isPreWarmed: container.isPreWarmed || false, // Include isPreWarmed flag
       });
     } catch (error) {
       next(error);
@@ -428,10 +568,13 @@ router.delete(
  * POST /api/containers/:id/inactivity-shutdown
  * Webhook endpoint for containers to report inactivity shutdown
  * This endpoint does NOT require authentication as it's called from within containers
+ * Exported as a separate handler so it can be mounted without authentication middleware
  */
-router.post(
-  "/:id/inactivity-shutdown",
-  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+export async function handleInactivityShutdown(
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
     try {
       const { id } = req.params;
       const { reason } = req.body;
@@ -505,7 +648,12 @@ router.post(
     } catch (error) {
       next(error);
     }
-  }
+}
+
+// Also mount on router for backward compatibility
+router.post(
+  "/:id/inactivity-shutdown",
+  handleInactivityShutdown
 );
 
 export default router;

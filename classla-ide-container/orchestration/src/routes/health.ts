@@ -1,6 +1,6 @@
 import { Router, Request, Response, NextFunction } from "express";
-import { config } from "../config/index.js";
-import { queueManager, resourceMonitor } from "../services/serviceInstances.js";
+import { config } from "../config/index";
+import { queueManager, resourceMonitor } from "../services/serviceInstances";
 import Docker from "dockerode";
 
 const router = Router();

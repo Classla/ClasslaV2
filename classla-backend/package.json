@@ -9,6 +9,7 @@
     "build": "tsc",
     "start": "node dist/server.js",
     "test": "jest",
+    "redis": "docker compose -f docker-compose.local.yml up -d redis",
     "redis:up": "docker compose -f docker-compose.local.yml up -d redis",
     "redis:down": "docker compose -f docker-compose.local.yml down",
     "redis:logs": "docker compose -f docker-compose.local.yml logs -f redis",

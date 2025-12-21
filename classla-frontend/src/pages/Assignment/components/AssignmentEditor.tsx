@@ -24,6 +24,17 @@ import { MCQBlock, validateMCQData } from "../../../components/extensions/MCQBlo
 import { IDEBlock } from "../../../components/extensions/IDEBlock";
 import { AIBlock } from "../../../components/extensions/AIBlock";
 import { GeneratingBlock } from "../../../components/extensions/GeneratingBlock";
+import { FillInTheBlankBlock } from "../../../components/extensions/FillInTheBlankBlock";
+import { ShortAnswerBlock } from "../../../components/extensions/ShortAnswerBlock";
+import { ParsonsProblemBlock } from "../../../components/extensions/ParsonsProblemBlock";
+import { ClickableAreaBlock } from "../../../components/extensions/ClickableAreaBlock";
+import { DragDropMatchingBlock } from "../../../components/extensions/DragDropMatchingBlock";
+import { TabbedContentBlock } from "../../../components/extensions/TabbedContentBlock";
+import { RevealContentBlock } from "../../../components/extensions/RevealContentBlock";
+import { PollBlock } from "../../../components/extensions/PollBlock";
+import { EmbedBlock } from "../../../components/extensions/EmbedBlock";
+import { DiscussionBlock } from "../../../components/extensions/DiscussionBlock";
+import { generateUUID } from "../../../components/extensions/blockUtils";
 import { useToast } from "../../../hooks/use-toast";
 import {
   Tooltip,
@@ -66,6 +77,7 @@ import {
   ArrowDown,
   ArrowLeft,
   ArrowRight,
+  ChevronDown,
 } from "lucide-react";
 
 interface AssignmentEditorProps {
@@ -602,11 +614,220 @@ const AssignmentEditor: React.FC<AssignmentEditorProps> = ({
         },
       },
       {
+        title: "Fill-in-the-Blank",
+        description: "Add a fill-in-the-blank question block.",
+        icon: <Type className="w-4 h-4" />,
+        command: (editor) => {
+          editor.chain().focus().insertContent({
+            type: "fillInTheBlankBlock",
+            attrs: {
+              fillInTheBlankData: {
+                id: generateUUID(),
+                question: "",
+                blanks: [],
+                points: 1,
+                pointsPerBlank: false,
+                attempts: 3,
+                showHintAfterAttempts: 1,
+                showAnswerAfterAttempts: 3,
+                generalFeedback: "",
+              },
+            },
+          }).run();
+        },
+      },
+      {
+        title: "Short Answer",
+        description: "Add a short answer question block.",
+        icon: <Type className="w-4 h-4" />,
+        command: (editor) => {
+          editor.chain().focus().insertContent({
+            type: "shortAnswerBlock",
+            attrs: {
+              shortAnswerData: {
+                id: generateUUID(),
+                prompt: "",
+                minWords: undefined,
+                maxWords: undefined,
+                points: 1,
+                sampleAnswer: "",
+              },
+            },
+          }).run();
+        },
+      },
+      {
         title: "IDE Block",
         description: "Add a virtual codespace IDE block.",
         icon: <Code className="w-4 h-4" />,
         command: (editor) => {
           editor.chain().focus().insertIDEBlock().run();
+        },
+      },
+      {
+        title: "Parsons Problem",
+        description: "Add a Parsons problem block for code ordering.",
+        icon: <Code className="w-4 h-4" />,
+        command: (editor) => {
+          // Use direct insertContent - extension should be loaded
+          editor.chain().focus().insertContent({
+            type: "parsonsProblemBlock",
+            attrs: {
+              parsonsProblemData: {
+                id: generateUUID(),
+                instruction: "",
+                correctSolution: "",
+                blocks: [],
+                distractorBlocks: [],
+                enableIndentation: true,
+                indentSpaces: 4,
+                showLineNumbers: true,
+                feedbackMode: "immediate",
+                points: 1,
+              },
+            },
+          }).run();
+        },
+      },
+      {
+        title: "Code Selection",
+        description: "Add a code selection block for selecting lines.",
+        icon: <Code className="w-4 h-4" />,
+        command: (editor) => {
+          // Use direct insertContent - extension should be loaded
+          editor.chain().focus().insertContent({
+            type: "clickableAreaBlock",
+            attrs: {
+              clickableAreaData: {
+                id: generateUUID(),
+                instruction: "",
+                content: "",
+                lines: [],
+                showLineNumbers: true,
+                allowMultipleAttempts: true,
+                showCorrectAfterAttempts: 3,
+                points: 1,
+                partialCredit: true,
+              },
+            },
+          }).run();
+        },
+      },
+      {
+        title: "Drag-and-Drop Matching",
+        description: "Add a drag-and-drop matching block.",
+        icon: <GripVertical className="w-4 h-4" />,
+        command: (editor) => {
+          editor.chain().focus().insertContent({
+            type: "dragDropMatchingBlock",
+            attrs: {
+              dragDropMatchingData: {
+                id: generateUUID(),
+                instruction: "",
+                sourceItems: [],
+                targetZones: [],
+                matchType: "one-to-one",
+                randomizeItems: false,
+                points: 1,
+                partialCredit: true,
+              },
+            },
+          }).run();
+        },
+      },
+      {
+        title: "Tabbed Content",
+        description: "Add a tabbed content block.",
+        icon: <List className="w-4 h-4" />,
+        command: (editor) => {
+          editor.chain().focus().insertContent({
+            type: "tabbedContentBlock",
+            attrs: {
+              tabbedContentData: {
+                id: generateUUID(),
+                tabs: [],
+                tabPosition: "top",
+              },
+            },
+          }).run();
+        },
+      },
+      {
+        title: "Reveal/Collapsible Content",
+        description: "Add a reveal/collapsible content block.",
+        icon: <ChevronDown className="w-4 h-4" />,
+        command: (editor) => {
+          editor.chain().focus().insertContent({
+            type: "revealContentBlock",
+            attrs: {
+              revealContentData: {
+                id: generateUUID(),
+                buttonText: "Show Hint",
+                content: "",
+                initiallyVisible: false,
+                showHideButton: true,
+                buttonStyle: "default",
+              },
+            },
+          }).run();
+        },
+      },
+      {
+        title: "Poll/Survey",
+        description: "Add a poll/survey block.",
+        icon: <CheckSquare className="w-4 h-4" />,
+        command: (editor) => {
+          editor.chain().focus().insertContent({
+            type: "pollBlock",
+            attrs: {
+              pollData: {
+                id: generateUUID(),
+                question: "",
+                options: [{ id: generateUUID(), text: "" }],
+                selectionType: "single",
+                showResults: "after-voting",
+                allowAnswerChange: false,
+              },
+            },
+          }).run();
+        },
+      },
+      {
+        title: "Embed",
+        description: "Add an embed block for videos/iframes.",
+        icon: <Code className="w-4 h-4" />,
+        command: (editor) => {
+          editor.chain().focus().insertContent({
+            type: "embedBlock",
+            attrs: {
+              embedData: {
+                id: generateUUID(),
+                embedType: "iframe",
+                url: "",
+                allowFullscreen: true,
+              },
+            },
+          }).run();
+        },
+      },
+      {
+        title: "Discussion/Forum",
+        description: "Add a discussion/forum block.",
+        icon: <Quote className="w-4 h-4" />,
+        command: (editor) => {
+          editor.chain().focus().insertContent({
+            type: "discussionBlock",
+            attrs: {
+              discussionData: {
+                id: generateUUID(),
+                prompt: "",
+                allowAnonymous: false,
+                requireModeration: false,
+                enableReplies: true,
+                enableVoting: false,
+              },
+            },
+          }).run();
         },
       },
     ],
@@ -673,6 +894,16 @@ const AssignmentEditor: React.FC<AssignmentEditorProps> = ({
       }),
       Gapcursor,
       MCQBlock,
+      FillInTheBlankBlock,
+      ShortAnswerBlock,
+      ParsonsProblemBlock,
+      ClickableAreaBlock,
+      DragDropMatchingBlock,
+      TabbedContentBlock,
+      RevealContentBlock,
+      PollBlock,
+      EmbedBlock,
+      DiscussionBlock,
       IDEBlock,
       AIBlock.configure({
         assignmentId: assignment.id,
@@ -701,6 +932,12 @@ const AssignmentEditor: React.FC<AssignmentEditorProps> = ({
         // Use JSON format instead of HTML for backend compatibility
         debouncedSave(JSON.stringify(editor.getJSON()));
       }
+    },
+    onCreate: ({ editor }) => {
+      // Debug: Log all registered extensions
+      console.log("[AssignmentEditor] Editor created with extensions:", 
+        editor.extensionManager.extensions.map(ext => ext.name).sort()
+      );
     },
     onSelectionUpdate: ({ editor }) => {
       if (!isReadOnly) {

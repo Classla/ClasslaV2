@@ -67,88 +67,124 @@ if (process.env.REDIS_URL) {
       logger.info('Redis client ready for session storage');
     });
     
-    // Create Redis store - connect-redis v9 API
-    // RedisStore is a class constructor that takes options
-    store = new RedisStoreClass({
-      client: redisClient as any,
-      prefix: 'sess:',
+    // Don't create Redis store yet - wait for connection to succeed
+    // This prevents creating a store with a closed client
+    // Store will be created after connection succeeds (see below)
+    
+    // Add error handler to detect when client closes
+    redisClient.on('end', () => {
+      logger.warn('Redis client closed - falling back to memory store');
+      if (process.env.NODE_ENV !== 'production') {
+        store = undefined;
+        redisClient = null;
+      }
     });
     
-    // Add logging to Redis store operations
-    // Note: We need to wrap the methods properly to maintain the store's functionality
-    if (store && typeof store.set === 'function' && typeof store.get === 'function') {
-      const originalSet = store.set.bind(store);
-      const originalGet = store.get.bind(store);
-      const originalDestroy = store.destroy?.bind(store);
-      const originalTouch = store.touch?.bind(store);
+    // Add logging wrapper functions (will be applied after store is created)
+    const wrapStoreMethods = (storeInstance: session.Store) => {
+      if (!storeInstance || typeof storeInstance.set !== 'function' || typeof storeInstance.get !== 'function') {
+        logger.warn('Store methods not available for wrapping', {
+          hasStore: !!storeInstance,
+          hasSet: storeInstance && typeof storeInstance.set === 'function',
+          hasGet: storeInstance && typeof storeInstance.get === 'function',
+        });
+        return;
+      }
       
-          // Wrap set method (only log errors)
-          store.set = function(sid: string, session: any, callback?: (err?: any) => void) {
-            return originalSet(sid, session, (err?: any) => {
-              if (err) {
-                logger.error('Redis store SET failed', {
-                  sessionId: sid,
-                  error: err.message,
-                });
-              }
-              if (callback) callback(err);
+      const originalSet = storeInstance.set.bind(storeInstance);
+      const originalGet = storeInstance.get.bind(storeInstance);
+      const originalDestroy = storeInstance.destroy?.bind(storeInstance);
+      const originalTouch = storeInstance.touch?.bind(storeInstance);
+      
+      // Wrap set method (only log errors)
+      storeInstance.set = function(sid: string, session: any, callback?: (err?: any) => void) {
+        return originalSet(sid, session, (err?: any) => {
+          if (err) {
+            logger.error('Redis store SET failed', {
+              sessionId: sid,
+              error: err.message,
             });
-          };
-          
-          // Wrap get method (only log errors)
-          store.get = function(sid: string, callback: (err?: any, session?: any) => void) {
-            return originalGet(sid, (err?: any, session?: any) => {
-              if (err) {
-                logger.error('Redis store GET failed', {
-                  sessionId: sid,
-                  error: err.message,
-                });
-              }
-              callback(err, session);
+          }
+          if (callback) callback(err);
+        });
+      };
+      
+      // Wrap get method (only log errors)
+      storeInstance.get = function(sid: string, callback: (err?: any, session?: any) => void) {
+        return originalGet(sid, (err?: any, session?: any) => {
+          if (err) {
+            logger.error('Redis store GET failed', {
+              sessionId: sid,
+              error: err.message,
             });
-          };
-          
-          // Wrap destroy if it exists (only log errors)
-          if (originalDestroy) {
-            store.destroy = function(sid: string, callback?: (err?: any) => void) {
-              return originalDestroy(sid, (err?: any) => {
-                if (err) {
-                  logger.error('Redis store DESTROY failed', {
-                    sessionId: sid,
-                    error: err.message,
-                  });
-                }
-                if (callback) callback(err);
-              });
-            };
           }
-          
-          // Wrap touch if it exists (only log errors)
-          if (originalTouch) {
-            store.touch = function(sid: string, session: any, callback?: (err?: any) => void) {
-              return originalTouch(sid, session, (err?: any) => {
-                if (err) {
-                  logger.error('Redis store TOUCH failed', {
-                    sessionId: sid,
-                    error: err.message,
-                  });
-                }
-                if (callback) callback(err);
+          callback(err, session);
+        });
+      };
+      
+      // Wrap destroy if it exists (only log errors)
+      if (originalDestroy) {
+        storeInstance.destroy = function(sid: string, callback?: (err?: any) => void) {
+          return originalDestroy(sid, (err?: any) => {
+            if (err) {
+              logger.error('Redis store DESTROY failed', {
+                sessionId: sid,
+                error: err.message,
               });
-            };
-          }
-    } else {
-      logger.warn('Store methods not available for wrapping', {
-        hasStore: !!store,
-        hasSet: store && typeof store.set === 'function',
-        hasGet: store && typeof store.get === 'function',
-      });
-    }
+            }
+            if (callback) callback(err);
+          });
+        };
+      }
+      
+      // Wrap touch if it exists (only log errors)
+      if (originalTouch) {
+        storeInstance.touch = function(sid: string, session: any, callback?: (err?: any) => void) {
+          return originalTouch(sid, session, (err?: any) => {
+            if (err) {
+              logger.error('Redis store TOUCH failed', {
+                sessionId: sid,
+                error: err.message,
+              });
+            }
+            if (callback) callback(err);
+          });
+        };
+      }
+    };
     
     // Note: Connection will be established asynchronously
     // The server should wait for Redis connection before starting (see server.ts)
     redisClient.connect().then(() => {
       logger.info('Redis session store connected successfully', { url: redisUrl });
+      
+      // NOW create the Redis store after connection succeeds
+      try {
+        const newStore = new RedisStoreClass({
+          client: redisClient as any,
+          prefix: 'sess:',
+        });
+        
+        // Wrap store methods with logging
+        wrapStoreMethods(newStore);
+        
+        // Assign to store variable after successful creation
+        store = newStore;
+        
+        logger.info('Redis session store created and ready', { url: redisUrl });
+      } catch (storeError) {
+        logger.error('Failed to create Redis store after connection', { 
+          error: storeError instanceof Error ? storeError.message : String(storeError)
+        });
+        if (process.env.NODE_ENV === 'production') {
+          logger.error('Redis store creation failed in production. Exiting...');
+          process.exit(1);
+        } else {
+          logger.warn('Falling back to memory store');
+          store = undefined;
+          redisClient = null;
+        }
+      }
     }).catch((err: Error) => {
       logger.error('Failed to connect to Redis for session store', { 
         error: err.message,
@@ -165,7 +201,7 @@ if (process.env.REDIS_URL) {
       }
     });
     
-    logger.info('Redis session store initialized', { url: redisUrl });
+    logger.info('Redis session store initialization started', { url: redisUrl });
   } catch (error) {
     logger.error('Failed to initialize Redis store', { 
       error: error instanceof Error ? error.message : 'Unknown error' 
@@ -189,9 +225,11 @@ if (process.env.REDIS_URL) {
 }
 
 // Create session middleware
+// Note: store may be undefined initially (if Redis is connecting asynchronously)
+// In that case, express-session will use MemoryStore as fallback
 const baseSessionMiddleware = session({
   ...SESSION_CONFIG,
-  store,
+  store: store || undefined, // Explicitly allow undefined for memory store fallback
 });
 
 // Export session middleware (with error logging for signature validation failures)

@@ -1,121 +1,211 @@
-# IDE Container
+# Classla IDE Container
 
-Docker container providing a complete development environment with VS Code, VNC desktop, and S3 workspace sync.
+A complete cloud-based development environment with VS Code, VNC desktop, and S3 workspace synchronization. Designed for instant startup via pre-warmed container queues.
 
 ## Features
 
-- **VS Code (code-server)**: Full VS Code experience in browser (port 8080)
-- **VNC Desktop**: Remote desktop with noVNC web client (port 6080)
-- **Web Server**: API for executing code remotely (port 3000)
-- **S3 Sync**: Bidirectional sync with S3 buckets
-- **Pre-installed**: Python 3.10, Node.js 18, Java 17
+- **VS Code (code-server)**: Full VS Code experience in your browser
+- **VNC Desktop**: Remote desktop access with noVNC web client
+- **Web Server API**: Execute code remotely via HTTP API
+- **S3 Workspace Sync**: Bidirectional sync with S3 buckets
+- **Pre-warmed Queue**: Near-instant container startup (<1 second)
+- **Auto-shutdown**: Automatic shutdown after inactivity (configurable timeout)
+- **Pre-installed Languages**: Python 3.10, Node.js 18, Java 17
 
 ## Quick Start
 
-### Build
+### Prerequisites
+
+- Docker Desktop (for local development) or Docker Engine (for production)
+- Docker Swarm mode enabled
+- AWS credentials (for S3 workspace sync)
+
+### Build and Start
 
 ```bash
-docker build -t classla-ide-container:latest .
+# Build all Docker images (detects platform automatically)
+./build.sh
+
+# Start the system (initializes Swarm, creates network, deploys services)
+./start.sh
 ```
 
-### Run Locally
+That's it! The system will:
+- Initialize Docker Swarm if needed
+- Create the overlay network
+- Deploy Traefik reverse proxy
+- Deploy the management API
+- Start the pre-warmed container queue
+
+### Access Points
+
+- **Management API**: http://localhost/api/health
+- **Dashboard**: http://localhost/dashboard
+- **Traefik Dashboard**: http://localhost:8080
+- **IDE Containers**: http://localhost/code/<container-id>
+- **VNC Desktop**: http://localhost/vnc/<container-id>
+
+## Usage
+
+### Start a Container
 
 ```bash
-docker run -d \
-  -p 8080:8080 \
-  -p 6080:6080 \
-  -p 3000:3000 \
-  -e VNC_PASSWORD=test123 \
-  -e S3_BUCKET=my-bucket \
-  -e S3_REGION=us-east-1 \
-  -e AWS_ACCESS_KEY_ID=your-key \
-  -e AWS_SECRET_ACCESS_KEY=your-secret \
-  --name ide-container \
-  classla-ide-container:latest
+curl -X POST http://localhost/api/containers/start \
+  -H "Authorization: Bearer test-api-key-12345" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "s3Bucket": "my-workspace-bucket",
+    "awsAccessKeyId": "your-key",
+    "awsSecretAccessKey": "your-secret"
+  }'
 ```
 
-### Access
+### Stop a Container
 
-- **VS Code**: http://localhost:8080
-- **VNC Desktop**: http://localhost:6080
-- **Web Server API**: http://localhost:3000
-
-## Pre-warmed Mode
-
-Containers can run in "pre-warmed" mode without an S3 bucket, then be assigned a bucket dynamically:
-
-1. Start container without `S3_BUCKET` environment variable
-2. Container starts and waits for S3 assignment
-3. Assign bucket via HTTP endpoint: `POST /assign-s3-bucket`
-4. Container begins syncing with S3 bucket
-
-This enables near-instant container startup when using the orchestration system.
-
-## Environment Variables
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `S3_BUCKET` | S3 bucket name for workspace | - |
-| `S3_REGION` | AWS region | `us-east-1` |
-| `VNC_PASSWORD` | VNC password | `vncpassword` |
-| `ENABLE_INACTIVITY_SHUTDOWN` | Auto-shutdown after 10 min | `true` |
-| `CODE_BASE_PATH` | Base path for code-server routing | - |
-| `VNC_BASE_PATH` | Base path for VNC routing | - |
-
-## Web Server API
-
-### Health Check
 ```bash
-GET /health
+curl -X POST http://localhost/api/containers/<container-id>/stop \
+  -H "Authorization: Bearer test-api-key-12345"
 ```
 
-### Run Code
+### List Containers
+
 ```bash
-POST /run
-Content-Type: application/json
-
-{
-  "filename": "test.py",
-  "language": "python"
-}
+curl http://localhost/api/containers \
+  -H "Authorization: Bearer test-api-key-12345"
 ```
 
-### Assign S3 Bucket (Pre-warmed Mode)
+## Pre-warmed Queue
+
+The system maintains a queue of ready containers for instant startup:
+
+- **Default size**: 1 container (configurable via `PRE_WARMED_QUEUE_SIZE`)
+- **Startup time**: <1 second (vs ~15s without queue)
+- **Auto-replenishment**: Queue automatically refills when containers are used
+
+When you request a container:
+1. If a pre-warmed container is available, it's assigned instantly
+2. The S3 bucket is synced to the container
+3. A new container is spawned to replace it in the queue
+
+## Configuration
+
+### Environment Variables
+
+Key settings in `orchestration/docker-compose.yml`:
+
+- `PRE_WARMED_QUEUE_SIZE`: Number of pre-warmed containers (default: 1)
+- `INACTIVITY_TIMEOUT_SECONDS`: Auto-shutdown timeout (default: 30s for local, 600s for production)
+- `NODE_ENV`: Environment mode (`local` for 30s timeout, `production` for 10min)
+- `API_KEY`: API authentication key
+
+### Container Environment Variables
+
+- `S3_BUCKET`: S3 bucket name for workspace
+- `S3_REGION`: AWS region (default: `us-east-1`)
+- `VNC_PASSWORD`: VNC password (default: `vncpassword`)
+- `INACTIVITY_TIMEOUT_SECONDS`: Inactivity timeout in seconds
+- `MANAGEMENT_API_URL`: Management API URL for shutdown webhook
+- `CONTAINER_ID`: Container identifier
+
+## Architecture
+
+### Components
+
+1. **IDE Container** (`classla-ide-container:latest`)
+   - VS Code server (port 8080)
+   - VNC desktop (port 6080)
+   - Web server API (port 3000)
+   - S3 sync service
+   - Inactivity monitor
+
+2. **Management API** (`ide-orchestration-api:latest`)
+   - Container lifecycle management
+   - Pre-warmed queue management
+   - Health monitoring
+   - Resource monitoring
+
+3. **Traefik** (reverse proxy)
+   - Automatic service discovery
+   - Path-based routing
+   - Load balancing
+
+### Pre-warmed Queue Flow
+
+```
+Request Container
+    ↓
+Check Queue
+    ↓
+[Available?] → Yes → Assign S3 Bucket → Container Ready (<1s)
+    ↓ No
+Create New Container → Wait for Ready (~15s)
+    ↓
+Queue Maintainer → Spawn Replacement
+```
+
+## Development
+
+### Local Development
+
 ```bash
-POST /assign-s3-bucket
-Content-Type: application/json
+# Build images
+./build.sh
 
-{
-  "bucket": "my-bucket",
-  "region": "us-east-1",
-  "accessKeyId": "optional",
-  "secretAccessKey": "optional"
-}
+# Start services
+./start.sh
+
+# View logs
+docker service logs ide-local_management-api -f
+docker service logs ide-local_traefik -f
+
+# Stop services
+docker stack rm ide-local
 ```
 
-## S3 Workspace Sync
+### Testing
 
-- **Initial Sync**: Downloads workspace from S3 on startup (if bucket assigned)
-- **Continuous Sync**: Uploads changes to S3 every 15 seconds
-- **Final Sync**: Performs final sync before shutdown
+```bash
+# Test health endpoint
+curl http://localhost/api/health
 
-Excludes: `.git/`, `node_modules/`, `__pycache__/`, `.vscode/`, `.idea/`
+# Test queue stats
+curl http://localhost/api/dashboard/api/queue/stats
 
-## Production Use
+# Create test container
+curl -X POST http://localhost/api/containers/start \
+  -H "Authorization: Bearer test-api-key-12345" \
+  -H "Content-Type: application/json" \
+  -d '{"s3Bucket": "test-bucket"}'
+```
 
-For production, use with the orchestration system which provides:
-- Docker Swarm deployment
-- Traefik reverse proxy
-- Pre-warmed container queue
-- Health monitoring
-- Automatic scaling
+## Production Deployment
 
-See `orchestration/README.md` for deployment instructions.
+For production deployment, see `orchestration/README.md` for detailed instructions including:
+- HTTPS/SSL configuration
+- Multi-node Swarm setup
+- Resource limits
+- Monitoring and observability
 
 ## Troubleshooting
 
-- **Container won't start**: Check Docker resources (memory/CPU)
-- **S3 sync fails**: Verify AWS credentials and bucket permissions
-- **VNC not accessible**: Check port 6080 is exposed and firewall rules
-- **Code-server not loading**: Check port 8080 and container logs
+### Containers Not Starting
 
+- Check Docker resources: `docker system df`
+- Verify Swarm is active: `docker info | grep Swarm`
+- Check service logs: `docker service logs ide-local_management-api`
+
+### Queue Not Populating
+
+- Check resource thresholds: `docker stats`
+- Verify `PRE_WARMED_QUEUE_SIZE` is set correctly
+- Check management API logs for errors
+
+### Inactivity Shutdown Not Working
+
+- Verify `INACTIVITY_TIMEOUT_SECONDS` is set
+- Check container logs: `docker service logs ide-<container-id>`
+- Verify `MANAGEMENT_API_URL` and `CONTAINER_ID` are set in container
+
+## License
+
+See LICENSE file for details.

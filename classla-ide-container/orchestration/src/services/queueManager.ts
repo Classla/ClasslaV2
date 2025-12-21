@@ -1,4 +1,4 @@
-import { config } from "../config/index.js";
+import { config } from "../config/index";
 
 export type ContainerQueueState = "pre-warmed" | "assigned" | "running";
 
@@ -24,12 +24,18 @@ export class QueueManager {
   }
 
   /**
-   * Get an available pre-warmed container from the queue
+   * Get an available pre-warmed container from the queue and mark it as assigned atomically
+   * This prevents race conditions where multiple requests get the same container
    * Returns null if no container is available
    */
   getAvailableContainer(): QueuedContainer | null {
     for (const container of this.queue.values()) {
       if (container.state === "pre-warmed") {
+        // Atomically mark as assigned to prevent race conditions
+        // We'll update with the S3 bucket later, but mark as assigned now
+        container.state = "assigned";
+        container.assignedAt = new Date();
+        this.queue.set(container.containerId, container);
         return container;
       }
     }
@@ -38,15 +44,18 @@ export class QueueManager {
 
   /**
    * Mark a container as assigned (moved from pre-warmed to assigned)
+   * Note: getAvailableContainer now does this atomically, but this method
+   * is kept for updating the S3 bucket and for backward compatibility
    */
   markAsAssigned(containerId: string, s3Bucket: string): boolean {
     const container = this.queue.get(containerId);
-    if (!container || container.state !== "pre-warmed") {
+    if (!container || container.state !== "assigned") {
+      // Container should already be assigned by getAvailableContainer
+      // But if it's not, we can't assign it
       return false;
     }
 
-    container.state = "assigned";
-    container.assignedAt = new Date();
+    // Update with S3 bucket info
     container.s3Bucket = s3Bucket;
     this.queue.set(containerId, container);
     return true;
@@ -70,6 +79,24 @@ export class QueueManager {
    */
   removeFromQueue(containerId: string): boolean {
     return this.queue.delete(containerId);
+  }
+
+  /**
+   * Return a container to pre-warmed state (e.g., if assignment failed)
+   * This allows the container to be reused
+   */
+  returnToQueue(containerId: string): boolean {
+    const container = this.queue.get(containerId);
+    if (!container) {
+      return false;
+    }
+    
+    // Reset to pre-warmed state
+    container.state = "pre-warmed";
+    container.assignedAt = undefined;
+    container.s3Bucket = undefined;
+    this.queue.set(containerId, container);
+    return true;
   }
 
   /**

@@ -5,27 +5,28 @@ services:
     image: traefik:v2.11
     command:
       - "--api.dashboard=true"
-      - "--api.insecure=false"
+      - "--api.insecure=${TRAEFIK_INSECURE:-true}"
+      - "--providers.docker=true"
       - "--providers.docker.swarmMode=true"
       - "--providers.docker.exposedbydefault=false"
       - "--providers.docker.network=ide-network"
+      - "--providers.docker.watch=true"
       - "--entrypoints.web.address=:80"
-      - "--entrypoints.web.http.redirections.entryPoint.to=websecure"
-      - "--entrypoints.web.http.redirections.entryPoint.scheme=https"
+      # HTTPS redirect is configured via traefik-dynamic.yml file provider
+      # (only active in production when ENABLE_HTTPS=true)
       - "--entrypoints.websecure.address=:443"
-      # TLS Configuration
       - "--entrypoints.websecure.http.tls.options=default@file"
-      # Security Headers
       - "--entrypoints.websecure.http.middlewares=security-headers@file"
       - "--certificatesresolvers.letsencrypt.acme.httpchallenge=true"
       - "--certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web"
-      - "--certificatesresolvers.letsencrypt.acme.email=${ACME_EMAIL}"
+      - "--certificatesresolvers.letsencrypt.acme.email=${ACME_EMAIL:-}"
       - "--certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json"
-      # Enable file provider for TLS options
       - "--providers.file.directory=/etc/traefik/dynamic"
       - "--providers.file.watch=true"
+      - "--log.level=${LOG_LEVEL:-INFO}"
     ports:
       - "80:80"
+      - "${DASHBOARD_PORT:-8080}:8080"
       - "443:443"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
@@ -39,30 +40,27 @@ services:
           - node.role == manager
       labels:
         - "traefik.enable=true"
-        # Traefik Dashboard
-        - "traefik.http.routers.traefik-dashboard.rule=Host(`traefik.ide.classla.org`)"
-        - "traefik.http.routers.traefik-dashboard.entrypoints=websecure"
-        - "traefik.http.routers.traefik-dashboard.tls.certresolver=letsencrypt"
+        - "traefik.http.routers.traefik-dashboard.rule=${TRAEFIK_DASHBOARD_RULE:-Host(`traefik.localhost`) || Host(`localhost`)}"
+        - "traefik.http.routers.traefik-dashboard.entrypoints=${TRAEFIK_DASHBOARD_ENTRYPOINT:-web}"
+        - "traefik.http.routers.traefik-dashboard.tls.certresolver=${TRAEFIK_DASHBOARD_TLS:-}"
         - "traefik.http.routers.traefik-dashboard.service=api@internal"
         - "traefik.http.services.traefik-dashboard.loadbalancer.server.port=8080"
 
   management-api:
-    image: ${REGISTRY:-local}/ide-orchestration-api:${VERSION:-latest}
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: ide-orchestration-api:latest
+    user: root
     environment:
-      - NODE_ENV=production
+      - NODE_ENV=${NODE_ENV:-local}
       - PORT=3001
-      - API_KEY=${API_KEY}
-      - DOMAIN=ide.classla.org
+      - API_KEY=${API_KEY:-test-api-key-12345}
+      - DOMAIN=${DOMAIN:-localhost}
       - AWS_REGION=${AWS_REGION:-us-east-1}
-      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
-      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-dummy-key}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-dummy-secret}
       - DATABASE_PATH=/app/data/containers.db
       - LOG_LEVEL=${LOG_LEVEL:-info}
-      - SUPABASE_URL=${SUPABASE_URL}
-      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
+      - PRE_WARMED_QUEUE_SIZE=${PRE_WARMED_QUEUE_SIZE:-1}
+      - INACTIVITY_TIMEOUT_SECONDS=${INACTIVITY_TIMEOUT_SECONDS:-30}
       - RESOURCE_CPU_LIMIT=${RESOURCE_CPU_LIMIT:-2}
       - RESOURCE_MEMORY_LIMIT=${RESOURCE_MEMORY_LIMIT:-4294967296}
       - RESOURCE_CPU_THRESHOLD=${RESOURCE_CPU_THRESHOLD:-90}
@@ -72,6 +70,8 @@ services:
       - HEALTH_CHECK_RETRIES=${HEALTH_CHECK_RETRIES:-3}
       - CONTAINER_RESTART_POLICY=${CONTAINER_RESTART_POLICY:-on-failure}
       - CONTAINER_RESTART_MAX_ATTEMPTS=${CONTAINER_RESTART_MAX_ATTEMPTS:-3}
+      - SUPABASE_URL=${SUPABASE_URL:-}
+      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY:-}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - api-data:/app/data
@@ -83,36 +83,34 @@ services:
           - node.role == manager
       labels:
         - "traefik.enable=true"
-        # Management API - Main domain (ide.classla.org)
-        - "traefik.http.routers.management-api-main.rule=Host(`ide.classla.org`)"
-        - "traefik.http.routers.management-api-main.entrypoints=websecure"
-        - "traefik.http.routers.management-api-main.tls.certresolver=letsencrypt"
-        - "traefik.http.routers.management-api-main.service=management-api-main"
-        - "traefik.http.services.management-api-main.loadbalancer.server.port=3001"
-        # Management API - API subdomain
-        - "traefik.http.routers.management-api.rule=Host(`api.ide.classla.org`)"
-        - "traefik.http.routers.management-api.entrypoints=websecure"
-        - "traefik.http.routers.management-api.tls.certresolver=letsencrypt"
-        - "traefik.http.routers.management-api.service=management-api"
-        - "traefik.http.services.management-api.loadbalancer.server.port=3001"
-        # Dashboard UI
-        - "traefik.http.routers.dashboard.rule=Host(`dashboard.ide.classla.org`)"
-        - "traefik.http.routers.dashboard.entrypoints=websecure"
-        - "traefik.http.routers.dashboard.tls.certresolver=letsencrypt"
-        - "traefik.http.routers.dashboard.service=dashboard"
-        - "traefik.http.services.dashboard.loadbalancer.server.port=3001"
+        # Local mode: API accessible at localhost/api
+        - "traefik.http.routers.ide-api.rule=Host(`localhost`) && PathPrefix(`/api`)"
+        - "traefik.http.routers.ide-api.entrypoints=web"
+        - "traefik.http.routers.ide-api.service=ide-api"
+        - "traefik.http.services.ide-api.loadbalancer.server.port=3001"
+        - "traefik.http.middlewares.ide-api-stripprefix.stripprefix.prefixes=/api"
+        - "traefik.http.routers.ide-api.middlewares=ide-api-stripprefix"
+        # Production mode: Additional routes (only created when DOMAIN is not localhost)
+        # These use environment variables that are only set in production mode by start.sh
+        - "traefik.http.routers.management-api-main.rule=${MANAGEMENT_API_MAIN_RULE:-Host(`invalid.localhost`)}"
+        - "traefik.http.routers.management-api-main.entrypoints=${MANAGEMENT_API_MAIN_ENTRYPOINT:-web}"
+        - "traefik.http.routers.management-api-main.tls.certresolver=${MANAGEMENT_API_MAIN_TLS:-}"
+        - "traefik.http.routers.management-api-main.service=${MANAGEMENT_API_MAIN_SERVICE:-management-api-main}"
+        - "traefik.http.services.management-api-main.loadbalancer.server.port=${MANAGEMENT_API_MAIN_SERVICE_PORT:-3001}"
+        - "traefik.http.routers.management-api.rule=${MANAGEMENT_API_SUBDOMAIN_RULE:-Host(`invalid-api.localhost`)}"
+        - "traefik.http.routers.management-api.entrypoints=${MANAGEMENT_API_ENTRYPOINT:-web}"
+        - "traefik.http.routers.management-api.tls.certresolver=${MANAGEMENT_API_TLS:-}"
+        - "traefik.http.routers.management-api.service=${MANAGEMENT_API_SERVICE:-management-api}"
+        - "traefik.http.services.management-api.loadbalancer.server.port=${MANAGEMENT_API_SERVICE_PORT:-3001}"
+        - "traefik.http.routers.dashboard.rule=${DASHBOARD_RULE:-Host(`invalid-dashboard.localhost`)}"
+        - "traefik.http.routers.dashboard.entrypoints=${DASHBOARD_ENTRYPOINT:-web}"
+        - "traefik.http.routers.dashboard.tls.certresolver=${DASHBOARD_TLS:-}"
+        - "traefik.http.routers.dashboard.service=${DASHBOARD_SERVICE:-dashboard}"
+        - "traefik.http.services.dashboard.loadbalancer.server.port=${DASHBOARD_SERVICE_PORT:-3001}"
 
 networks:
   ide-network:
-    driver: overlay
-    attachable: true
-    driver_opts:
-      # Enable encryption for network traffic between nodes
-      encrypted: "true"
-    ipam:
-      config:
-        # Use a dedicated subnet for IDE containers
-        - subnet: 10.10.0.0/16
+    external: true
 
 volumes:
   traefik-certs:

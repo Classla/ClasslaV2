@@ -37,6 +37,8 @@ RUN apt-get update && apt-get install -y \
     inotify-tools \
     net-tools \
     vim \
+    nginx \
+    sqlite3 \
     # VNC and display server
     tigervnc-standalone-server \
     tigervnc-common \
@@ -118,25 +120,8 @@ RUN echo '#!/bin/bash' > /usr/local/bin/create-novnc-index.sh && \
     echo '    WEBSOCKIFY_PATH="${VNC_BASE_PATH}/websockify"' >> /usr/local/bin/create-novnc-index.sh && \
     echo '    # Update the default path input value in vnc.html' >> /usr/local/bin/create-novnc-index.sh && \
     echo '    sed -i "s|value=\"websockify\"|value=\"${WEBSOCKIFY_PATH}\"|g" /opt/novnc/vnc.html' >> /usr/local/bin/create-novnc-index.sh && \
-    echo '    # Create JavaScript file to set path' >> /usr/local/bin/create-novnc-index.sh && \
-    echo '    cat > /opt/novnc/vnc-path-override.js << '\''VNCJSEOF'\'' >> /usr/local/bin/create-novnc-index.sh && \
-    echo '// VNC_BASE_PATH_OVERRIDE: Set websockify path for reverse proxy' >> /usr/local/bin/create-novnc-index.sh && \
-    echo '(function() {' >> /usr/local/bin/create-novnc-index.sh && \
-    echo '  const websockifyPath = "${WEBSOCKIFY_PATH}";' >> /usr/local/bin/create-novnc-index.sh && \
-    echo '  window.addEventListener("DOMContentLoaded", function() {' >> /usr/local/bin/create-novnc-index.sh && \
-    echo '    const pathInput = document.getElementById("noVNC_setting_path");' >> /usr/local/bin/create-novnc-index.sh && \
-    echo '    if (pathInput) {' >> /usr/local/bin/create-novnc-index.sh && \
-    echo '      pathInput.value = websockifyPath;' >> /usr/local/bin/create-novnc-index.sh && \
-    echo '      pathInput.dispatchEvent(new Event("change", { bubbles: true }));' >> /usr/local/bin/create-novnc-index.sh && \
-    echo '    }' >> /usr/local/bin/create-novnc-index.sh && \
-    echo '    const urlParams = new URLSearchParams(window.location.search);' >> /usr/local/bin/create-novnc-index.sh && \
-    echo '    if (!urlParams.has("path")) {' >> /usr/local/bin/create-novnc-index.sh && \
-    echo '      urlParams.set("path", websockifyPath);' >> /usr/local/bin/create-novnc-index.sh && \
-    echo '      window.history.replaceState({}, "", window.location.pathname + "?" + urlParams.toString());' >> /usr/local/bin/create-novnc-index.sh && \
-    echo '    }' >> /usr/local/bin/create-novnc-index.sh && \
-    echo '  });' >> /usr/local/bin/create-novnc-index.sh && \
-    echo '})();' >> /usr/local/bin/create-novnc-index.sh && \
-    echo 'VNCJSEOF' >> /usr/local/bin/create-novnc-index.sh && \
+    echo '    # Create JavaScript file to set path (simplified to avoid heredoc issues)' >> /usr/local/bin/create-novnc-index.sh && \
+    echo '    printf '\''// VNC_BASE_PATH_OVERRIDE: Set websockify path for reverse proxy\n(function() {\n  const websockifyPath = "${WEBSOCKIFY_PATH}";\n  window.addEventListener("DOMContentLoaded", function() {\n    const pathInput = document.getElementById("noVNC_setting_path");\n    if (pathInput) {\n      pathInput.value = websockifyPath;\n      pathInput.dispatchEvent(new Event("change", { bubbles: true }));\n    }\n    const urlParams = new URLSearchParams(window.location.search);\n    if (!urlParams.has("path")) {\n      urlParams.set("path", websockifyPath);\n      window.history.replaceState({}, "", window.location.pathname + "?" + urlParams.toString());\n    }\n  });\n})();\n'\'' > /opt/novnc/vnc-path-override.js' >> /usr/local/bin/create-novnc-index.sh && \
     echo '    # Inject script tag before error-handler.js (temporarily disabled due to build issues)' >> /usr/local/bin/create-novnc-index.sh && \
     echo '    # if ! grep -q "vnc-path-override.js" /opt/novnc/vnc.html; then' >> /usr/local/bin/create-novnc-index.sh && \
     echo '    #     sed -i "/app\\/error-handler.js/i<script src=\"vnc-path-override.js\"></script>" /opt/novnc/vnc.html' >> /usr/local/bin/create-novnc-index.sh && \
@@ -202,12 +187,132 @@ RUN echo '# Set DISPLAY for GUI applications' >> /home/user/.bashrc && \
 # ============================================================================
 # CONFIGURE CODE-SERVER
 # ============================================================================
+# Create custom CSS to hide Extensions, Accounts, and Settings views
+RUN mkdir -p /home/user/.local/share/code-server/custom-css && \
+    echo '/* Hide Extensions, Accounts, and Settings from Activity Bar */' > /home/user/.local/share/code-server/custom-css/hide-views.css && \
+    echo '' >> /home/user/.local/share/code-server/custom-css/hide-views.css && \
+    echo '/* Hide the entire bottom section of activity bar (global-activity) */' >> /home/user/.local/share/code-server/custom-css/hide-views.css && \
+    echo '.monaco-workbench .part.activitybar .content > .global-activity-action-bar {' >> /home/user/.local/share/code-server/custom-css/hide-views.css && \
+    echo '    display: none !important;' >> /home/user/.local/share/code-server/custom-css/hide-views.css && \
+    echo '}' >> /home/user/.local/share/code-server/custom-css/hide-views.css && \
+    echo '' >> /home/user/.local/share/code-server/custom-css/hide-views.css && \
+    echo '/* Hide global activity items individually */' >> /home/user/.local/share/code-server/custom-css/hide-views.css && \
+    echo '.monaco-workbench .part.activitybar .content .global-activity {' >> /home/user/.local/share/code-server/custom-css/hide-views.css && \
+    echo '    display: none !important;' >> /home/user/.local/share/code-server/custom-css/hide-views.css && \
+    echo '}' >> /home/user/.local/share/code-server/custom-css/hide-views.css && \
+    echo '' >> /home/user/.local/share/code-server/custom-css/hide-views.css && \
+    echo '/* Fallback: Hide last child of activity bar content */' >> /home/user/.local/share/code-server/custom-css/hide-views.css && \
+    echo 'div.monaco-workbench div.activitybar > div.content > div:last-child {' >> /home/user/.local/share/code-server/custom-css/hide-views.css && \
+    echo '    display: none !important;' >> /home/user/.local/share/code-server/custom-css/hide-views.css && \
+    echo '}' >> /home/user/.local/share/code-server/custom-css/hide-views.css && \
+    echo '' >> /home/user/.local/share/code-server/custom-css/hide-views.css && \
+    echo '/* Hide items with specific icons */' >> /home/user/.local/share/code-server/custom-css/hide-views.css && \
+    echo '.monaco-workbench .part.activitybar .action-item:has(.codicon-extensions),' >> /home/user/.local/share/code-server/custom-css/hide-views.css && \
+    echo '.monaco-workbench .part.activitybar .action-item:has(.codicon-gear),' >> /home/user/.local/share/code-server/custom-css/hide-views.css && \
+    echo '.monaco-workbench .part.activitybar .action-item:has(.codicon-account),' >> /home/user/.local/share/code-server/custom-css/hide-views.css && \
+    echo '.monaco-workbench .part.activitybar .action-item:has(.codicon-settings-gear) {' >> /home/user/.local/share/code-server/custom-css/hide-views.css && \
+    echo '    display: none !important;' >> /home/user/.local/share/code-server/custom-css/hide-views.css && \
+    echo '}' >> /home/user/.local/share/code-server/custom-css/hide-views.css && \
+    chown -R user:user /home/user/.local/share/code-server/custom-css
+
+# ============================================================================
+# STEP 1: Add CSS to Hide Extensions, Settings, Profile (Multiple Approaches)
+# ============================================================================
+RUN WORKBENCH_HTML=$(find /usr/lib/code-server -name "workbench.html" 2>/dev/null | head -1) && \
+    # Create CSS with multiple targeting approaches
+    echo '<style id="custom-hide-activity-bar">' > /tmp/custom-css.html && \
+    echo '/* Approach A: Hide by icon class (most specific) */' >> /tmp/custom-css.html && \
+    echo '.monaco-workbench .part.activitybar .action-item:has([class*="codicon-extensions"]),' >> /tmp/custom-css.html && \
+    echo '.monaco-workbench .part.activitybar .action-item:has([class*="codicon-gear"]),' >> /tmp/custom-css.html && \
+    echo '.monaco-workbench .part.activitybar .action-item:has([class*="codicon-account"]),' >> /tmp/custom-css.html && \
+    echo '.monaco-workbench .part.activitybar .action-item:has([class*="codicon-settings"]) {' >> /tmp/custom-css.html && \
+    echo '    display: none !important;' >> /tmp/custom-css.html && \
+    echo '    visibility: hidden !important;' >> /tmp/custom-css.html && \
+    echo '    pointer-events: none !important;' >> /tmp/custom-css.html && \
+    echo '}' >> /tmp/custom-css.html && \
+    echo '' >> /tmp/custom-css.html && \
+    echo '/* Approach B: Hide by position (last 3 items - usually Extensions, Settings, Profile) */' >> /tmp/custom-css.html && \
+    echo '.monaco-workbench .part.activitybar .content .action-item:nth-last-child(-n+3) {' >> /tmp/custom-css.html && \
+    echo '    display: none !important;' >> /tmp/custom-css.html && \
+    echo '    visibility: hidden !important;' >> /tmp/custom-css.html && \
+    echo '}' >> /tmp/custom-css.html && \
+    echo '' >> /tmp/custom-css.html && \
+    echo '/* Approach C: Hide global-activity section if it exists */' >> /tmp/custom-css.html && \
+    echo '.monaco-workbench .part.activitybar .content .global-activity-action-bar,' >> /tmp/custom-css.html && \
+    echo '.monaco-workbench .part.activitybar .content .global-activity {' >> /tmp/custom-css.html && \
+    echo '    display: none !important;' >> /tmp/custom-css.html && \
+    echo '    visibility: hidden !important;' >> /tmp/custom-css.html && \
+    echo '}' >> /tmp/custom-css.html && \
+    echo '</style>' >> /tmp/custom-css.html && \
+    # Inject CSS
+    python3 -c "import sys; w=sys.argv[1]; css=sys.argv[2]; c=open(w,'r',encoding='utf-8').read(); css_content=open(css,'r',encoding='utf-8').read(); open(w,'w',encoding='utf-8').write(c.replace('</head>',css_content+'</head>'))" "$WORKBENCH_HTML" /tmp/custom-css.html && \
+    rm /tmp/custom-css.html && \
+    echo "CSS injected for hiding activity bar items"
+
 RUN mkdir -p /home/user/.local/share/code-server/User && \
+    # Create User settings.json
     echo '{' > /home/user/.local/share/code-server/User/settings.json && \
-    echo '    "workbench.colorTheme": "Default Dark Modern",' >> /home/user/.local/share/code-server/User/settings.json && \
-    echo '    "workbench.preferredDarkColorTheme": "Default Dark Modern",' >> /home/user/.local/share/code-server/User/settings.json && \
+    echo '    "workbench.colorTheme": "Default Light+",' >> /home/user/.local/share/code-server/User/settings.json && \
+    echo '    "workbench.preferredLightColorTheme": "Default Light+",' >> /home/user/.local/share/code-server/User/settings.json && \
     echo '    "window.autoDetectColorScheme": false,' >> /home/user/.local/share/code-server/User/settings.json && \
-    echo '    "terminal.integrated.defaultProfile.linux": "bash"' >> /home/user/.local/share/code-server/User/settings.json && \
+    echo '    "workbench.colorCustomizations": {' >> /home/user/.local/share/code-server/User/settings.json && \
+    echo '        "[Default Light+]": {' >> /home/user/.local/share/code-server/User/settings.json && \
+    echo '            "activityBar.activeBorder": "#8b5cf6",' >> /home/user/.local/share/code-server/User/settings.json && \
+    echo '            "activityBar.background": "#8b5cf6",' >> /home/user/.local/share/code-server/User/settings.json && \
+    echo '            "activityBar.foreground": "#ffffff",' >> /home/user/.local/share/code-server/User/settings.json && \
+    echo '            "activityBar.inactiveForeground": "#e9d5ff",' >> /home/user/.local/share/code-server/User/settings.json && \
+    echo '            "activityBarBadge.background": "#9333ea",' >> /home/user/.local/share/code-server/User/settings.json && \
+    echo '            "statusBar.background": "#8b5cf6",' >> /home/user/.local/share/code-server/User/settings.json && \
+    echo '            "statusBar.foreground": "#ffffff",' >> /home/user/.local/share/code-server/User/settings.json && \
+    echo '            "titleBar.activeBackground": "#8b5cf6",' >> /home/user/.local/share/code-server/User/settings.json && \
+    echo '            "titleBar.activeForeground": "#ffffff",' >> /home/user/.local/share/code-server/User/settings.json && \
+    echo '            "button.background": "#8b5cf6",' >> /home/user/.local/share/code-server/User/settings.json && \
+    echo '            "button.foreground": "#ffffff",' >> /home/user/.local/share/code-server/User/settings.json && \
+    echo '            "inputOption.activeBorder": "#8b5cf6",' >> /home/user/.local/share/code-server/User/settings.json && \
+    echo '            "list.activeSelectionBackground": "#f3e8ff",' >> /home/user/.local/share/code-server/User/settings.json && \
+    echo '            "list.activeSelectionForeground": "#1f2937",' >> /home/user/.local/share/code-server/User/settings.json && \
+    echo '            "list.inactiveSelectionBackground": "#f3e8ff",' >> /home/user/.local/share/code-server/User/settings.json && \
+    echo '            "list.inactiveSelectionForeground": "#1f2937",' >> /home/user/.local/share/code-server/User/settings.json && \
+    echo '            "list.hoverBackground": "#f3e8ff",' >> /home/user/.local/share/code-server/User/settings.json && \
+    echo '            "list.hoverForeground": "#1f2937",' >> /home/user/.local/share/code-server/User/settings.json && \
+    echo '            "list.focusBackground": "#f3e8ff",' >> /home/user/.local/share/code-server/User/settings.json && \
+    echo '            "list.focusForeground": "#1f2937",' >> /home/user/.local/share/code-server/User/settings.json && \
+    echo '            "editor.selectionBackground": "#f3e8ff",' >> /home/user/.local/share/code-server/User/settings.json && \
+    echo '            "editorCursor.foreground": "#8b5cf6",' >> /home/user/.local/share/code-server/User/settings.json && \
+    echo '            "editorLineNumber.activeForeground": "#8b5cf6",' >> /home/user/.local/share/code-server/User/settings.json && \
+    echo '            "editorWidget.border": "#8b5cf6",' >> /home/user/.local/share/code-server/User/settings.json && \
+    echo '            "peekView.border": "#8b5cf6",' >> /home/user/.local/share/code-server/User/settings.json && \
+    echo '            "panel.border": "#8b5cf6",' >> /home/user/.local/share/code-server/User/settings.json && \
+    echo '            "sideBar.background": "#ffffff",' >> /home/user/.local/share/code-server/User/settings.json && \
+    echo '            "sideBarTitle.foreground": "#8b5cf6",' >> /home/user/.local/share/code-server/User/settings.json && \
+    echo '            "sideBar.border": "#e5e7eb",' >> /home/user/.local/share/code-server/User/settings.json && \
+    echo '            "sideBarSectionHeader.background": "#f9fafb",' >> /home/user/.local/share/code-server/User/settings.json && \
+    echo '            "sideBarSectionHeader.foreground": "#8b5cf6",' >> /home/user/.local/share/code-server/User/settings.json && \
+    echo '            "sideBarSectionHeader.border": "#e5e7eb",' >> /home/user/.local/share/code-server/User/settings.json && \
+    echo '            "editorGroupHeader.border": "#e5e7eb",' >> /home/user/.local/share/code-server/User/settings.json && \
+    echo '            "editorGroupHeader.tabsBorder": "#e5e7eb",' >> /home/user/.local/share/code-server/User/settings.json && \
+    echo '            "tab.border": "#e5e7eb",' >> /home/user/.local/share/code-server/User/settings.json && \
+    echo '            "panel.border": "#e5e7eb",' >> /home/user/.local/share/code-server/User/settings.json && \
+    echo '            "panelTitle.border": "#e5e7eb"' >> /home/user/.local/share/code-server/User/settings.json && \
+    echo '        }' >> /home/user/.local/share/code-server/User/settings.json && \
+    echo '    },' >> /home/user/.local/share/code-server/User/settings.json && \
+    echo '    "workbench.startupEditor": "none",' >> /home/user/.local/share/code-server/User/settings.json && \
+    echo '    "terminal.integrated.tabs.enabled": true,' >> /home/user/.local/share/code-server/User/settings.json && \
+    echo '    "terminal.integrated.tabs.showActiveTerminal": "always",' >> /home/user/.local/share/code-server/User/settings.json && \
+    echo '    "terminal.integrated.showWelcomeMessage": false,' >> /home/user/.local/share/code-server/User/settings.json && \
+    echo '    "terminal.integrated.defaultProfile.linux": "bash",' >> /home/user/.local/share/code-server/User/settings.json && \
+    echo '    "terminal.integrated.defaultLocation": "panel",' >> /home/user/.local/share/code-server/User/settings.json && \
+    echo '    "workbench.panel.defaultLocation": "bottom",' >> /home/user/.local/share/code-server/User/settings.json && \
+    echo '    "terminal.integrated.showExitAlert": false,' >> /home/user/.local/share/code-server/User/settings.json && \
+    echo '    "extensions.ignoreRecommendations": true,' >> /home/user/.local/share/code-server/User/settings.json && \
+    echo '    "extensions.autoCheckUpdates": false,' >> /home/user/.local/share/code-server/User/settings.json && \
+    echo '    "extensions.autoUpdate": false,' >> /home/user/.local/share/code-server/User/settings.json && \
+    echo '    "extensions.showRecommendationsOnlyOnDemand": true,' >> /home/user/.local/share/code-server/User/settings.json && \
+    echo '    "extensions.experimental.affinity": {},' >> /home/user/.local/share/code-server/User/settings.json && \
+    echo '    "chat.disableAIFeatures": true,' >> /home/user/.local/share/code-server/User/settings.json && \
+    echo '    "github.copilot.enable": false,' >> /home/user/.local/share/code-server/User/settings.json && \
+    echo '    "workbench.settings.enableNaturalLanguageSearch": false,' >> /home/user/.local/share/code-server/User/settings.json && \
+    echo '    "workbench.settings.openDefaultSettings": false' >> /home/user/.local/share/code-server/User/settings.json && \
     echo '}' >> /home/user/.local/share/code-server/User/settings.json && \
     chown -R user:user /home/user/.local
 
@@ -436,7 +541,8 @@ RUN echo '#!/usr/bin/env python3' > /usr/local/bin/run-server.py && \
     echo '                    if existing.get("bucket") == bucket:' >> /usr/local/bin/run-server.py && \
     echo '                        return jsonify({"status": "already_assigned", "bucket": bucket}), 200' >> /usr/local/bin/run-server.py && \
     echo '                    else:' >> /usr/local/bin/run-server.py && \
-    echo '                        return jsonify({"error": f"S3 bucket already assigned: {existing.get(\"bucket\")}"}), 409' >> /usr/local/bin/run-server.py && \
+    echo '                        existing_bucket = existing.get("bucket")' >> /usr/local/bin/run-server.py && \
+    echo '                        return jsonify({"error": f"S3 bucket already assigned: {existing_bucket}"}), 409' >> /usr/local/bin/run-server.py && \
     echo '            except Exception:' >> /usr/local/bin/run-server.py && \
     echo '                pass  # File exists but invalid, overwrite it' >> /usr/local/bin/run-server.py && \
     echo '        ' >> /usr/local/bin/run-server.py && \
@@ -451,6 +557,8 @@ RUN echo '#!/usr/bin/env python3' > /usr/local/bin/run-server.py && \
     echo '        ' >> /usr/local/bin/run-server.py && \
     echo '        with open(S3_ASSIGNMENT_FILE, "w") as f:' >> /usr/local/bin/run-server.py && \
     echo '            json.dump(assignment, f)' >> /usr/local/bin/run-server.py && \
+    echo '        # Touch the file to set its modification time (for inactivity monitor grace period)' >> /usr/local/bin/run-server.py && \
+    echo '        os.utime(S3_ASSIGNMENT_FILE, None)' >> /usr/local/bin/run-server.py && \
     echo '        ' >> /usr/local/bin/run-server.py && \
     echo '        # Trigger rclone sync loop to start' >> /usr/local/bin/run-server.py && \
     echo '        with open(S3_SYNC_TRIGGER_FILE, "w") as f:' >> /usr/local/bin/run-server.py && \
@@ -510,17 +618,16 @@ RUN echo '#!/bin/bash' > /usr/local/bin/rclone-sync-loop.sh && \
     echo '' >> /usr/local/bin/rclone-sync-loop.sh && \
     echo 'echo "Using S3 bucket: $S3_BUCKET (region: ${S3_REGION:-us-east-1})"' >> /usr/local/bin/rclone-sync-loop.sh && \
     echo 'S3_PATH="s3:${S3_BUCKET}"' >> /usr/local/bin/rclone-sync-loop.sh && \
-    echo '# Initial sync in background (non-blocking) - container can start immediately' >> /usr/local/bin/rclone-sync-loop.sh && \
-    echo 'if [ -z "$(ls -A $WORKSPACE_PATH)" ]; then' >> /usr/local/bin/rclone-sync-loop.sh && \
-    echo '    echo "Workspace is empty, performing initial download from S3 in background..."' >> /usr/local/bin/rclone-sync-loop.sh && \
-    echo '    (rclone sync "$S3_PATH" "$WORKSPACE_PATH" --progress --no-check-dest --transfers 4 --checkers 8 || {' >> /usr/local/bin/rclone-sync-loop.sh && \
-    echo '        echo "WARNING: Initial S3 sync failed (bucket might be empty or not exist yet)"' >> /usr/local/bin/rclone-sync-loop.sh && \
-    echo '    }) &' >> /usr/local/bin/rclone-sync-loop.sh && \
-    echo 'else' >> /usr/local/bin/rclone-sync-loop.sh && \
-    echo '    echo "Workspace is not empty, skipping initial download"' >> /usr/local/bin/rclone-sync-loop.sh && \
-    echo 'fi' >> /usr/local/bin/rclone-sync-loop.sh && \
+    echo '# Perform initial download from S3 on startup (one-time pull)' >> /usr/local/bin/rclone-sync-loop.sh && \
+    echo 'echo "Performing initial download from S3 to workspace..."' >> /usr/local/bin/rclone-sync-loop.sh && \
+    echo 'rclone sync "$S3_PATH" "$WORKSPACE_PATH" --progress --transfers 4 --checkers 8 || {' >> /usr/local/bin/rclone-sync-loop.sh && \
+    echo '        echo "WARNING: Initial S3 download failed (bucket might be empty or not exist yet)"' >> /usr/local/bin/rclone-sync-loop.sh && \
+    echo '    }' >> /usr/local/bin/rclone-sync-loop.sh && \
+    echo 'echo "Initial download complete. Starting continuous sync from workspace to S3..."' >> /usr/local/bin/rclone-sync-loop.sh && \
+    echo '# Continuous sync: only push workspace changes to S3 (don'\''t pull from S3 to avoid overwriting local changes)' >> /usr/local/bin/rclone-sync-loop.sh && \
     echo 'while true; do' >> /usr/local/bin/rclone-sync-loop.sh && \
     echo '    sleep 15' >> /usr/local/bin/rclone-sync-loop.sh && \
+    echo '    echo "Syncing workspace changes to S3..."' >> /usr/local/bin/rclone-sync-loop.sh && \
     echo '    rclone sync "$WORKSPACE_PATH" "$S3_PATH" \' >> /usr/local/bin/rclone-sync-loop.sh && \
     echo '        --progress \' >> /usr/local/bin/rclone-sync-loop.sh && \
     echo '        --exclude ".git/**" \' >> /usr/local/bin/rclone-sync-loop.sh && \
@@ -528,7 +635,7 @@ RUN echo '#!/bin/bash' > /usr/local/bin/rclone-sync-loop.sh && \
     echo '        --exclude "__pycache__/**" \' >> /usr/local/bin/rclone-sync-loop.sh && \
     echo '        --exclude ".vscode/**" \' >> /usr/local/bin/rclone-sync-loop.sh && \
     echo '        --exclude ".idea/**" || {' >> /usr/local/bin/rclone-sync-loop.sh && \
-    echo '        echo "WARNING: S3 sync failed, will retry in 15 seconds"' >> /usr/local/bin/rclone-sync-loop.sh && \
+    echo '        echo "WARNING: Workspace to S3 sync failed, will retry in 15 seconds"' >> /usr/local/bin/rclone-sync-loop.sh && \
     echo '    }' >> /usr/local/bin/rclone-sync-loop.sh && \
     echo 'done' >> /usr/local/bin/rclone-sync-loop.sh && \
     chmod +x /usr/local/bin/rclone-sync-loop.sh
@@ -537,7 +644,7 @@ RUN echo '#!/bin/bash' > /usr/local/bin/rclone-sync-loop.sh && \
 RUN echo '#!/bin/bash' > /usr/local/bin/inactivity-monitor.sh && \
     echo 'set -e' >> /usr/local/bin/inactivity-monitor.sh && \
     echo 'WORKSPACE_PATH="/workspace"' >> /usr/local/bin/inactivity-monitor.sh && \
-    echo 'TIMEOUT_SECONDS=600' >> /usr/local/bin/inactivity-monitor.sh && \
+    echo 'TIMEOUT_SECONDS="${INACTIVITY_TIMEOUT_SECONDS:-300}"' >> /usr/local/bin/inactivity-monitor.sh && \
     echo 'echo "Starting inactivity monitor (timeout: ${TIMEOUT_SECONDS}s)..."' >> /usr/local/bin/inactivity-monitor.sh && \
     echo 'shutdown_container() {' >> /usr/local/bin/inactivity-monitor.sh && \
     echo '    echo "========================================="' >> /usr/local/bin/inactivity-monitor.sh && \
@@ -555,6 +662,13 @@ RUN echo '#!/bin/bash' > /usr/local/bin/inactivity-monitor.sh && \
     echo '        echo "Final sync complete"' >> /usr/local/bin/inactivity-monitor.sh && \
     echo '    fi' >> /usr/local/bin/inactivity-monitor.sh && \
     echo '    echo "Initiating container shutdown..."' >> /usr/local/bin/inactivity-monitor.sh && \
+    echo '    # Call shutdown webhook to notify management API' >> /usr/local/bin/inactivity-monitor.sh && \
+    echo '    if [ -n "$CONTAINER_ID" ] && [ -n "$MANAGEMENT_API_URL" ]; then' >> /usr/local/bin/inactivity-monitor.sh && \
+    echo '        echo "Notifying management API of inactivity shutdown..."' >> /usr/local/bin/inactivity-monitor.sh && \
+    echo '        curl -s -X POST "${MANAGEMENT_API_URL}/api/containers/${CONTAINER_ID}/inactivity-shutdown" \\' >> /usr/local/bin/inactivity-monitor.sh && \
+    echo '            -H "Content-Type: application/json" \\' >> /usr/local/bin/inactivity-monitor.sh && \
+    echo '            -d "{\\"reason\\":\\"inactivity\\"}" || echo "Warning: Failed to notify management API"' >> /usr/local/bin/inactivity-monitor.sh && \
+    echo '    fi' >> /usr/local/bin/inactivity-monitor.sh && \
     echo '    # Kill all processes and exit' >> /usr/local/bin/inactivity-monitor.sh && \
     echo '    killall5 -9 || true' >> /usr/local/bin/inactivity-monitor.sh && \
     echo '    exit 0' >> /usr/local/bin/inactivity-monitor.sh && \
@@ -564,6 +678,13 @@ RUN echo '#!/bin/bash' > /usr/local/bin/inactivity-monitor.sh && \
     echo '    if [ -z "$S3_BUCKET" ]; then' >> /usr/local/bin/inactivity-monitor.sh && \
     echo '        echo "Pre-warmed container (no S3_BUCKET) - skipping inactivity monitor, waiting for S3 assignment..."' >> /usr/local/bin/inactivity-monitor.sh && \
     echo '        sleep 60' >> /usr/local/bin/inactivity-monitor.sh && \
+    echo '        continue' >> /usr/local/bin/inactivity-monitor.sh && \
+    echo '    fi' >> /usr/local/bin/inactivity-monitor.sh && \
+    echo '    # Wait for initial S3 sync to complete before starting inactivity monitoring' >> /usr/local/bin/inactivity-monitor.sh && \
+    echo '    # Check if S3 sync is still running (rclone-sync-loop.sh)' >> /usr/local/bin/inactivity-monitor.sh && \
+    echo '    if pgrep -f "rclone-sync-loop.sh" > /dev/null || pgrep -f "rclone sync" > /dev/null; then' >> /usr/local/bin/inactivity-monitor.sh && \
+    echo '        echo "S3 sync still running, skipping inactivity check..."' >> /usr/local/bin/inactivity-monitor.sh && \
+    echo '        sleep 30' >> /usr/local/bin/inactivity-monitor.sh && \
     echo '        continue' >> /usr/local/bin/inactivity-monitor.sh && \
     echo '    fi' >> /usr/local/bin/inactivity-monitor.sh && \
     echo '    if ! inotifywait -r -t $TIMEOUT_SECONDS -e modify -e create -e delete -e move "$WORKSPACE_PATH" &>/dev/null; then' >> /usr/local/bin/inactivity-monitor.sh && \
@@ -579,9 +700,44 @@ RUN echo '#!/bin/bash' > /usr/local/bin/inactivity-monitor.sh && \
 RUN echo '#!/bin/bash' > /usr/local/bin/entrypoint.sh && \
     echo 'set -e' >> /usr/local/bin/entrypoint.sh && \
     echo '' >> /usr/local/bin/entrypoint.sh && \
-    echo '# CRITICAL: Start code-server IMMEDIATELY (before other setup)' >> /usr/local/bin/entrypoint.sh && \
-    echo 'echo "Starting code-server immediately on port 8080..."' >> /usr/local/bin/entrypoint.sh && \
-    echo 'su - user -c "cd /workspace && code-server --bind-addr 0.0.0.0:8080 --auth none --disable-telemetry --disable-update-check --disable-getting-started-override /workspace" &' >> /usr/local/bin/entrypoint.sh && \
+    echo '# CRITICAL: Start code-server on localhost:8081 (nginx will proxy it)' >> /usr/local/bin/entrypoint.sh && \
+    echo 'echo "Starting code-server on 127.0.0.1:8081..."' >> /usr/local/bin/entrypoint.sh && \
+    echo 'su - user -c "cd /workspace && code-server --bind-addr 127.0.0.1:8081 --auth none --disable-telemetry --disable-update-check --disable-getting-started-override --disable-workspace-trust /workspace" &' >> /usr/local/bin/entrypoint.sh && \
+    echo 'sleep 2' >> /usr/local/bin/entrypoint.sh && \
+    echo '' >> /usr/local/bin/entrypoint.sh && \
+    echo '# Configure nginx to proxy code-server and strip CSP headers' >> /usr/local/bin/entrypoint.sh && \
+    echo 'mkdir -p /etc/nginx/sites-available /etc/nginx/sites-enabled' >> /usr/local/bin/entrypoint.sh && \
+    echo 'cat > /etc/nginx/sites-available/code-server << '\''NGINXEOF'\''' >> /usr/local/bin/entrypoint.sh && \
+    echo 'server {' >> /usr/local/bin/entrypoint.sh && \
+    echo '    listen 8080;' >> /usr/local/bin/entrypoint.sh && \
+    echo '    server_name _;' >> /usr/local/bin/entrypoint.sh && \
+    echo '    location / {' >> /usr/local/bin/entrypoint.sh && \
+    echo '        proxy_pass http://127.0.0.1:8081;' >> /usr/local/bin/entrypoint.sh && \
+    echo '        proxy_http_version 1.1;' >> /usr/local/bin/entrypoint.sh && \
+    echo '        proxy_set_header Upgrade $http_upgrade;' >> /usr/local/bin/entrypoint.sh && \
+    echo '        proxy_set_header Connection "upgrade";' >> /usr/local/bin/entrypoint.sh && \
+    echo '        proxy_set_header Host $host;' >> /usr/local/bin/entrypoint.sh && \
+    echo '        proxy_set_header X-Real-IP $remote_addr;' >> /usr/local/bin/entrypoint.sh && \
+    echo '        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;' >> /usr/local/bin/entrypoint.sh && \
+    echo '        proxy_set_header X-Forwarded-Proto $scheme;' >> /usr/local/bin/entrypoint.sh && \
+    echo '        # Note: CSS/JS now injected directly into workbench.html during build' >> /usr/local/bin/entrypoint.sh && \
+    echo '        # CRITICAL: Remove ALL CSP and frame-related headers from backend response' >> /usr/local/bin/entrypoint.sh && \
+    echo '        # Use proxy_hide_header to hide headers from backend' >> /usr/local/bin/entrypoint.sh && \
+    echo '        proxy_hide_header Content-Security-Policy;' >> /usr/local/bin/entrypoint.sh && \
+    echo '        proxy_hide_header X-Frame-Options;' >> /usr/local/bin/entrypoint.sh && \
+    echo '        proxy_hide_header X-Content-Type-Options;' >> /usr/local/bin/entrypoint.sh && \
+    echo '        # CRITICAL: Add ONLY ONE permissive CSP header with frame-ancestors *' >> /usr/local/bin/entrypoint.sh && \
+    echo '        # The "always" flag ensures it is added even for error responses' >> /usr/local/bin/entrypoint.sh && \
+        echo '        add_header Content-Security-Policy "default-src '\''self'\'' '\''unsafe-inline'\'' '\''unsafe-eval'\'' data: blob: https:; frame-ancestors *; script-src '\''self'\'' '\''unsafe-inline'\'' '\''unsafe-eval'\'' blob:; style-src '\''self'\'' '\''unsafe-inline'\''; img-src '\''self'\'' data: https:; font-src '\''self'\'' data: https:; connect-src '\''self'\'' ws: wss: https:; worker-src '\''self'\'' blob:;" always;' >> /usr/local/bin/entrypoint.sh && \
+    echo '        # Ensure we do not pass through any other CSP headers' >> /usr/local/bin/entrypoint.sh && \
+    echo '        proxy_pass_header Content-Security-Policy;' >> /usr/local/bin/entrypoint.sh && \
+    echo '    }' >> /usr/local/bin/entrypoint.sh && \
+    echo '}' >> /usr/local/bin/entrypoint.sh && \
+    echo 'NGINXEOF' >> /usr/local/bin/entrypoint.sh && \
+    echo 'ln -sf /etc/nginx/sites-available/code-server /etc/nginx/sites-enabled/' >> /usr/local/bin/entrypoint.sh && \
+    echo 'rm -f /etc/nginx/sites-enabled/default' >> /usr/local/bin/entrypoint.sh && \
+    echo 'nginx -t' >> /usr/local/bin/entrypoint.sh && \
+    echo 'nginx -g "daemon off;" &' >> /usr/local/bin/entrypoint.sh && \
     echo '' >> /usr/local/bin/entrypoint.sh && \
     echo '# Setup tasks in parallel (non-blocking)' >> /usr/local/bin/entrypoint.sh && \
     echo 'VNC_PASSWORD=${VNC_PASSWORD:-vncpassword}' >> /usr/local/bin/entrypoint.sh && \

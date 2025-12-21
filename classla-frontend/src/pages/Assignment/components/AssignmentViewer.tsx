@@ -31,6 +31,16 @@ import {
 import { Assignment } from "../../../types";
 import { MCQBlockViewer } from "../../../components/extensions/MCQBlockViewer";
 import { IDEBlockViewer } from "../../../components/extensions/IDEBlockViewer";
+import { FillInTheBlankBlockViewer } from "../../../components/extensions/FillInTheBlankBlockViewer";
+import { ShortAnswerBlockViewer } from "../../../components/extensions/ShortAnswerBlockViewer";
+import { ParsonsProblemBlockViewer } from "../../../components/extensions/ParsonsProblemBlockViewer";
+import { ClickableAreaBlockViewer } from "../../../components/extensions/ClickableAreaBlockViewer";
+import { DragDropMatchingBlockViewer } from "../../../components/extensions/DragDropMatchingBlockViewer";
+import { TabbedContentBlockViewer } from "../../../components/extensions/TabbedContentBlockViewer";
+import { RevealContentBlockViewer } from "../../../components/extensions/RevealContentBlockViewer";
+import { PollBlockViewer } from "../../../components/extensions/PollBlockViewer";
+import { EmbedBlockViewer } from "../../../components/extensions/EmbedBlockViewer";
+import { DiscussionBlockViewer } from "../../../components/extensions/DiscussionBlockViewer";
 import { validateMCQData, sanitizeMCQData } from "../../../components/extensions/MCQBlock";
 import { Button } from "../../../components/ui/button";
 import { apiClient } from "../../../lib/api";
@@ -414,6 +424,16 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
       Gapcursor,
       Underline,
       MCQBlockViewer, // Add MCQ viewer extension
+      FillInTheBlankBlockViewer, // Add Fill-in-the-Blank viewer extension
+      ShortAnswerBlockViewer, // Add Short Answer viewer extension
+      ParsonsProblemBlockViewer, // Add Parsons Problem viewer extension
+      ClickableAreaBlockViewer, // Add Clickable Area viewer extension
+      DragDropMatchingBlockViewer, // Add Drag-and-Drop Matching viewer extension
+      TabbedContentBlockViewer, // Add Tabbed Content viewer extension
+      RevealContentBlockViewer, // Add Reveal Content viewer extension
+      PollBlockViewer, // Add Poll viewer extension
+      EmbedBlockViewer, // Add Embed viewer extension
+      DiscussionBlockViewer, // Add Discussion viewer extension
       IDEBlockViewer, // Add IDE viewer extension
     ],
     []

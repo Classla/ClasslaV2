@@ -91,6 +91,112 @@ const filterAssignmentContentForStudent = (content: string): string => {
             block.attrs.mcqData = mcqData;
           }
 
+          // Filter Fill-in-the-Blank blocks to remove correct answers
+          if (block.type === "fillInTheBlankBlock" && block.attrs?.fillInTheBlankData) {
+            const fillInTheBlankData = block.attrs.fillInTheBlankData;
+
+            // Remove acceptedAnswers and feedback from each blank
+            if (fillInTheBlankData.blanks && Array.isArray(fillInTheBlankData.blanks)) {
+              fillInTheBlankData.blanks = fillInTheBlankData.blanks.map((blank: any) => {
+                const { acceptedAnswers, feedback, ...filteredBlank } = blank;
+                return filteredBlank;
+              });
+            }
+
+            // Remove general feedback
+            delete fillInTheBlankData.generalFeedback;
+
+            block.attrs.fillInTheBlankData = fillInTheBlankData;
+          }
+
+          // Filter Short Answer blocks to remove autograder information
+          if (block.type === "shortAnswerBlock" && block.attrs?.shortAnswerData) {
+            const shortAnswerData = block.attrs.shortAnswerData;
+
+            // Remove sample answer (hidden from students)
+            delete shortAnswerData.sampleAnswer;
+
+            // If autograding is enabled, remove keyword matches and regex pattern
+            if (shortAnswerData.gradingType === "keyword" || shortAnswerData.gradingType === "regex") {
+              delete shortAnswerData.keywordMatches;
+              delete shortAnswerData.regexPattern;
+              delete shortAnswerData.caseSensitive;
+            }
+
+            block.attrs.shortAnswerData = shortAnswerData;
+          }
+
+          // Filter Parsons Problem blocks to remove correct solution
+          if (block.type === "parsonsProblemBlock" && block.attrs?.parsonsProblemData) {
+            const parsonsProblemData = block.attrs.parsonsProblemData;
+
+            // Remove correct solution (students should only see shuffled blocks)
+            delete parsonsProblemData.correctSolution;
+
+            // For students, we need to provide blocks but without revealing correct order/indentation
+            // The blocks array contains the correct solution, so we'll create a shuffled version
+            // that includes both correct blocks and distractors, but without revealing which is which
+            if (parsonsProblemData.blocks && Array.isArray(parsonsProblemData.blocks)) {
+              // Create a shuffled array of all blocks (correct + distractors) with reset indent levels
+              const allBlocks = [
+                ...parsonsProblemData.blocks.map((b: any) => ({
+                  id: b.id,
+                  code: b.code,
+                  indentLevel: 0, // Reset indent level - don't reveal correct indentation
+                })),
+                ...(parsonsProblemData.distractorBlocks || []).map((d: any) => ({
+                  id: d.id,
+                  code: d.code,
+                  indentLevel: 0,
+                })),
+              ];
+              
+              // Shuffle the blocks
+              const shuffled = allBlocks.sort(() => Math.random() - 0.5);
+              
+              // Replace blocks with shuffled version (students can't tell which are correct)
+              parsonsProblemData.blocks = shuffled;
+            }
+
+            block.attrs.parsonsProblemData = parsonsProblemData;
+          }
+
+          // Filter Code Selection blocks to remove correct line information
+          if (block.type === "clickableAreaBlock" && block.attrs?.clickableAreaData) {
+            const clickableAreaData = block.attrs.clickableAreaData;
+
+            // Remove isCorrect from all lines
+            if (clickableAreaData.lines && Array.isArray(clickableAreaData.lines)) {
+              clickableAreaData.lines = clickableAreaData.lines.map((line: any) => {
+                const { isCorrect, ...filteredLine } = line;
+                return {
+                  ...filteredLine,
+                  isCorrect: false, // Always set to false for students
+                };
+              });
+            }
+
+            block.attrs.clickableAreaData = clickableAreaData;
+          }
+
+          // Filter Drag-and-Drop Matching blocks to remove correct matches
+          if (block.type === "dragDropMatchingBlock" && block.attrs?.dragDropMatchingData) {
+            const dragDropMatchingData = block.attrs.dragDropMatchingData;
+
+            // Remove correctItemIds from all target zones
+            if (dragDropMatchingData.targetZones && Array.isArray(dragDropMatchingData.targetZones)) {
+              dragDropMatchingData.targetZones = dragDropMatchingData.targetZones.map((zone: any) => {
+                const { correctItemIds, ...filteredZone } = zone;
+                return {
+                  ...filteredZone,
+                  correctItemIds: [], // Empty array for students
+                };
+              });
+            }
+
+            block.attrs.dragDropMatchingData = dragDropMatchingData;
+          }
+
           return block;
         });
     };

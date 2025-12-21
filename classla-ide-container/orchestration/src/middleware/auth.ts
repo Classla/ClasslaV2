@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from "express";
 import crypto from "crypto";
 import config from "../config/index";
-import { authenticationFailed } from "./errors.js";
+import { authenticationFailed } from "./errors";
 
 /**
  * Hash an API key using SHA-256

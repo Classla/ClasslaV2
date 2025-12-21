@@ -79,10 +79,17 @@ echo "Step 1: Creating overlay network..."
 "$SCRIPT_DIR/create-network.sh"
 echo ""
 
-# Step 2: Deploy Traefik
+# Step 2: Deploy Traefik (using unified compose file with production settings)
 echo "Step 2: Deploying Traefik..."
 cd "$PROJECT_DIR"
-docker stack deploy -c docker-compose.traefik.yml traefik
+# Set production environment variables
+export TRAEFIK_INSECURE="false"
+export TRAEFIK_DASHBOARD_RULE="Host(`traefik.${DOMAIN}`)"
+export TRAEFIK_DASHBOARD_ENTRYPOINT="websecure"
+export TRAEFIK_DASHBOARD_TLS="letsencrypt"
+export DASHBOARD_PORT=""
+export NODE_ENV="production"
+docker stack deploy -c docker-compose.yml traefik
 
 echo ""
 echo "✓ Traefik deployment initiated"

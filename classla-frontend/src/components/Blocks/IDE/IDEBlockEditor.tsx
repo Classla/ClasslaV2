@@ -45,8 +45,9 @@ interface ContainerInfo {
   };
 }
 
-const IDE_API_BASE_URL =
+const PRODUCTION_IDE_API_BASE_URL =
   import.meta.env.VITE_IDE_API_BASE_URL || "https://ide.classla.org";
+const LOCAL_IDE_API_BASE_URL = "http://localhost";
 
 type TabType = "template" | "modelSolution" | "autoGrading";
 
@@ -55,6 +56,11 @@ const IDEBlockEditor: React.FC<IDEBlockEditorProps> = memo(
     const ideData = node.attrs.ideData as IDEBlockData;
     const { toast } = useToast();
     const { user } = useAuth();
+
+    // Admin toggle for local vs production IDE API
+    const [useLocalIDE, setUseLocalIDE] = useState(false);
+    const isAdmin = user?.isAdmin || false;
+    const IDE_API_BASE_URL = useLocalIDE ? LOCAL_IDE_API_BASE_URL : PRODUCTION_IDE_API_BASE_URL;
 
     const [activeTab, setActiveTab] = useState<TabType>("template");
     const [containers, setContainers] = useState<
@@ -147,7 +153,7 @@ const IDEBlockEditor: React.FC<IDEBlockEditorProps> = memo(
         statusCheckInProgress.current.add(checkKey);
 
         try {
-          const response = await apiClient.checkContainerStatus(containerId);
+          const response = await apiClient.checkContainerStatus(containerId, useLocalIDE);
           const container = response.data;
 
           if (container.status === "running" && container.urls?.codeServer) {
@@ -188,7 +194,7 @@ const IDEBlockEditor: React.FC<IDEBlockEditorProps> = memo(
           return false;
         }
       },
-      [clearContainer]
+      [clearContainer, useLocalIDE]
     );
 
 
@@ -294,6 +300,7 @@ const IDEBlockEditor: React.FC<IDEBlockEditorProps> = memo(
             s3Bucket: bucketName,
             s3Region: bucketRegion,
             userId: user.id,
+            useLocalIDE: useLocalIDE,
           });
 
           const containerData = containerResponse.data;
@@ -356,13 +363,14 @@ const IDEBlockEditor: React.FC<IDEBlockEditorProps> = memo(
         const containerId = ideData[tab].last_container_id;
         if (containerId) {
           // Check if container is still running (one time only)
+          // Note: useLocalIDE is captured from closure, so it will use current value
           checkContainerStatus(tab, containerId).catch((error) => {
             // Silently fail - container will be cleared if it doesn't exist
             console.debug(`Container ${containerId} not available for ${tab}`);
           });
         }
       });
-    }, [ideData.id]); // Only run when block ID changes, not on every container update
+    }, [ideData.id, checkContainerStatus]); // Include checkContainerStatus which has useLocalIDE in its closure
 
     // Handle tab change
     const handleTabChange = useCallback((value: string) => {
@@ -429,7 +437,7 @@ const IDEBlockEditor: React.FC<IDEBlockEditorProps> = memo(
           });
         }
       },
-      [containers, runFilename, detectLanguage, toast]
+      [containers, runFilename, detectLanguage, toast, IDE_API_BASE_URL]
     );
 
     // Handle view desktop toggle
@@ -537,11 +545,66 @@ const IDEBlockEditor: React.FC<IDEBlockEditorProps> = memo(
                 isStarting={isStarting.template}
                 showDesktop={showDesktop.template}
                 filename={runFilename.template}
+                ideApiBaseUrl={IDE_API_BASE_URL}
+                isAdmin={isAdmin}
+                useLocalIDE={useLocalIDE}
+                onToggleIDEEnvironment={() => {
+                  setUseLocalIDE(!useLocalIDE);
+                  // Clear all containers when switching environments
+                  setContainers({
+                    template: null,
+                    modelSolution: null,
+                    autoGrading: null,
+                  });
+                  toast({
+                    title: "IDE Environment Switched",
+                    description: `Switched to ${!useLocalIDE ? "local" : "production"} IDE API. Containers cleared.`,
+                    variant: "default",
+                  });
+                }}
                 onFilenameChange={(filename) =>
                   setRunFilename((prev) => ({ ...prev, template: filename }))
                 }
                 onStart={() => startContainer("template")}
-                onRun={() => handleRun("template")}
+                onRun={async () => {
+                  const container = containers.template;
+                  if (!container) {
+                    toast({
+                      title: "No container",
+                      description: "Please start a container first.",
+                      variant: "destructive",
+                    });
+                    return;
+                  }
+                  const filename = runFilename.template || "main.py";
+                  const language = detectLanguage(filename);
+                  try {
+                    const response = await fetch(
+                      `${IDE_API_BASE_URL}/web/${container.id}/run`,
+                      {
+                        method: "POST",
+                        headers: {
+                          "Content-Type": "application/json",
+                        },
+                        body: JSON.stringify({
+                          filename,
+                          language,
+                        }),
+                      }
+                    );
+                    const data = await response.json();
+                    if (!response.ok) {
+                      throw new Error(data.error || "Failed to execute code");
+                    }
+                  } catch (error: any) {
+                    console.error("Failed to execute code:", error);
+                    toast({
+                      title: "Execution failed",
+                      description: error.message || "Failed to execute code.",
+                      variant: "destructive",
+                    });
+                  }
+                }}
                 onToggleDesktop={() => handleToggleDesktop("template")}
                 onClearContainer={() => clearContainer("template")}
               />
@@ -555,6 +618,23 @@ const IDEBlockEditor: React.FC<IDEBlockEditorProps> = memo(
                 isStarting={isStarting.modelSolution}
                 showDesktop={showDesktop.modelSolution}
                 filename={runFilename.modelSolution}
+                ideApiBaseUrl={IDE_API_BASE_URL}
+                isAdmin={isAdmin}
+                useLocalIDE={useLocalIDE}
+                onToggleIDEEnvironment={() => {
+                  setUseLocalIDE(!useLocalIDE);
+                  // Clear all containers when switching environments
+                  setContainers({
+                    template: null,
+                    modelSolution: null,
+                    autoGrading: null,
+                  });
+                  toast({
+                    title: "IDE Environment Switched",
+                    description: `Switched to ${!useLocalIDE ? "local" : "production"} IDE API. Containers cleared.`,
+                    variant: "default",
+                  });
+                }}
                 onFilenameChange={(filename) =>
                   setRunFilename((prev) => ({
                     ...prev,
@@ -562,7 +642,45 @@ const IDEBlockEditor: React.FC<IDEBlockEditorProps> = memo(
                   }))
                 }
                 onStart={() => startContainer("modelSolution")}
-                onRun={() => handleRun("modelSolution")}
+                onRun={async () => {
+                  const container = containers.modelSolution;
+                  if (!container) {
+                    toast({
+                      title: "No container",
+                      description: "Please start a container first.",
+                      variant: "destructive",
+                    });
+                    return;
+                  }
+                  const filename = runFilename.modelSolution || "main.py";
+                  const language = detectLanguage(filename);
+                  try {
+                    const response = await fetch(
+                      `${IDE_API_BASE_URL}/web/${container.id}/run`,
+                      {
+                        method: "POST",
+                        headers: {
+                          "Content-Type": "application/json",
+                        },
+                        body: JSON.stringify({
+                          filename,
+                          language,
+                        }),
+                      }
+                    );
+                    const data = await response.json();
+                    if (!response.ok) {
+                      throw new Error(data.error || "Failed to execute code");
+                    }
+                  } catch (error: any) {
+                    console.error("Failed to execute code:", error);
+                    toast({
+                      title: "Execution failed",
+                      description: error.message || "Failed to execute code.",
+                      variant: "destructive",
+                    });
+                  }
+                }}
                 onToggleDesktop={() => handleToggleDesktop("modelSolution")}
                 onClearContainer={() => clearContainer("modelSolution")}
               />
@@ -630,6 +748,10 @@ interface IDETabContentProps {
   isStarting: boolean;
   showDesktop: boolean;
   filename: string;
+  ideApiBaseUrl: string;
+  isAdmin: boolean;
+  useLocalIDE: boolean;
+  onToggleIDEEnvironment: () => void;
   onFilenameChange: (filename: string) => void;
   onStart: () => void;
   onRun: () => void;
@@ -644,14 +766,16 @@ const IDETabContent: React.FC<IDETabContentProps> = memo(
     isStarting,
     showDesktop,
     filename,
+    ideApiBaseUrl,
+    isAdmin,
+    useLocalIDE,
+    onToggleIDEEnvironment,
     onFilenameChange,
     onStart,
     onRun,
     onToggleDesktop,
     onClearContainer,
   }) => {
-    const IDE_API_BASE_URL =
-      import.meta.env.VITE_IDE_API_BASE_URL || "https://ide.classla.org";
     const iframeRef = useRef<HTMLIFrameElement>(null);
 
     // Monitor iframe for 502 errors - check when iframe loads
@@ -667,37 +791,46 @@ const IDETabContent: React.FC<IDETabContentProps> = memo(
         hasChecked = true;
 
         try {
-          // Wait a moment for iframe to load (or show error)
-          await new Promise(resolve => setTimeout(resolve, 3000));
+          // Wait longer for container to fully start and Traefik routing to be active
+          // Give it 10 seconds before checking - containers need time to be fully ready
+          await new Promise(resolve => setTimeout(resolve, 1000));
 
           // Check container status via our API
           // This will tell us if the container is actually running and accessible
           try {
-            const response = await fetch(`/api/ide-blocks/container/${container.id}`);
+            const response = await apiClient.checkContainerStatus(container.id, useLocalIDE);
+            const data = response.data;
             
-            if (!response.ok) {
-              // Container API returned error - container is down (502, 404, etc.)
-              console.error(`Container API returned ${response.status}, clearing container`);
-              onClearContainer();
-              return;
-            }
-
-            const data = await response.json();
+            console.log(`[IDE Health Check] Container ${container.id} status: ${data.status}, hasUrls: ${!!data.urls?.codeServer}`);
+            
             // If container status is not running, clear it
             if (data.status !== "running" || !data.urls?.codeServer) {
-              console.error("Container is not running or missing codeServer URL, clearing");
+              console.error(`Container is not running (status: ${data.status}) or missing codeServer URL, clearing`);
               onClearContainer();
               return;
             }
-          } catch (apiError) {
-            // API check failed - might be network issue, but if it's a 502, clear container
-            console.error("Failed to check container via API, clearing container");
-            onClearContainer();
+            
+            console.log(`[IDE Health Check] Container ${container.id} is healthy, keeping it`);
+          } catch (apiError: any) {
+            // API check failed - handle different error types
+            if (apiError.statusCode === 404) {
+              // Try to get error details
+              let errorDetails = "";
+              try {
+                errorDetails = apiError.message || JSON.stringify(apiError);
+              } catch (e) {
+                errorDetails = "Could not parse error response";
+              }
+              console.error(`Container API returned 404 after 10s wait, clearing container. Error: ${errorDetails}`);
+              onClearContainer();
+            } else {
+              // Other errors (502, network issues, etc.) - might be temporary, don't clear immediately
+              console.warn(`Container API returned ${apiError.statusCode || 'unknown error'}, might be temporary - not clearing yet`);
+            }
           }
         } catch (error) {
-          // Error in health check - clear container to be safe
-          console.error("Error in container health check, clearing container");
-          onClearContainer();
+          // Error in health check - don't clear immediately, might be temporary
+          console.warn("Error in container health check, might be temporary - not clearing");
         }
       };
 
@@ -714,7 +847,8 @@ const IDETabContent: React.FC<IDETabContentProps> = memo(
       };
 
       // Check after a delay when container is set (in case iframe already loaded)
-      checkTimeout = setTimeout(checkContainerHealth, 3000);
+      // Wait 10 seconds to give container time to fully start
+      checkTimeout = setTimeout(checkContainerHealth, 10000);
 
       iframe.addEventListener("load", handleLoad);
       iframe.addEventListener("error", handleError);
@@ -745,6 +879,28 @@ const IDETabContent: React.FC<IDETabContentProps> = memo(
               disabled={!container || isStarting}
             />
           </div>
+          {/* Admin-only IDE environment toggle */}
+          {isAdmin && (
+            <div className="flex items-center gap-2 px-2 py-1 rounded-md border border-gray-300 bg-gray-50">
+              <Label htmlFor={`ide-env-toggle-${tab}`} className="text-xs text-gray-600 cursor-pointer whitespace-nowrap">
+                {useLocalIDE ? "Local" : "Production"}
+              </Label>
+              <button
+                id={`ide-env-toggle-${tab}`}
+                onClick={onToggleIDEEnvironment}
+                className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 ${
+                  useLocalIDE ? "bg-purple-600" : "bg-gray-300"
+                }`}
+                title={`Switch to ${useLocalIDE ? "production" : "local"} IDE environment`}
+              >
+                <span
+                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                    useLocalIDE ? "translate-x-5" : "translate-x-0.5"
+                  }`}
+                />
+              </button>
+            </div>
+          )}
           <Button
             variant="outline"
             size="sm"
@@ -794,7 +950,7 @@ const IDETabContent: React.FC<IDETabContentProps> = memo(
               <div className="relative" style={{ height: showDesktop ? "400px" : "600px" }}>
                 <iframe
                   ref={iframeRef}
-                  src={`${IDE_API_BASE_URL}/code/${container.id}/`}
+                  src={`${ideApiBaseUrl}/code/${container.id}/`}
                   className="w-full h-full border-0"
                   title="Code Server"
                   allow="clipboard-read; clipboard-write"
@@ -805,7 +961,7 @@ const IDETabContent: React.FC<IDETabContentProps> = memo(
               {showDesktop && (
                 <div className="relative border-t border-gray-300" style={{ height: "400px" }}>
                   <iframe
-                    src={`${IDE_API_BASE_URL}/vnc/${container.id}/`}
+                    src={`${ideApiBaseUrl}/vnc/${container.id}/`}
                     className="w-full h-full border-0"
                     title="Desktop View"
                   />

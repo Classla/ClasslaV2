@@ -39,11 +39,11 @@
 
 **Hetzner (Cloud - Your Setup)**:
 - HTTP only (no SSL certificates)
-- Use `deploy-http.sh` instead of `deploy.sh`
+- Use `deploy-http.sh` or `./start.sh` (local mode)
 
-**Production (Future)**:
+**Production**:
 - HTTPS with Let's Encrypt
-- Use `deploy.sh` with `docker-compose.yml`
+- Use `./start.sh --production` or `deploy.sh` with unified `docker-compose.yml`
 
 ## Scripts Overview
 
@@ -58,21 +58,19 @@
 
 - **`deploy-traefik-local.sh`** - Local dev (HTTP only)
 - **`deploy-traefik.sh`** - Production Traefik (HTTPS)
-- **`remove-traefik.sh`** - Remove Traefik only
 
 ### Utility Scripts
 
 - **`create-network.sh`** - Create overlay network (called by other scripts)
-- **`setup-tests.sh`** - Testing setup
 
 ## Deployment Files
 
 ### Docker Compose Files
 
-1. **`docker-compose.yml`** - Full production with HTTPS
-2. **`docker-compose.http.yml`** - HTTP only (for Hetzner) ✨ **NEW**
-3. **`docker-compose.traefik.yml`** - Traefik only with HTTPS
-4. **`docker-compose.traefik.local.yml`** - Traefik only, local dev
+1. **`docker-compose.yml`** - Unified compose file for both local and production
+   - Local mode: HTTP only, localhost
+   - Production mode: HTTPS with Let's Encrypt, ide.classla.org
+   - Controlled via `./start.sh --production` flag or environment variables
 
 ## Step-by-Step: Hetzner Deployment
 
@@ -171,10 +169,18 @@ docker service logs ide-management_traefik -f
 
 **For Hetzner deployment without HTTPS:**
 
-1. ✅ Use `deploy-http.sh` (not `deploy.sh`)
-2. ✅ Use `docker-compose.http.yml` (automatically used by deploy-http.sh)
+1. ✅ Use `deploy-http.sh` or `./start.sh` (local mode)
+2. ✅ Uses unified `docker-compose.yml` (automatically configured for HTTP mode)
 3. ✅ Build images on Hetzner server (or use `--platform linux/amd64`)
 4. ✅ Configure firewall (ports 80, 8080)
 5. ✅ Set `SERVER_IP` in `.env` (or let script auto-detect)
+
+**For production deployment with HTTPS:**
+
+1. ✅ Use `./start.sh --production` or `deploy.sh`
+2. ✅ Uses unified `docker-compose.yml` (automatically configured for HTTPS mode)
+3. ✅ Set `DOMAIN=ide.classla.org` and `ACME_EMAIL` in `.env`
+4. ✅ Configure firewall (ports 80, 443)
+5. ✅ Ensure DNS is pointing to your server
 
 **Everything else is the same!** Traefik handles all the routing and reverse proxying the same way on both platforms.

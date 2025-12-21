@@ -1,5 +1,5 @@
 import * as si from "systeminformation";
-import { ContainerService } from "./containerService.js";
+import { ContainerService } from "./containerService";
 
 export interface SystemResources {
   cpu: {

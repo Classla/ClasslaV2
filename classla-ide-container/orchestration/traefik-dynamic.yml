@@ -1,7 +1,12 @@
 # Traefik Dynamic Configuration
 # This file configures TLS options and security headers
+# HTTPS redirect is configured here (only active in production)
 
 http:
+  routers:
+    # HTTP to HTTPS redirect (only active when ENABLE_HTTPS environment variable is set)
+    # This is handled via entrypoint redirect in docker-compose.yml command flags
+    # which are conditionally set by start.sh based on production mode
   middlewares:
     # Security headers middleware
     security-headers:

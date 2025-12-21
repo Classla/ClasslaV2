@@ -51,10 +51,18 @@ if docker service ls | grep -q "traefik_traefik"; then
     echo ""
 fi
 
-# Step 3: Deploy Traefik
+# Step 3: Deploy Traefik (using unified compose file with local settings)
 echo "Step 3: Deploying Traefik (local development mode)..."
 cd "$PROJECT_DIR"
-docker stack deploy -c docker-compose.traefik.local.yml traefik
+# Set local environment variables
+export TRAEFIK_INSECURE="true"
+export TRAEFIK_DASHBOARD_RULE="Host(`traefik.localhost`) || Host(`localhost`)"
+export TRAEFIK_DASHBOARD_ENTRYPOINT="web"
+export TRAEFIK_DASHBOARD_TLS=""
+export DASHBOARD_PORT="8080"
+export DOMAIN="localhost"
+export NODE_ENV="local"
+docker stack deploy -c docker-compose.yml traefik
 
 echo ""
 echo "✓ Traefik deployment initiated"

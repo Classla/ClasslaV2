@@ -1,6 +1,6 @@
 import { Router, Request, Response, NextFunction } from "express";
-import { ContainerStatus } from "../services/stateManager.js";
-import { config } from "../config/index.js";
+import { ContainerStatus } from "../services/stateManager";
+import { config } from "../config/index";
 import {
   invalidS3Bucket,
   invalidParameter,
@@ -8,7 +8,7 @@ import {
   containerNotFound,
   containerStartFailed,
   containerStopFailed,
-} from "../middleware/errors.js";
+} from "../middleware/errors";
 import {
   containerService,
   stateManager,
@@ -17,7 +17,7 @@ import {
   s3ValidationService,
   containerStatsService,
   queueManager,
-} from "../services/serviceInstances.js";
+} from "../services/serviceInstances";
 
 const router = Router();
 

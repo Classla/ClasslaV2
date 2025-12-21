@@ -5,8 +5,9 @@ import {
   resourceMonitor,
   healthMonitor,
   nodeMonitor,
-} from "../services/serviceInstances.js";
-import { invalidParameter, containerNotFound } from "../middleware/errors.js";
+  queueManager,
+} from "../services/serviceInstances";
+import { invalidParameter, containerNotFound } from "../middleware/errors";
 
 const router = Router();
 
@@ -379,6 +380,37 @@ router.post(
               stoppedAt: updatedContainer.stoppedAt?.toISOString(),
             }
           : null,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+/**
+ * GET /api/dashboard/queue/stats
+ * Return queue statistics
+ */
+router.get(
+  "/queue/stats",
+  async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const queueStats = queueManager.getStats();
+      
+      // Get system resources to calculate containers with S3 buckets
+      const resources = await resourceMonitor.getSystemResources();
+      const totalRunning = resources.containers.running;
+      // Total = pre-warmed + with S3 + management API (1) + traefik (1)
+      const containersWithS3 = Math.max(0, totalRunning - queueStats.preWarmed - 2);
+      
+      res.json({
+        timestamp: new Date().toISOString(),
+        preWarmed: queueStats.preWarmed,
+        assigned: queueStats.assigned,
+        running: queueStats.running,
+        total: queueStats.total,
+        targetSize: queueStats.targetSize,
+        withS3Bucket: containersWithS3,
       });
     } catch (error) {
       next(error);

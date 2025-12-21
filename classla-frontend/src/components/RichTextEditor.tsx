@@ -15,6 +15,8 @@ interface RichTextEditorProps {
   minHeight?: string;
   maxHeight?: string;
   showToolbar?: boolean;
+  customExtensions?: any[]; // Additional TipTap extensions to include
+  onEditorReady?: (editor: any) => void; // Callback when editor is ready
 }
 
 const RichTextEditor: React.FC<RichTextEditorProps> = ({
@@ -27,6 +29,8 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
   minHeight = "28px",
   maxHeight = "300px",
   showToolbar = true,
+  customExtensions = [],
+  onEditorReady,
 }) => {
   const editor = useEditor({
     extensions: [
@@ -65,6 +69,7 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
         placeholder,
       }),
       Typography,
+      ...customExtensions,
     ],
     content,
     onUpdate: ({ editor }) => {
@@ -100,6 +105,13 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
       editor.commands.focus();
     }
   }, [editor, autoFocus]);
+
+  // Notify parent when editor is ready
+  useEffect(() => {
+    if (editor && onEditorReady) {
+      onEditorReady(editor);
+    }
+  }, [editor, onEditorReady]);
 
   // Auto-expand height based on content
   useEffect(() => {

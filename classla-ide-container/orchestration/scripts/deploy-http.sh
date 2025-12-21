@@ -130,8 +130,12 @@ echo ""
 echo "Step 4: Deploying stack..."
 echo ""
 
-# Deploy the stack using HTTP-only compose file
-docker stack deploy -c "$PROJECT_DIR/docker-compose.http.yml" ide-management
+# Deploy the stack using unified compose file (HTTP mode)
+# Set environment variables for HTTP-only mode
+export TRAEFIK_INSECURE="true"
+export DOMAIN=${DOMAIN:-$SERVER_IP}
+export NODE_ENV="production"
+docker stack deploy -c "$PROJECT_DIR/docker-compose.yml" ide-management
 
 echo -e "${GREEN}✓ Stack deployed${NC}"
 echo ""

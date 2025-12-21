@@ -272,7 +272,7 @@ docker swarm leave --force
 ⚠️ **Important**: This deployment uses HTTP only (no encryption). 
 
 For production use:
-- Set up HTTPS with Let's Encrypt using `docker-compose.traefik.yml`
+- Set up HTTPS with Let's Encrypt using `./start.sh --production` or `deploy.sh` with unified `docker-compose.yml`
 - Use strong API keys
 - Configure firewall rules
 - Consider using Hetzner Cloud Firewall for additional protection

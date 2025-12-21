@@ -1,12 +1,12 @@
 import Docker from "dockerode";
-import { config } from "../config/index.js";
-import { TraefikService } from "./traefikService.js";
-import { ContainerIdService } from "./containerIdService.js";
+import { config } from "../config/index";
+import { TraefikService } from "./traefikService";
+import { ContainerIdService } from "./containerIdService";
 import {
   containerStartFailed,
   containerStopFailed,
   dockerError,
-} from "../middleware/errors.js";
+} from "../middleware/errors";
 
 export interface ContainerConfig {
   s3Bucket?: string; // Optional for pre-warmed containers
@@ -73,6 +73,11 @@ export class ContainerService {
       // Base paths for path-based routing
       `CODE_BASE_PATH=/code/${containerId}`,
       `VNC_BASE_PATH=/vnc/${containerId}`,
+      // Inactivity timeout (30 seconds for local dev, 10 minutes default)
+      `INACTIVITY_TIMEOUT_SECONDS=${config.nodeEnv === "development" || config.nodeEnv === "local" ? "30" : "600"}`,
+      // Management API URL for shutdown webhook
+      `MANAGEMENT_API_URL=http://ide-local_management-api:3001`,
+      `CONTAINER_ID=${containerId}`,
     ];
 
     // Only set S3_BUCKET if not skipping (for pre-warmed containers)
@@ -475,7 +480,64 @@ export class ContainerService {
       }
 
       // Construct the web server URL (port 3000)
-      const webServerUrl = containerInfo.urls.webServer;
+      // For internal Docker network calls, use the container service name directly
+      // This avoids going through Traefik and is more reliable for internal API calls
+      const serviceName = `ide-${containerId}`;
+      const webServerUrl = `http://${serviceName}:3000`;
+      
+      console.log(
+        `[ContainerService] Assigning S3 bucket ${s3Config.bucket} to container ${containerId} via ${webServerUrl}/assign-s3-bucket`
+      );
+      
+      // Wait for web server to be ready (with retries)
+      // Pre-warmed containers should have the web server running, but we'll wait a bit if needed
+      // The web server starts at the same time as code-server, so it should be ready soon
+      let webServerReady = false;
+      const maxRetries = 15; // Increased retries - web server might take a bit longer
+      const retryDelay = 1000; // 1 second
+      
+      // Give web server a moment to start (pre-warmed containers might have just started)
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+      
+      for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        let timeoutId: NodeJS.Timeout | null = null;
+        try {
+          // Use AbortController for timeout
+          const controller = new AbortController();
+          timeoutId = setTimeout(() => controller.abort(), 2000);
+          
+          const healthCheck = await fetch(`${webServerUrl}/health`, {
+            method: "GET",
+            signal: controller.signal,
+          });
+          
+          if (timeoutId) clearTimeout(timeoutId);
+          
+          if (healthCheck.ok) {
+            webServerReady = true;
+            console.log(
+              `[ContainerService] Web server for container ${containerId} is ready (attempt ${attempt}/${maxRetries})`
+            );
+            break;
+          }
+        } catch (error: any) {
+          if (timeoutId) clearTimeout(timeoutId);
+          if (attempt < maxRetries) {
+            console.log(
+              `[ContainerService] Web server for container ${containerId} not ready yet (attempt ${attempt}/${maxRetries}), retrying in ${retryDelay}ms...`
+            );
+            await new Promise((resolve) => setTimeout(resolve, retryDelay));
+          } else {
+            console.warn(
+              `[ContainerService] Web server for container ${containerId} not ready after ${maxRetries} attempts: ${error.message || String(error)}`
+            );
+          }
+        }
+      }
+      
+      if (!webServerReady) {
+        throw new Error(`Web server for container ${containerId} is not ready after ${maxRetries} attempts`);
+      }
       
       // Call the /assign-s3-bucket endpoint
       const response = await fetch(`${webServerUrl}/assign-s3-bucket`, {

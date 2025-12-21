@@ -5,17 +5,17 @@
  * across the application (routes, server, etc.)
  */
 
-import { ContainerService } from "./containerService.js";
-import { StateManager } from "./stateManager.js";
-import { ResourceMonitor } from "./resourceMonitor.js";
-import { HealthMonitor } from "./healthMonitor.js";
-import { NodeMonitor } from "./nodeMonitor.js";
-import { S3ValidationService } from "./s3ValidationService.js";
-import { ContainerStatsService } from "./containerStatsService.js";
-import { QueueManager } from "./queueManager.js";
-import { QueueMaintainer } from "./queueMaintainer.js";
-import { ContainerCleanupService } from "./containerCleanupService.js";
-import { config } from "../config/index.js";
+import { ContainerService } from "./services/containerService";
+import { StateManager } from "./services/stateManager";
+import { ResourceMonitor } from "./services/resourceMonitor";
+import { HealthMonitor } from "./services/healthMonitor";
+import { NodeMonitor } from "./services/nodeMonitor";
+import { S3ValidationService } from "./services/s3ValidationService";
+import { ContainerStatsService } from "./services/containerStatsService";
+import { QueueManager } from "./services/queueManager";
+import { QueueMaintainer } from "./services/queueMaintainer";
+import { ContainerCleanupService } from "./services/containerCleanupService";
+import { config } from "./config/index";
 import Docker from "dockerode";
 
 // Create singleton instances

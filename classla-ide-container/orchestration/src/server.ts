@@ -10,6 +10,7 @@ import {
 } from "./middleware/rateLimit";
 import { errorHandler } from "./middleware/errorHandler";
 import containersRouter from "./routes/containers";
+import { handleInactivityShutdown } from "./routes/containers";
 import healthRouter from "./routes/health";
 import dashboardRouter from "./routes/dashboard";
 import dashboardApiRouter from "./routes/dashboardApi";
@@ -82,10 +83,17 @@ app.get("/", (_req: Request, res: Response) => {
 
 // Mount API routes
 // Inactivity shutdown callback is public (called from within containers)
-app.post("/api/containers/:id/inactivity-shutdown", containersRouter);
-app.post("/containers/:id/inactivity-shutdown", containersRouter); // Also mount without /api for strip-prefix
+// Mount as specific routes BEFORE the general app.use to ensure they match first
+app.post("/api/containers/:id/inactivity-shutdown", (req, res, next) => {
+  // Wrap in async handler
+  handleInactivityShutdown(req, res, next).catch(next);
+});
+app.post("/containers/:id/inactivity-shutdown", (req, res, next) => {
+  handleInactivityShutdown(req, res, next).catch(next);
+});
 // Container routes require authentication and rate limiting
 // Mount at both paths to work with and without strip-prefix middleware
+// These will match any routes under /api/containers that weren't matched above
 app.use("/api/containers", authenticate, rateLimitMiddleware, containersRouter);
 app.use("/containers", authenticate, rateLimitMiddleware, containersRouter);
 // Health endpoint is public (no authentication required)

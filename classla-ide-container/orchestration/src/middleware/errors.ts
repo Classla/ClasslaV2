@@ -1,4 +1,4 @@
-import { AppError } from "./errorHandler.js";
+import { AppError } from "./errorHandler";
 
 /**
  * Error codes and their corresponding HTTP status codes

@@ -69,6 +69,9 @@ export class TraefikService {
     labels[`traefik.http.routers.code-${containerId}.service`] = `code-${containerId}`;
     labels[`traefik.http.services.code-${containerId}.loadbalancer.server.port`] = "8080";
     labels[`traefik.http.middlewares.code-${containerId}-strip.stripprefix.prefixes`] = `/code/${containerId}`;
+    // Note: nginx inside the container handles CSP header modification for localhost
+    // No need to add CSP headers in Traefik - nginx strips code-server's restrictive CSP
+    // and adds a permissive one with frame-ancestors *
     labels[`traefik.http.routers.code-${containerId}.middlewares`] = `code-${containerId}-strip`;
 
     // web server service (port 3000)

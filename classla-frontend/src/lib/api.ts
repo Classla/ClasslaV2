@@ -409,9 +409,23 @@ export const apiClient = {
     s3Bucket: string;
     s3Region: string;
     userId?: string;
-  }) => api.post("/ide-blocks/start-container", data),
-  checkContainerStatus: (containerId: string) =>
-    api.get(`/ide-blocks/container/${containerId}`),
+    useLocalIDE?: boolean;
+  }) => {
+    const headers: Record<string, string> = {};
+    if (data.useLocalIDE) {
+      headers["X-IDE-Environment"] = "local";
+    }
+    // Remove useLocalIDE from body before sending
+    const { useLocalIDE, ...bodyData } = data;
+    return api.post("/ide-blocks/start-container", bodyData, { headers });
+  },
+  checkContainerStatus: (containerId: string, useLocalIDE?: boolean) => {
+    const headers: Record<string, string> = {};
+    if (useLocalIDE) {
+      headers["X-IDE-Environment"] = "local";
+    }
+    return api.get(`/ide-blocks/container/${containerId}`, { headers });
+  },
   getS3Bucket: (bucketId: string) => api.get(`/s3buckets/${bucketId}`),
   createS3Bucket: (data: {
     user_id: string;

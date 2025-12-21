@@ -1,5 +1,5 @@
-import { ContainerService } from "./containerService.js";
-import { StateManager } from "./stateManager.js";
+import { ContainerService } from "./services/containerService";
+import { StateManager } from "./services/stateManager";
 
 /**
  * ContainerCleanupService - Periodically cleans up stopped containers

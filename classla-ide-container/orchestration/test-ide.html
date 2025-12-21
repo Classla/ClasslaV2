@@ -236,7 +236,7 @@
                     </div>
                     <div class="form-group">
                         <label for="orchestrationApiUrl">Orchestration API URL</label>
-                        <input type="text" id="orchestrationApiUrl" value="http://localhost:3001" placeholder="http://localhost:3001">
+                        <input type="text" id="orchestrationApiUrl" value="http://localhost/api" placeholder="http://localhost/api">
                     </div>
                 </div>
                 <div>
@@ -246,7 +246,7 @@
                     </div>
                     <div class="form-group">
                         <label for="apiKey">Orchestration API Key</label>
-                        <input type="text" id="apiKey" value="eDg+MU50cATcNK4ap4WlPBewZlEvITW2Cj0LB6WZQJo=" placeholder="Your API key">
+                        <input type="text" id="apiKey" value="test-api-key-12345" placeholder="Your API key">
                     </div>
                 </div>
             </div>
@@ -327,14 +327,19 @@
         // Environment configurations
         const environments = {
             local: {
-                orchestrationApiUrl: 'http://localhost:3001',
+                // Use http://localhost/api to match backend behavior (goes through Traefik)
+                orchestrationApiUrl: 'http://localhost/api',
                 classlaBackendUrl: 'http://localhost:8000',
-                apiKey: 'eDg+MU50cATcNK4ap4WlPBewZlEvITW2Cj0LB6WZQJo='
+                // Use test-api-key-12345 to match backend default
+                apiKey: 'test-api-key-12345',
+                // Base URL for IDE container access (VNC, code-server, web)
+                ideBaseUrl: 'http://localhost'
             },
             remote: {
                 orchestrationApiUrl: 'https://api.ide.classla.org/api',
                 classlaBackendUrl: 'http://localhost:8000', // Backend might still be local
-                apiKey: 'test-api-key-12345'
+                apiKey: 'test-api-key-12345',
+                ideBaseUrl: 'https://ide.classla.org'
             }
         };
 
@@ -434,9 +439,14 @@
                 showStatus('containerStatus', '⏳ Starting IDE container...', 'info');
 
                 // Construct API endpoint URL
+                // The orchestration API expects /api/containers/start
+                // If URL already ends with /api, use /containers/start
+                // Otherwise, ensure /api/containers/start
                 let startUrl;
-                if (apiUrl.includes('/api')) {
-                    // URL already includes /api, use /containers/start
+                if (apiUrl.endsWith('/api')) {
+                    startUrl = `${apiUrl}/containers/start`;
+                } else if (apiUrl.includes('/api/')) {
+                    // URL contains /api/ somewhere, use as-is
                     startUrl = `${apiUrl}/containers/start`;
                 } else {
                     // URL is base domain, use /api/containers/start
@@ -489,17 +499,13 @@
                 return;
             }
 
-            // Ensure URL uses proper path-based format
-            let vncUrl = currentContainer.urls.vnc;
+            // Get the IDE base URL from current environment
+            const mode = document.getElementById('environmentMode').value;
+            const config = environments[mode];
+            const ideBaseUrl = config.ideBaseUrl;
             
-            // If URL doesn't start with http/https, construct it properly
-            if (!vncUrl.startsWith('http://') && !vncUrl.startsWith('https://')) {
-                const apiUrl = document.getElementById('orchestrationApiUrl').value;
-                const baseUrl = apiUrl.replace('/api', '').replace('api.', '');
-                const protocol = baseUrl.startsWith('https') ? 'https' : 'http';
-                const domain = baseUrl.replace(/^https?:\/\//, '').split('/')[0];
-                vncUrl = `${protocol}://${domain}/vnc/${currentContainer.id}`;
-            }
+            // Construct VNC URL using IDE base URL (matches React component behavior)
+            const vncUrl = `${ideBaseUrl}/vnc/${currentContainer.id}/`;
             
             document.getElementById('vncUrl').textContent = vncUrl;
             document.getElementById('vncFrame').src = vncUrl;
@@ -513,17 +519,13 @@
                 return;
             }
 
-            // Ensure URL uses proper path-based format
-            let codeUrl = currentContainer.urls.codeServer;
+            // Get the IDE base URL from current environment
+            const mode = document.getElementById('environmentMode').value;
+            const config = environments[mode];
+            const ideBaseUrl = config.ideBaseUrl;
             
-            // If URL doesn't start with http/https, construct it properly
-            if (!codeUrl.startsWith('http://') && !codeUrl.startsWith('https://')) {
-                const apiUrl = document.getElementById('orchestrationApiUrl').value;
-                const baseUrl = apiUrl.replace('/api', '').replace('api.', '');
-                const protocol = baseUrl.startsWith('https') ? 'https' : 'http';
-                const domain = baseUrl.replace(/^https?:\/\//, '').split('/')[0];
-                codeUrl = `${protocol}://${domain}/code/${currentContainer.id}`;
-            }
+            // Construct Code Server URL using IDE base URL (matches React component behavior)
+            const codeUrl = `${ideBaseUrl}/code/${currentContainer.id}/`;
             
             document.getElementById('codeUrl').textContent = codeUrl;
             document.getElementById('codeFrame').src = codeUrl;
@@ -537,17 +539,13 @@
                 return;
             }
 
-            // Ensure URL uses proper path-based format
-            let webUrl = currentContainer.urls.webServer;
+            // Get the IDE base URL from current environment
+            const mode = document.getElementById('environmentMode').value;
+            const config = environments[mode];
+            const ideBaseUrl = config.ideBaseUrl;
             
-            // If URL doesn't start with http/https, construct it properly
-            if (!webUrl.startsWith('http://') && !webUrl.startsWith('https://')) {
-                const apiUrl = document.getElementById('orchestrationApiUrl').value;
-                const baseUrl = apiUrl.replace('/api', '').replace('api.', '');
-                const protocol = baseUrl.startsWith('https') ? 'https' : 'http';
-                const domain = baseUrl.replace(/^https?:\/\//, '').split('/')[0];
-                webUrl = `${protocol}://${domain}/web/${currentContainer.id}`;
-            }
+            // Construct Web Server URL using IDE base URL (matches React component behavior)
+            const webUrl = `${ideBaseUrl}/web/${currentContainer.id}/run`;
             
             // Web server is an API, so show in a new window or display the URL
             showStatus('viewStatus', `✅ Web Server URL: <code>${webUrl}</code><br>Use this URL to execute code via HTTP requests.`, 'success');
@@ -571,9 +569,12 @@
                 showStatus('viewStatus', '⏳ Stopping container...', 'info');
 
                 // Construct API endpoint URL
+                // The orchestration API expects /api/containers/{id}
                 let deleteUrl;
-                if (apiUrl.includes('/api')) {
-                    // URL already includes /api, use /containers/{id}
+                if (apiUrl.endsWith('/api')) {
+                    deleteUrl = `${apiUrl}/containers/${currentContainer.id}`;
+                } else if (apiUrl.includes('/api/')) {
+                    // URL contains /api/ somewhere, use as-is
                     deleteUrl = `${apiUrl}/containers/${currentContainer.id}`;
                 } else {
                     // URL is base domain, use /api/containers/{id}
@@ -619,10 +620,13 @@
         async function checkApiHealth() {
             const orchestrationUrl = document.getElementById('orchestrationApiUrl').value;
             // Construct health endpoint URL
+            // The orchestration API expects /api/health or /health
             let healthUrl;
-            if (orchestrationUrl.includes('/api')) {
-                // URL already includes /api, use /health
+            if (orchestrationUrl.endsWith('/api')) {
                 healthUrl = `${orchestrationUrl}/health`;
+            } else if (orchestrationUrl.includes('/api/')) {
+                // URL contains /api/ somewhere, use /health
+                healthUrl = `${orchestrationUrl.replace(/\/api\/.*$/, '')}/api/health`;
             } else {
                 // URL is base domain, use /api/health
                 healthUrl = `${orchestrationUrl}/api/health`;

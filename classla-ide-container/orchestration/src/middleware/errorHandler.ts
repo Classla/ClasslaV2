@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from "express";
-import { config } from "../config/index.js";
+import { config } from "../config/index";
 
 /**
  * Custom error class for application-specific errors

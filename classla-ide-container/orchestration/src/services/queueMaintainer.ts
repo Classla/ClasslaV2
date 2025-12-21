@@ -1,9 +1,11 @@
-import { QueueManager } from "./queueManager.js";
-import { ContainerService } from "./containerService.js";
-import { StateManager } from "./stateManager.js";
-import { ResourceMonitor } from "./resourceMonitor.js";
-import { HealthMonitor } from "./healthMonitor.js";
-import { config } from "../config/index.js";
+import { QueueManager } from "./queueManager";
+import { ContainerService } from "./containerService";
+import { StateManager } from "./stateManager";
+import { ResourceMonitor } from "./resourceMonitor";
+import { HealthMonitor } from "./healthMonitor";
+import { config } from "../config/index";
+import axios from "axios";
+import https from "https";
 
 /**
  * QueueMaintainer - Background service that maintains the pre-warmed container queue
@@ -23,6 +25,7 @@ export class QueueMaintainer {
   private checkInterval: NodeJS.Timeout | null = null;
   private isRunning = false;
   private checkIntervalMs: number = 30000; // Check every 30 seconds
+  private isMaintaining = false; // Lock to prevent concurrent maintenance
 
   constructor(
     queueManager: QueueManager,
@@ -48,20 +51,29 @@ export class QueueMaintainer {
     }
 
     this.isRunning = true;
+    const stats = this.queueManager.getStats();
+    console.log("[QueueMaintainer] ========================================");
     console.log("[QueueMaintainer] Starting queue maintainer...");
-    console.log(`[QueueMaintainer] Target queue size: ${this.queueManager.getStats().targetSize}`);
+    console.log(`[QueueMaintainer] Target queue size: ${stats.targetSize}`);
+    console.log(`[QueueMaintainer] Current queue size: ${stats.preWarmed}`);
+    console.log(`[QueueMaintainer] Check interval: ${this.checkIntervalMs}ms`);
+    console.log("[QueueMaintainer] ========================================");
 
     // Do initial check immediately
+    console.log("[QueueMaintainer] Running initial queue check...");
     this.checkAndMaintainQueue().catch((error) => {
       console.error("[QueueMaintainer] Error in initial queue check:", error);
     });
 
     // Then check periodically
     this.checkInterval = setInterval(() => {
+      console.log("[QueueMaintainer] Running periodic queue check...");
       this.checkAndMaintainQueue().catch((error) => {
         console.error("[QueueMaintainer] Error in periodic queue check:", error);
       });
     }, this.checkIntervalMs);
+    
+    console.log("[QueueMaintainer] Queue maintainer started successfully");
   }
 
   /**
@@ -84,44 +96,74 @@ export class QueueMaintainer {
    * Check queue size and spawn containers as needed
    */
   private async checkAndMaintainQueue(): Promise<void> {
-    const containersNeeded = this.queueManager.getContainersNeeded();
-    const queueSize = this.queueManager.getQueueSize();
-    const stats = this.queueManager.getStats();
+    // Prevent concurrent maintenance checks
+    if (this.isMaintaining) {
+      console.log("[QueueMaintainer] Maintenance already in progress, skipping this check");
+      return;
+    }
+
+    this.isMaintaining = true;
+    try {
+      console.log("[QueueMaintainer] ========================================");
+      console.log("[QueueMaintainer] Starting queue maintenance check...");
+      
+      const containersNeeded = this.queueManager.getContainersNeeded();
+      const queueSize = this.queueManager.getQueueSize();
+      const stats = this.queueManager.getStats();
 
     console.log(
-      `[QueueMaintainer] Queue status: ${queueSize}/${stats.targetSize} pre-warmed, ${stats.assigned} assigned, ${stats.running} running`
+      `[QueueMaintainer] Queue status: ${queueSize}/${stats.targetSize} pre-warmed, ${stats.assigned} assigned, ${stats.running} running (total tracked: ${stats.total})`
     );
+    console.log(`[QueueMaintainer] Containers needed: ${containersNeeded}`);
 
     if (containersNeeded <= 0) {
+      console.log(
+        `[QueueMaintainer] ✅ Queue is at target size (${queueSize}/${stats.targetSize}), no action needed`
+      );
+      console.log("[QueueMaintainer] ========================================");
       return; // Queue is at target size
     }
 
     console.log(
-      `[QueueMaintainer] Need to spawn ${containersNeeded} container(s) to maintain queue`
+      `[QueueMaintainer] ⚠️ Need to spawn ${containersNeeded} container(s) to maintain queue`
     );
 
     // Check system resources before spawning
+    console.log("[QueueMaintainer] Checking system resources...");
     const resourceCheck = await this.resourceMonitor.canStartContainer();
     if (!resourceCheck.allowed) {
       console.warn(
-        `[QueueMaintainer] Cannot spawn containers: ${resourceCheck.reason}`
+        `[QueueMaintainer] ❌ Cannot spawn containers: ${resourceCheck.reason}`
       );
+      console.log("[QueueMaintainer] ========================================");
       return;
     }
+    console.log("[QueueMaintainer] ✅ System resources OK, proceeding with spawn");
 
     // Spawn containers one at a time (up to containersNeeded)
     for (let i = 0; i < containersNeeded; i++) {
       try {
+        console.log(`[QueueMaintainer] Spawning container ${i + 1}/${containersNeeded}...`);
         await this.spawnPreWarmedContainer();
+        console.log(`[QueueMaintainer] ✅ Successfully spawned container ${i + 1}/${containersNeeded}`);
         // Small delay between spawns to avoid overwhelming the system
-        await new Promise((resolve) => setTimeout(resolve, 2000));
+        if (i < containersNeeded - 1) {
+          console.log("[QueueMaintainer] Waiting 2 seconds before next spawn...");
+          await new Promise((resolve) => setTimeout(resolve, 2000));
+        }
       } catch (error) {
         console.error(
-          `[QueueMaintainer] Failed to spawn pre-warmed container:`,
+          `[QueueMaintainer] ❌ Failed to spawn pre-warmed container ${i + 1}/${containersNeeded}:`,
           error
         );
         // Continue trying to spawn others even if one fails
       }
+    }
+    
+      console.log("[QueueMaintainer] Queue maintenance check complete");
+      console.log("[QueueMaintainer] ========================================");
+    } finally {
+      this.isMaintaining = false;
     }
   }
 
@@ -138,13 +180,7 @@ export class QueueMaintainer {
         domain: config.domain,
       });
 
-      // Add to queue manager
-      this.queueManager.addToQueue(
-        containerInfo.id,
-        containerInfo.serviceName
-      );
-
-      // Save to state manager
+      // Save to state manager first
       this.stateManager.saveContainer({
         id: containerInfo.id,
         serviceName: containerInfo.serviceName,
@@ -160,19 +196,140 @@ export class QueueMaintainer {
         },
       });
 
-      // Start health monitoring
+      // Start health monitoring and wait for container to be ready before adding to queue
+      console.log(
+        `[QueueMaintainer] ⏳ Waiting for pre-warmed container ${containerInfo.id} to be ready before adding to queue...`
+      );
+      console.log(`[QueueMaintainer] Code-server URL: ${containerInfo.urls.codeServer}`);
+      
+      // Wait for container to be ready (code-server accessible through Traefik)
+      let isReady = false;
+      const maxWaitTime = 120000; // 2 minutes max wait
+      const checkInterval = 2000; // Check every 2 seconds
+      const startTime = Date.now();
+      let checkCount = 0;
+      
+      while (!isReady && (Date.now() - startTime) < maxWaitTime) {
+        checkCount++;
+        try {
+          // Check if code-server is accessible through Traefik (actual route, not /healthz)
+          const codeServerUrl = containerInfo.urls.codeServer;
+          // For localhost URLs, use Traefik service name for internal Docker network access
+          let checkUrl = `${codeServerUrl}/`;
+          if (codeServerUrl.includes('localhost')) {
+            checkUrl = checkUrl.replace('http://localhost', 'http://ide-local_traefik:80');
+          }
+          
+          if (checkCount % 5 === 0 || checkCount === 1) {
+            console.log(
+              `[QueueMaintainer] Check ${checkCount}: Verifying pre-warmed container ${containerInfo.id} readiness at ${checkUrl}...`
+            );
+          }
+          
+          // In local mode, disable SSL certificate validation to handle self-signed certs
+          const axiosConfig: any = {
+            timeout: 3000,
+            validateStatus: () => true, // Accept all status codes
+            maxRedirects: 5,
+          };
+          
+          // For local development, disable SSL verification if using HTTPS
+          if (config.nodeEnv === "local" || checkUrl.includes("localhost") || checkUrl.includes("ide-local_traefik")) {
+            axiosConfig.httpsAgent = new https.Agent({
+              rejectUnauthorized: false,
+            });
+          }
+          
+          const response = await axios.get(checkUrl, axiosConfig);
+          
+          // Accept 200, 302 (redirect), or 401 (auth required) - means route is working
+          // 404 means Traefik routing isn't ready yet
+          // Note: We only verify code-server here. Web server verification happens
+          // when we actually assign S3 bucket (with retries), as web server can take
+          // longer to start and we don't want to delay queue population unnecessarily.
+          if (response.status === 200 || response.status === 302 || response.status === 401) {
+            isReady = true;
+            const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+            console.log(
+              `[QueueMaintainer] ✅ Pre-warmed container ${containerInfo.id} is ready after ${elapsed}s (code-server accessible via Traefik, status: ${response.status})`
+            );
+            console.log(
+              `[QueueMaintainer] ℹ️  Web server will be verified when S3 bucket is assigned`
+            );
+          } else if (response.status === 404) {
+            if (checkCount % 5 === 0 || checkCount === 1) {
+              console.log(
+                `[QueueMaintainer] ⏳ Pre-warmed container ${containerInfo.id} not ready yet (404 - Traefik routing not active), waiting...`
+              );
+            }
+            await new Promise((resolve) => setTimeout(resolve, checkInterval));
+          } else {
+            if (checkCount % 5 === 0 || checkCount === 1) {
+              console.log(
+                `[QueueMaintainer] ⏳ Pre-warmed container ${containerInfo.id} returned status ${response.status}, waiting...`
+              );
+            }
+            await new Promise((resolve) => setTimeout(resolve, checkInterval));
+          }
+        } catch (error: any) {
+          // Network error or timeout - container not ready yet
+          if (checkCount % 5 === 0 || checkCount === 1) {
+            if (error.code === "ECONNABORTED" || error.message?.includes("timeout")) {
+              console.log(
+                `[QueueMaintainer] ⏳ Pre-warmed container ${containerInfo.id} not ready yet (timeout), waiting...`
+              );
+            } else {
+              console.log(
+                `[QueueMaintainer] ⏳ Pre-warmed container ${containerInfo.id} not ready yet (error: ${error.message || String(error)}), waiting...`
+              );
+            }
+          }
+          await new Promise((resolve) => setTimeout(resolve, checkInterval));
+        }
+      }
+      
+      if (!isReady) {
+        const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+        console.warn(
+          `[QueueMaintainer] ❌ Pre-warmed container ${containerInfo.id} did not become ready within ${elapsed}s (max: ${maxWaitTime / 1000}s), removing from state`
+        );
+        // Update status to failed and remove from queue
+        this.stateManager.updateContainerLifecycle(containerInfo.id, {
+          status: "failed",
+        });
+        this.queueManager.removeFromQueue(containerInfo.id);
+        throw new Error(`Pre-warmed container ${containerInfo.id} did not become ready within timeout`);
+      }
+
+      // Container is ready - add to queue manager
+      console.log(`[QueueMaintainer] Adding container ${containerInfo.id} to queue manager...`);
+      this.queueManager.addToQueue(
+        containerInfo.id,
+        containerInfo.serviceName
+      );
+      console.log(`[QueueMaintainer] ✅ Container ${containerInfo.id} added to queue`);
+
+      // Update status to running now that it's ready
+      this.stateManager.updateContainerLifecycle(containerInfo.id, {
+        status: "running",
+      });
+      console.log(`[QueueMaintainer] ✅ Container ${containerInfo.id} status updated to 'running'`);
+
+      // Start health monitoring for ongoing checks
+      console.log(`[QueueMaintainer] Starting health monitoring for ${containerInfo.id}...`);
       this.healthMonitor.checkContainerImmediately(containerInfo.id).catch(
         (error) => {
           console.error(
-            `[QueueMaintainer] Error starting health check for ${containerInfo.id}:`,
+            `[QueueMaintainer] ❌ Error starting health check for ${containerInfo.id}:`,
             error
           );
         }
       );
 
       console.log(
-        `[QueueMaintainer] Successfully spawned pre-warmed container ${containerInfo.id}`
+        `[QueueMaintainer] ✅ Successfully spawned and verified pre-warmed container ${containerInfo.id} - added to queue`
       );
+      console.log("[QueueMaintainer] ========================================");
     } catch (error) {
       console.error(
         "[QueueMaintainer] Error spawning pre-warmed container:",

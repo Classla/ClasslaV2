@@ -3,7 +3,7 @@ import {
   HeadBucketCommand,
   GetBucketLocationCommand,
 } from "@aws-sdk/client-s3";
-import { config } from "../config/index.js";
+import { config } from "../config/index";
 
 export interface S3ValidationResult {
   valid: boolean;

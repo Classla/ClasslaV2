@@ -1,7 +1,9 @@
 import axios from "axios";
-import { ContainerService } from "./containerService.js";
-import { StateManager } from "./stateManager.js";
-import { ContainerStatsService } from "./containerStatsService.js";
+import https from "https";
+import { ContainerService } from "./containerService";
+import { StateManager } from "./stateManager";
+import { ContainerStatsService } from "./containerStatsService";
+import { config } from "../config/index";
 
 export interface HealthCheckResult {
   status: "healthy" | "unhealthy" | "starting";
@@ -17,6 +19,8 @@ export interface HealthCheckResult {
 interface ContainerHealthState {
   containerId: string;
   consecutiveFailures: number;
+  consecutiveSuccesses: number; // Track consecutive successful checks for starting containers
+  firstSuccessAt?: Date; // Track when we first got a successful check
   lastCheck: Date;
   restartAttempted: boolean;
   firstUnhealthyAt?: Date; // Track when container first became unhealthy
@@ -256,6 +260,8 @@ export class HealthMonitor {
       healthState = {
         containerId,
         consecutiveFailures: 0,
+        consecutiveSuccesses: 0,
+        firstSuccessAt: undefined,
         lastCheck: new Date(),
         restartAttempted: false,
         shutdownAttempted: false,
@@ -300,11 +306,36 @@ export class HealthMonitor {
 
     // For starting containers, code-server being ready is enough to mark as running
     // VNC and web server can start later
+    // BUT: Require multiple consecutive successful checks to avoid false positives
     const isReady = isStarting 
       ? checks.codeServer  // Only code-server required for starting containers
       : allHealthy;         // All services required for running containers
 
     if (isReady) {
+      // For starting containers, require 4 consecutive successful checks AND minimum 5 seconds wait
+      // This prevents false positives when Traefik routing isn't fully active yet
+      if (isStarting) {
+        if (!healthState.consecutiveSuccesses) {
+          healthState.consecutiveSuccesses = 0;
+        }
+        if (!healthState.firstSuccessAt) {
+          healthState.firstSuccessAt = new Date();
+        }
+        healthState.consecutiveSuccesses++;
+        
+        const timeSinceFirstSuccess = Date.now() - healthState.firstSuccessAt.getTime();
+        const minWaitTime = 5000; // 5 seconds minimum wait
+        const requiredChecks = 4; // 4 consecutive successful checks
+        
+        // Require both: 4 consecutive checks AND minimum 5 seconds wait
+        if (healthState.consecutiveSuccesses < requiredChecks || timeSinceFirstSuccess < minWaitTime) {
+          console.log(
+            `[HealthMonitor] ⏳ Container ${containerId} code-server accessible (${healthState.consecutiveSuccesses}/${requiredChecks} checks, ${Math.round(timeSinceFirstSuccess / 1000)}s/${minWaitTime / 1000}s wait), waiting for confirmation...`
+          );
+          return; // Don't mark as running yet
+        }
+      }
+      
       // Update container status to "running" if it was "starting"
       const container = this.stateManager.getContainer(containerId);
       if (container && container.status === "starting") {
@@ -327,9 +358,18 @@ export class HealthMonitor {
       healthState.consecutiveFailures = 0;
       healthState.restartAttempted = false;
       healthState.firstUnhealthyAt = undefined; // Reset unhealthy timestamp
+      
+      // Reset consecutive successes if container is already running (not starting)
+      if (!isStarting) {
+        healthState.consecutiveSuccesses = 0;
+        healthState.firstSuccessAt = undefined;
+      }
     } else {
       // Increment failure count
       healthState.consecutiveFailures++;
+      // Reset consecutive successes on failure
+      healthState.consecutiveSuccesses = 0;
+      healthState.firstSuccessAt = undefined;
       
       // Track when container first became unhealthy
       if (!healthState.firstUnhealthyAt && healthState.consecutiveFailures >= this.MAX_CONSECUTIVE_FAILURES) {
@@ -376,7 +416,7 @@ export class HealthMonitor {
 
   /**
    * Check if a service URL is reachable
-   * For code-server, we use the /healthz endpoint for fastest checks
+   * For code-server, we check the actual root path through Traefik to ensure routing works
    * For other services, we check the main URL
    */
   private async checkServiceReachability(
@@ -384,55 +424,73 @@ export class HealthMonitor {
     isCodeServer: boolean = false,
     timeout: number = this.REQUEST_TIMEOUT_MS
   ): Promise<boolean> {
-    try {
-      // Use /healthz endpoint for code-server (much faster, no auth needed)
-      // Ensure URL has trailing slash before appending healthz
-      const baseUrl = url.endsWith('/') ? url.slice(0, -1) : url;
-      const checkUrl = isCodeServer ? `${baseUrl}/healthz` : url;
-      
-      // For code-server, always use HTTPS for domain-based URLs (not localhost/IP)
-      // This avoids redirect issues and ensures we check the correct endpoint
-      let finalUrl = checkUrl;
-      if (isCodeServer) {
-        // Convert HTTP to HTTPS for any non-localhost URL
-        if (checkUrl.startsWith('http://') && !checkUrl.includes('localhost') && !checkUrl.match(/http:\/\/\d+\.\d+\.\d+\.\d+/)) {
-          // Domain-based URL - use HTTPS
-          finalUrl = checkUrl.replace('http://', 'https://');
-        } else if (checkUrl.match(/http:\/\/\d+\.\d+\.\d+\.\d+/)) {
-          // IP address - convert to domain if we have one, otherwise use HTTPS
-          // For ide.classla.org, always use HTTPS with domain
-          finalUrl = checkUrl.replace(/http:\/\/\d+\.\d+\.\d+\.\d+/, 'https://ide.classla.org');
-        }
+    // For code-server, check the actual root path (not /healthz) to verify Traefik routing works
+    // This ensures the container is truly accessible, not just that code-server is running internally
+    const baseUrl = url.endsWith('/') ? url.slice(0, -1) : url;
+    // Use root path to verify Traefik routing - accept 200, 302 (redirect), or 401 (auth required)
+    // 404 means routing isn't working yet
+    const checkUrl = isCodeServer ? `${baseUrl}/` : url;
+    
+    // For code-server, always use HTTPS for domain-based URLs (not localhost/IP)
+    // This avoids redirect issues and ensures we check the correct endpoint
+    // IMPORTANT: For localhost URLs, if we're running in Docker (management-api container),
+    // we need to use the Traefik service name instead of localhost
+    let finalUrl = checkUrl; // Declare at function scope for use in catch block
+    if (isCodeServer) {
+      // If URL contains localhost, we're checking from within Docker network
+      // Replace localhost with Traefik service name for internal Docker network access
+      if (checkUrl.includes('localhost')) {
+        // Use Traefik service name: ide-local_traefik (from docker-compose stack name + service name)
+        // Port 80 is the internal port Traefik listens on
+        finalUrl = checkUrl.replace('http://localhost', 'http://ide-local_traefik:80');
+      } else if (checkUrl.startsWith('http://') && !checkUrl.match(/http:\/\/\d+\.\d+\.\d+\.\d+/)) {
+        // Domain-based URL - use HTTPS
+        finalUrl = checkUrl.replace('http://', 'https://');
+      } else if (checkUrl.match(/http:\/\/\d+\.\d+\.\d+\.\d+/)) {
+        // IP address - convert to domain if we have one, otherwise use HTTPS
+        // For ide.classla.org, always use HTTPS with domain
+        finalUrl = checkUrl.replace(/http:\/\/\d+\.\d+\.\d+\.\d+/, 'https://ide.classla.org');
       }
-      
-      const response = await axios.get(finalUrl, {
+    }
+    
+    try {
+      // In local mode, disable SSL certificate validation to handle self-signed certs
+      const axiosConfig: any = {
         timeout,
         validateStatus: () => true, // Accept all status codes so we can check them
         maxRedirects: 5, // Follow redirects (HTTP to HTTPS, etc.)
-      });
+      };
       
-      // For code-server /healthz endpoint, accept 200 (OK) or 204 (No Content)
-      // The /healthz endpoint returns 200 when healthy
+      // For local development, disable SSL verification if using HTTPS or localhost
+      if (config.nodeEnv === "local" || finalUrl.includes("localhost") || finalUrl.includes("ide-local_traefik")) {
+        axiosConfig.httpsAgent = new https.Agent({
+          rejectUnauthorized: false,
+        });
+      }
+      
+      const response = await axios.get(finalUrl, axiosConfig);
+      
+      // For code-server root path, accept 200 (OK), 302 (redirect), or 401 (auth required)
+      // 404 means Traefik routing isn't working yet - container not ready
       if (isCodeServer) {
-        const isHealthy = response.status === 200 || response.status === 204;
-        if (!isHealthy) {
-          // Only log warnings for non-200/204, not for every check
-          // Don't log 301/302 as they're redirects that should be followed
-          if (response.status !== 404 && response.status !== 301 && response.status !== 302) {
-            console.warn(
-              `[HealthMonitor] Code-server /healthz at ${finalUrl} returned status ${response.status} (unhealthy - expected 200 or 204)`
-            );
-          } else if (response.status === 301 || response.status === 302) {
-            // Log redirects for debugging
+        const isHealthy = response.status === 200 || response.status === 302 || response.status === 401;
+        // Always log the check result for debugging
+        if (isHealthy) {
+          console.log(
+            `[HealthMonitor] ✅ Code-server route at ${finalUrl} is accessible (status: ${response.status})`
+          );
+        } else {
+          // Log 404 specifically as it means routing isn't ready
+          if (response.status === 404) {
             console.log(
-              `[HealthMonitor] Code-server /healthz at ${checkUrl} redirected to ${finalUrl}, status: ${response.status}`
+              `[HealthMonitor] ⏳ Code-server route at ${finalUrl} not ready yet (404 - Traefik routing not active)`
+            );
+          } else if (response.status !== 301) {
+            // Don't log 301 as it's just a redirect
+            console.warn(
+              `[HealthMonitor] Code-server route at ${finalUrl} returned status ${response.status} (unhealthy - expected 200, 302, or 401)`
             );
           }
-        } else {
-          // Log successful checks occasionally for debugging
-          console.log(
-            `[HealthMonitor] ✅ Code-server /healthz at ${finalUrl} is healthy (status: ${response.status})`
-          );
         }
         return isHealthy;
       }
@@ -453,14 +511,20 @@ export class HealthMonitor {
     } catch (error) {
       // Network errors, timeouts, etc. indicate service is not reachable
       if (axios.isAxiosError(error)) {
+        // Log the error for debugging
+        console.warn(
+          `[HealthMonitor] Error checking ${isCodeServer ? 'code-server' : 'service'} at ${finalUrl}: ${error.message}${error.code ? ` (${error.code})` : ''}`
+        );
         // Check if we got a response with a status code (e.g., 502 Bad Gateway)
         if (error.response) {
           const status = error.response.status;
           if (isCodeServer) {
-            // For code-server /healthz, only 200/204 is healthy
-            // Don't log 404 as it might mean endpoint doesn't exist yet
-            if (status !== 404) {
-              // Only log if it's a real error, not just "not ready yet"
+            // For code-server root path, 404 means routing isn't ready yet
+            // Only 200, 302, or 401 means it's accessible
+            if (status === 404) {
+              console.log(
+                `[HealthMonitor] ⏳ Code-server route at ${finalUrl || url} not ready yet (404 - Traefik routing not active)`
+              );
             }
             return false;
           } else {
@@ -475,13 +539,14 @@ export class HealthMonitor {
           }
         }
         
+        // Log network errors (no response received)
         const errorMsg = error.code === 'ECONNREFUSED' 
           ? 'Connection refused' 
           : error.code === 'ETIMEDOUT' 
           ? 'Timeout' 
           : error.message;
         console.warn(
-          `[HealthMonitor] Service at ${url} is not reachable: ${errorMsg}`
+          `[HealthMonitor] Error checking ${isCodeServer ? 'code-server' : 'service'} at ${finalUrl || url}: ${errorMsg}${error.code ? ` (${error.code})` : ''}`
         );
       } else {
         console.warn(
