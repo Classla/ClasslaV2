@@ -231,7 +231,8 @@ if [ "$PRODUCTION" = "true" ]; then
   cp docker-compose.yml "$TEMP_COMPOSE"
   # Convert relative path to absolute path for traefik-dynamic.yml
   # Docker Swarm requires absolute paths for bind mounts
-  sed -i.bak "s|./traefik-dynamic.yml|${ORCHESTRATION_DIR}/traefik-dynamic.yml|g" "$TEMP_COMPOSE"
+  # Match only the source path (before the colon) to avoid replacing the target path
+  sed -i.bak "s|\\./traefik-dynamic.yml:|${ORCHESTRATION_DIR}/traefik-dynamic.yml:|g" "$TEMP_COMPOSE"
   # Add HTTPS redirect flags after the web entrypoint line
   sed -i.bak '/--entrypoints.web.address=:80/a\
       - "--entrypoints.web.http.redirections.entryPoint.to=websecure"\
