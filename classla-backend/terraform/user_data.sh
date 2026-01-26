@@ -70,6 +70,7 @@ BEDROCK_ACCESS_KEY_ID=$(echo $APP_SECRET | jq -r '.bedrock_access_key_id // .BED
 BEDROCK_SECRET_ACCESS_KEY=$(echo $APP_SECRET | jq -r '.bedrock_secret_access_key // .BEDROCK_SECRET_ACCESS_KEY // empty')
 IDE_MANAGER_ACCESS_KEY_ID=$(echo $APP_SECRET | jq -r '.ide_manager_access_key_id // .IDE_MANAGER_ACCESS_KEY_ID // empty')
 IDE_MANAGER_SECRET_ACCESS_KEY=$(echo $APP_SECRET | jq -r '.ide_manager_secret_access_key // .IDE_MANAGER_SECRET_ACCESS_KEY // empty')
+CONTAINER_SERVICE_TOKEN=$(echo $APP_SECRET | jq -r '.container_service_token // .CONTAINER_SERVICE_TOKEN // empty')
 
 # Create directory for app
 mkdir -p /opt/classla-backend
@@ -112,6 +113,13 @@ if [ -n "$IDE_MANAGER_ACCESS_KEY_ID" ] && [ -n "$IDE_MANAGER_SECRET_ACCESS_KEY" 
   echo "Added IDE Manager credentials to environment file" >> /var/log/classla-backend-deployment.log
 else
   echo "IDE Manager credentials not provided, will use IAM role credentials" >> /var/log/classla-backend-deployment.log
+fi
+
+if [ -n "$CONTAINER_SERVICE_TOKEN" ]; then
+  echo "CONTAINER_SERVICE_TOKEN=$CONTAINER_SERVICE_TOKEN" >> /opt/classla-backend/.env
+  echo "Added Container Service Token to environment file" >> /var/log/classla-backend-deployment.log
+else
+  echo "WARNING: Container Service Token not provided, Y.js sync will fail" >> /var/log/classla-backend-deployment.log
 fi
 
 # Log environment setup
