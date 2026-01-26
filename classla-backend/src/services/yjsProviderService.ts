@@ -406,9 +406,10 @@ export function setupYjsWebSocket(io: SocketIOServer): void {
           }
         }
 
+        // S3 buckets are always in us-east-1
         const bucketInfo = {
           bucket_name: bucket.bucket_name,
-          region: bucket.region || process.env.AWS_REGION || "us-east-1",
+          region: bucket.region || "us-east-1",
         };
 
         // Get or create document

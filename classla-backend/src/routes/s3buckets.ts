@@ -21,9 +21,13 @@ import { logger } from "../utils/logger";
 
 const router = express.Router();
 
+// S3 buckets are always created in us-east-1
+// This is separate from the backend's AWS_REGION which may be different
+const S3_DEFAULT_REGION = "us-east-1";
+
 // Initialize S3 client
 const s3Client = new S3Client({
-  region: process.env.AWS_REGION || "us-east-1",
+  region: S3_DEFAULT_REGION,
   credentials:
     process.env.IDE_MANAGER_ACCESS_KEY_ID && process.env.IDE_MANAGER_SECRET_ACCESS_KEY
       ? {
@@ -48,7 +52,7 @@ router.post(
 
     // Generate unique bucket name
     const bucketName = `classla-ide-${user_id.substring(0, 8)}-${Date.now()}`;
-    const bucketRegion = region || process.env.AWS_REGION || "us-east-1";
+    const bucketRegion = region || S3_DEFAULT_REGION;
     
     // Allow specifying a bucket ID for test buckets (development only)
     let bucketId: string;
@@ -339,7 +343,7 @@ router.post(
 
     // Generate unique bucket name for clone
     const bucketName = `classla-ide-${userId.substring(0, 8)}-${Date.now()}`;
-    const bucketRegion = region || sourceBucket.region || process.env.AWS_REGION || "us-east-1";
+    const bucketRegion = region || sourceBucket.region || S3_DEFAULT_REGION;
     const bucketId = uuidv4();
 
     // Insert bucket record with 'creating' status (cloned buckets are never templates)
@@ -526,7 +530,7 @@ router.get(
     }
 
     try {
-      const bucketRegion = bucket.region || process.env.AWS_REGION || "us-east-1";
+      const bucketRegion = bucket.region || S3_DEFAULT_REGION;
       const bucketS3Client = new S3Client({
         region: bucketRegion,
         credentials:
@@ -743,7 +747,7 @@ router.get(
 
     try {
       // Create S3 client with bucket's specific region
-      const bucketRegion = bucket.region || process.env.AWS_REGION || "us-east-1";
+      const bucketRegion = bucket.region || S3_DEFAULT_REGION;
       
       const bucketS3Client = new S3Client({
         region: bucketRegion,
@@ -846,7 +850,7 @@ router.put(
     }
 
     try {
-      const bucketRegion = bucket.region || process.env.AWS_REGION || "us-east-1";
+      const bucketRegion = bucket.region || S3_DEFAULT_REGION;
       // Create S3 client with bucket's specific region
       const bucketS3Client = new S3Client({
         region: bucketRegion,
@@ -1062,7 +1066,7 @@ router.delete(
     }
 
     try {
-      const bucketRegion = bucket.region || process.env.AWS_REGION || "us-east-1";
+      const bucketRegion = bucket.region || S3_DEFAULT_REGION;
       const bucketS3Client = new S3Client({
         region: bucketRegion,
         credentials:
@@ -1182,7 +1186,7 @@ router.post(
     }
 
     try {
-      const bucketRegion = bucket.region || process.env.AWS_REGION || "us-east-1";
+      const bucketRegion = bucket.region || S3_DEFAULT_REGION;
       const bucketS3Client = new S3Client({
         region: bucketRegion,
         credentials:
