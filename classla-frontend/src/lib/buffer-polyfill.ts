@@ -28,3 +28,5 @@ import('buffer')
     // If not, Y.js will need to handle the absence of Buffer
   });
 
+export {};
+

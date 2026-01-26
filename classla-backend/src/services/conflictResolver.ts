@@ -1,3 +1,4 @@
+// @ts-ignore - diff-match-patch doesn't have type declarations
 import DiffMatchPatch from "diff-match-patch";
 
 const dmp = new DiffMatchPatch();
@@ -61,7 +62,7 @@ export function mergeFileContent(
 
     // Check if all patches applied successfully
     const allPatchesApplied =
-      results1.every((r) => r === true) && results2.every((r) => r === true);
+      results1.every((r: boolean) => r === true) && results2.every((r: boolean) => r === true);
 
     if (allPatchesApplied) {
       // Check if the merged result makes sense (no obvious conflicts)

@@ -1,7 +1,6 @@
 import express, { Request, Response } from "express";
-import { supabase } from "../middleware/auth";
-import { authenticateToken } from "../middleware/auth";
-import { AuthenticationError } from "../middleware/auth";
+import { supabase, authenticateToken } from "../middleware/auth";
+import { AuthenticationError } from "../middleware/errorHandler";
 import { sessionManagementService } from "../services/session";
 import { isEnrolledInCourse } from "../middleware/authorization";
 import { v4 as uuidv4 } from "uuid";
@@ -1306,7 +1305,7 @@ router.post(
         } else {
           // Document doesn't exist yet - create it now
           logger.info(`[Container Sync] Y.js document not found for ${filePath}, creating it.`);
-          const newDoc = getOrCreateDocument(bucketId, filePath, {
+          const newDoc = await getOrCreateDocument(bucketId, filePath, {
             bucket_name: bucket.bucket_name,
             region: bucketRegion,
           });

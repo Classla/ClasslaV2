@@ -26,6 +26,7 @@ export interface SupabaseUser {
   last_name?: string;
   roles: string[];
   is_admin: boolean;
+  is_managed?: boolean; // True for managed student accounts
   settings?: Record<string, any>;
   created_at: string;
   updated_at: string;

@@ -27,7 +27,7 @@ function getDocumentId(bucketId: string, filePath: string): string {
 /**
  * Get or create a Y.js document
  */
-async function getOrCreateDocument(
+export async function getOrCreateDocument(
   bucketId: string,
   filePath: string,
   bucketInfo: { bucket_name: string; region: string }

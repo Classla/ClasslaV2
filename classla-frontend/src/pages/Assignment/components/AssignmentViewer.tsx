@@ -411,15 +411,15 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
           const submissionValues: Record<string, string[]> = {};
           Object.keys(newAnswerState).forEach((key) => {
             const state = newAnswerState[key];
-            if (state.answer) {
+            if ('answer' in state && state.answer) {
               submissionValues[key] = [state.answer];
-            } else if (state.selectedOptions) {
+            } else if ('selectedOptions' in state && state.selectedOptions) {
               submissionValues[key] = state.selectedOptions;
-            } else if (state.solution) {
+            } else if ('solution' in state && state.solution) {
               submissionValues[key] = state.solution;
-            } else if (state.selectedLines) {
-              submissionValues[key] = state.selectedLines.map((n) => n.toString());
-            } else if (state.matches) {
+            } else if ('selectedLines' in state && state.selectedLines) {
+              submissionValues[key] = state.selectedLines.map((n: number) => n.toString());
+            } else if ('matches' in state && state.matches) {
               submissionValues[key] = [JSON.stringify(state.matches)];
             }
           });
@@ -458,17 +458,17 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
         const submissionValues: Record<string, string[]> = {};
         Object.keys(newAnswerState).forEach((key) => {
           const state = newAnswerState[key];
-          if (state.answer) {
+          if ('answer' in state && state.answer) {
             submissionValues[key] = [state.answer];
-          } else if (state.selectedOptions) {
+          } else if ('selectedOptions' in state && state.selectedOptions) {
             submissionValues[key] = state.selectedOptions;
-          } else if (state.solution) {
+          } else if ('solution' in state && state.solution) {
             submissionValues[key] = state.solution;
-          } else if (state.selectedLines) {
-            submissionValues[key] = state.selectedLines.map((n) => n.toString());
-          } else if (state.matches) {
+          } else if ('selectedLines' in state && state.selectedLines) {
+            submissionValues[key] = state.selectedLines.map((n: number) => n.toString());
+          } else if ('matches' in state && state.matches) {
             submissionValues[key] = [JSON.stringify(state.matches)];
-          } else if (state.answers) {
+          } else if ('answers' in state && state.answers) {
             submissionValues[key] = [JSON.stringify(state.answers)];
           }
         });
@@ -496,17 +496,17 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
         const submissionValues: Record<string, string[]> = {};
         Object.keys(newAnswerState).forEach((key) => {
           const state = newAnswerState[key];
-          if (state.answer) {
+          if ('answer' in state && state.answer) {
             submissionValues[key] = [state.answer];
-          } else if (state.selectedOptions) {
+          } else if ('selectedOptions' in state && state.selectedOptions) {
             submissionValues[key] = state.selectedOptions;
-          } else if (state.solution) {
+          } else if ('solution' in state && state.solution) {
             submissionValues[key] = state.solution;
-          } else if (state.selectedLines) {
-            submissionValues[key] = state.selectedLines.map((n) => n.toString());
-          } else if (state.matches) {
+          } else if ('selectedLines' in state && state.selectedLines) {
+            submissionValues[key] = state.selectedLines.map((n: number) => n.toString());
+          } else if ('matches' in state && state.matches) {
             submissionValues[key] = [JSON.stringify(state.matches)];
-          } else if (state.answers) {
+          } else if ('answers' in state && state.answers) {
             submissionValues[key] = [JSON.stringify(state.answers)];
           }
         });
@@ -534,17 +534,17 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
         const submissionValues: Record<string, string[]> = {};
         Object.keys(newAnswerState).forEach((key) => {
           const state = newAnswerState[key];
-          if (state.answer) {
+          if ('answer' in state && state.answer) {
             submissionValues[key] = [state.answer];
-          } else if (state.selectedOptions) {
+          } else if ('selectedOptions' in state && state.selectedOptions) {
             submissionValues[key] = state.selectedOptions;
-          } else if (state.solution) {
+          } else if ('solution' in state && state.solution) {
             submissionValues[key] = state.solution;
-          } else if (state.selectedLines) {
-            submissionValues[key] = state.selectedLines.map((n) => n.toString());
-          } else if (state.matches) {
+          } else if ('selectedLines' in state && state.selectedLines) {
+            submissionValues[key] = state.selectedLines.map((n: number) => n.toString());
+          } else if ('matches' in state && state.matches) {
             submissionValues[key] = [JSON.stringify(state.matches)];
-          } else if (state.answers) {
+          } else if ('answers' in state && state.answers) {
             submissionValues[key] = [JSON.stringify(state.answers)];
           }
         });
@@ -572,17 +572,17 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
         const submissionValues: Record<string, string[]> = {};
         Object.keys(newAnswerState).forEach((key) => {
           const state = newAnswerState[key];
-          if (state.answer) {
+          if ('answer' in state && state.answer) {
             submissionValues[key] = [state.answer];
-          } else if (state.selectedOptions) {
+          } else if ('selectedOptions' in state && state.selectedOptions) {
             submissionValues[key] = state.selectedOptions;
-          } else if (state.solution) {
+          } else if ('solution' in state && state.solution) {
             submissionValues[key] = state.solution;
-          } else if (state.selectedLines) {
-            submissionValues[key] = state.selectedLines.map((n) => n.toString());
-          } else if (state.matches) {
+          } else if ('selectedLines' in state && state.selectedLines) {
+            submissionValues[key] = state.selectedLines.map((n: number) => n.toString());
+          } else if ('matches' in state && state.matches) {
             submissionValues[key] = [JSON.stringify(state.matches)];
-          } else if (state.answers) {
+          } else if ('answers' in state && state.answers) {
             submissionValues[key] = [JSON.stringify(state.answers)];
           }
         });
@@ -610,17 +610,17 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
         const submissionValues: Record<string, string[]> = {};
         Object.keys(newAnswerState).forEach((key) => {
           const state = newAnswerState[key];
-          if (state.answer) {
+          if ('answer' in state && state.answer) {
             submissionValues[key] = [state.answer];
-          } else if (state.selectedOptions) {
+          } else if ('selectedOptions' in state && state.selectedOptions) {
             submissionValues[key] = state.selectedOptions;
-          } else if (state.solution) {
+          } else if ('solution' in state && state.solution) {
             submissionValues[key] = state.solution;
-          } else if (state.selectedLines) {
-            submissionValues[key] = state.selectedLines.map((n) => n.toString());
-          } else if (state.matches) {
+          } else if ('selectedLines' in state && state.selectedLines) {
+            submissionValues[key] = state.selectedLines.map((n: number) => n.toString());
+          } else if ('matches' in state && state.matches) {
             submissionValues[key] = [JSON.stringify(state.matches)];
-          } else if (state.answers) {
+          } else if ('answers' in state && state.answers) {
             submissionValues[key] = [JSON.stringify(state.answers)];
           }
         });
@@ -648,17 +648,17 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
         const submissionValues: Record<string, string[]> = {};
         Object.keys(newAnswerState).forEach((key) => {
           const state = newAnswerState[key];
-          if (state.answer) {
+          if ('answer' in state && state.answer) {
             submissionValues[key] = [state.answer];
-          } else if (state.selectedOptions) {
+          } else if ('selectedOptions' in state && state.selectedOptions) {
             submissionValues[key] = state.selectedOptions;
-          } else if (state.solution) {
+          } else if ('solution' in state && state.solution) {
             submissionValues[key] = state.solution;
-          } else if (state.selectedLines) {
-            submissionValues[key] = state.selectedLines.map((n) => n.toString());
-          } else if (state.matches) {
+          } else if ('selectedLines' in state && state.selectedLines) {
+            submissionValues[key] = state.selectedLines.map((n: number) => n.toString());
+          } else if ('matches' in state && state.matches) {
             submissionValues[key] = [JSON.stringify(state.matches)];
-          } else if (state.answers) {
+          } else if ('answers' in state && state.answers) {
             submissionValues[key] = [JSON.stringify(state.answers)];
           }
         });
@@ -1026,17 +1026,17 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
       const submissionValues: Record<string, string[]> = {};
       Object.keys(answerState).forEach((key) => {
         const state = answerState[key];
-        if (state.answer) {
+        if ('answer' in state && state.answer) {
           submissionValues[key] = [state.answer];
-        } else if (state.selectedOptions) {
+        } else if ('selectedOptions' in state && state.selectedOptions) {
           submissionValues[key] = state.selectedOptions;
-        } else if (state.solution) {
+        } else if ('solution' in state && state.solution) {
           submissionValues[key] = state.solution;
-        } else if (state.selectedLines) {
-          submissionValues[key] = state.selectedLines.map((n) => n.toString());
-        } else if (state.matches) {
+        } else if ('selectedLines' in state && state.selectedLines) {
+          submissionValues[key] = state.selectedLines.map((n: number) => n.toString());
+        } else if ('matches' in state && state.matches) {
           submissionValues[key] = [JSON.stringify(state.matches)];
-        } else if (state.answers) {
+        } else if ('answers' in state && state.answers) {
           submissionValues[key] = [JSON.stringify(state.answers)];
         }
       });
@@ -1171,17 +1171,17 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
         const submissionValues: Record<string, string[]> = {};
         Object.keys(answerState).forEach((key) => {
           const state = answerState[key];
-          if (state.answer) {
+          if ('answer' in state && state.answer) {
             submissionValues[key] = [state.answer];
-          } else if (state.selectedOptions) {
+          } else if ('selectedOptions' in state && state.selectedOptions) {
             submissionValues[key] = state.selectedOptions;
-          } else if (state.solution) {
+          } else if ('solution' in state && state.solution) {
             submissionValues[key] = state.solution;
-          } else if (state.selectedLines) {
-            submissionValues[key] = state.selectedLines.map((n) => n.toString());
-          } else if (state.matches) {
+          } else if ('selectedLines' in state && state.selectedLines) {
+            submissionValues[key] = state.selectedLines.map((n: number) => n.toString());
+          } else if ('matches' in state && state.matches) {
             submissionValues[key] = [JSON.stringify(state.matches)];
-          } else if (state.answers) {
+          } else if ('answers' in state && state.answers) {
             submissionValues[key] = [JSON.stringify(state.answers)];
           }
         });

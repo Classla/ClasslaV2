@@ -19,7 +19,7 @@ export class MonacoBinding {
   private lastMonacoContent: string = "";
   private lastYjsContent: string = "";
   private ytextObserver: (event: Y.YTextEvent, transaction: Y.Transaction) => void;
-  private modelContentChangeListener: monaco.IDisposable;
+  private modelContentChangeListener!: monaco.IDisposable;
   private modelDisposeListener: monaco.IDisposable;
   private syncTimeout: NodeJS.Timeout | null = null;
   private updateCount: number = 0;

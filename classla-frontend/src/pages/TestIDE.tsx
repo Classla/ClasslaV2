@@ -143,7 +143,11 @@ const TestIDE: React.FC = () => {
     if (!containerId) return;
 
     try {
-      await apiClient.stopContainer(containerId);
+      // Stop container via direct API call since there's no apiClient method
+      await fetch(`http://localhost:8000/api/ide-blocks/container/${containerId}/stop`, {
+        method: 'POST',
+        credentials: 'include',
+      });
       setContainerId(null);
       setContainerTerminalUrl(null);
       console.log("Container stopped");
@@ -158,7 +162,7 @@ const TestIDE: React.FC = () => {
     if (!confirm("Delete test bucket? This will remove all files.")) return;
 
     try {
-      await apiClient.deleteS3Bucket(bucketId);
+      await apiClient.softDeleteS3Bucket(bucketId);
       setBucketId(null);
       setBucketName(null);
       console.log("Test bucket deleted");
