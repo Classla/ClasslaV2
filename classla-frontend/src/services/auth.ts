@@ -5,12 +5,13 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001
 // User interface matching backend response
 export interface User {
   id: string;
-  workosUserId: string;
+  workosUserId?: string; // Optional for managed students
   email: string;
   firstName?: string;
   lastName?: string;
   roles: string[];
   isAdmin: boolean;
+  isManagedStudent?: boolean; // True for managed student accounts
   createdAt: string;
   updatedAt: string;
 }
@@ -179,6 +180,27 @@ export class AuthService {
         throw error.response.data as AuthError;
       }
       throw new Error('Failed to sign in with password');
+    }
+  }
+
+  /**
+   * Sign in as a managed student with username and password
+   */
+  async signInManagedStudent(username: string, password: string): Promise<void> {
+    try {
+      const response = await this.apiClient.post('/auth/managed-login', {
+        username,
+        password
+      });
+
+      if (!response.data.success) {
+        throw new Error(response.data.error || 'Managed student authentication failed');
+      }
+    } catch (error) {
+      if (axios.isAxiosError(error) && error.response?.data) {
+        throw error.response.data as AuthError;
+      }
+      throw new Error('Failed to sign in');
     }
   }
 

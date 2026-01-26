@@ -7,6 +7,7 @@ import {
   hasTAPermission,
   getUserCourseRole,
   validateTAPermissions,
+  blockManagedStudents,
 } from "../middleware/authorization";
 import { UserRole } from "../types/enums";
 import { Course } from "../types/entities";
@@ -387,10 +388,12 @@ router.get(
 /**
  * POST /course
  * Create new course (any authenticated user can create a course and becomes instructor)
+ * Managed students are not allowed to create courses
  */
 router.post(
   "/course",
   authenticateToken,
+  blockManagedStudents,
   async (req: Request, res: Response): Promise<void> => {
     try {
       const { name, description, settings, thumbnail_url, summary_content } =
@@ -692,10 +695,12 @@ router.delete(
 /**
  * POST /course/join
  * Join course by slug (student enrollment)
+ * Managed students cannot self-enroll - they must be enrolled by their teacher
  */
 router.post(
   "/course/join",
   authenticateToken,
+  blockManagedStudents,
   async (req: Request, res: Response): Promise<void> => {
     try {
       const { slug } = req.body;

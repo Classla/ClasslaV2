@@ -137,38 +137,39 @@ const ClickableAreaViewer: React.FC<ClickableAreaViewerProps> = memo(
             </div>
           )}
 
-          <div className="space-y-1 font-mono text-sm">
-            {lines.map((line) => {
-              const isSelected = selectedLines.includes(line.lineNumber);
-              const isReadOnly = (editor?.storage as any)?.isReadOnly;
-              const showAnswer = false; // Removed - attempts are handled by outer assignment
+          <div className="bg-[#1e1e1e] rounded-lg overflow-hidden border border-gray-700 font-mono text-sm">
+            <div className="overflow-x-auto">
+              {lines.map((line) => {
+                const isSelected = selectedLines.includes(line.lineNumber);
+                const isReadOnly = (editor?.storage as any)?.isReadOnly;
 
-              // Determine background color
-              const bgColor = isSelected ? "bg-blue-100" : "bg-gray-50";
-              const borderColor = isSelected ? "border-blue-400" : "border-transparent";
-
-              return (
-                <div
-                  key={line.lineNumber}
-                  onClick={() => line.isClickable && !isReadOnly && handleLineClick(line.lineNumber)}
-                  className={`flex items-start gap-2 p-2 rounded transition-colors ${
-                    isReadOnly || !line.isClickable
-                      ? "cursor-default"
-                      : "cursor-pointer hover:bg-gray-100"
-                  } ${bgColor} border-2 ${borderColor}`}
-                >
-                  {clickableAreaData.showLineNumbers && (
-                    <span className="text-gray-500 select-none min-w-[2rem]">
-                      {line.lineNumber}
+                return (
+                  <div
+                    key={line.lineNumber}
+                    onClick={() => line.isClickable && !isReadOnly && handleLineClick(line.lineNumber)}
+                    className={`flex items-start group transition-colors ${
+                      isReadOnly || !line.isClickable
+                        ? "cursor-default"
+                        : "cursor-pointer hover:bg-[#2a2d2e]"
+                    } ${isSelected ? "bg-[#264f78]" : ""}`}
+                  >
+                    {clickableAreaData.showLineNumbers && (
+                      <span className="text-[#858585] select-none min-w-[3rem] text-right pr-4 pl-2 py-0.5">
+                        {line.lineNumber}
+                      </span>
+                    )}
+                    <span className={`flex-1 py-0.5 px-2 whitespace-pre ${
+                      isSelected ? "text-white" : "text-[#d4d4d4]"
+                    }`}>
+                      {line.content || " "}
                     </span>
-                  )}
-                  <span className="flex-1">{line.content || " "}</span>
-                  {isSelected && (
-                    <span className="text-blue-600">✓</span>
-                  )}
-                </div>
-              );
-            })}
+                    {isSelected && (
+                      <span className="text-blue-400 px-2 opacity-0 group-hover:opacity-100 transition-opacity">✓</span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           </div>
 
           {selectedLines.length > 0 && (

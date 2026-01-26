@@ -36,6 +36,7 @@ router.post(
       // Validate request body
       const {
         s3Bucket,
+        s3BucketId, // Optional: bucketId from backend
         s3Region,
         awsAccessKeyId,
         awsSecretAccessKey,
@@ -101,14 +102,19 @@ router.post(
         // Verify the pre-warmed container is actually accessible before using it
         // This ensures Traefik routing is working
         const containerInState = stateManager.getContainer(queuedContainer.containerId);
+        let shouldVerify = true;
+        let verified = false; // Initialize verified outside the if block
+        
         if (!containerInState || !containerInState.urls?.codeServer) {
           console.warn(
-            `[Containers] ⚠️ Pre-warmed container ${queuedContainer.containerId} missing URLs, skipping and creating new container`
+            `[Containers] ⚠️ Pre-warmed container ${queuedContainer.containerId} missing URLs, will skip verification but still assign S3`
           );
-        } else {
+          shouldVerify = false;
+        }
+        
+        if (shouldVerify && containerInState) {
           // Verify code-server is accessible through Traefik
           // Retry up to 3 times with delays to account for Traefik route registration
-          let verified = false;
           const maxRetries = 3;
           const retryDelay = 1000; // 1 second between retries
           
@@ -180,49 +186,58 @@ router.post(
               }
             }
           }
-          
-          if (verified) {
-            usedQueue = true;
+        }
+        
+        // CRITICAL FIX: Always assign S3 bucket to pre-warmed container
+        // Assignment must happen regardless of verification status or URL availability
+        // Verification is just to check code-server accessibility, but S3 assignment
+        // must happen for sync to work. Even if verification fails or URLs are missing,
+        // we should still assign S3 so that file edits are synced and files can be downloaded.
+        if (!verified && shouldVerify) {
+          console.warn(
+            `[Containers] ⚠️ Pre-warmed container ${queuedContainer.containerId} verification failed, but assigning S3 anyway to ensure sync works`
+          );
+        }
+        
+        // Always assign S3 bucket to pre-warmed container (regardless of verification or URLs)
+        usedQueue = true;
+        try {
+          await containerService.assignS3BucketToContainer(
+            queuedContainer.containerId,
+            {
+              bucket: s3Bucket,
+              bucketId: s3BucketId, // Pass bucketId if provided
+              region: validatedRegion,
+              accessKeyId: awsAccessKeyId || config.awsAccessKeyId,
+              secretAccessKey: awsSecretAccessKey || config.awsSecretAccessKey,
+            }
+          );
 
-              // Assign S3 bucket to the pre-warmed container
-              try {
-                await containerService.assignS3BucketToContainer(
-                  queuedContainer.containerId,
-                  {
-                    bucket: s3Bucket,
-                    region: validatedRegion,
-                    accessKeyId: awsAccessKeyId || config.awsAccessKeyId,
-                    secretAccessKey: awsSecretAccessKey || config.awsSecretAccessKey,
-                  }
-                );
+          // Mark container as assigned in queue
+          queueManager.markAsAssigned(queuedContainer.containerId, s3Bucket);
 
-                // Mark container as assigned in queue
-                queueManager.markAsAssigned(queuedContainer.containerId, s3Bucket);
-
-                // Get container info
-                const assignedContainerInfo = await containerService.getContainer(
-                  queuedContainer.containerId
-                );
-                if (!assignedContainerInfo) {
-                  throw new Error("Failed to get container info after S3 assignment");
-                }
-                // Pre-warmed containers are already running, so mark as running
-                containerInfo = {
-                  ...assignedContainerInfo,
-                  status: "running" as const, // Pre-warmed containers are already running
-                };
-              } catch (error) {
-                console.error(
-                  `[Containers] Failed to assign S3 bucket to pre-warmed container:`,
-                  error
-                );
-                // Return container to pre-warmed state so it can be reused
-                queueManager.returnToQueue(queuedContainer.containerId);
-                // Fall through to create new container
-                usedQueue = false;
-                containerInfo = undefined;
-              }
+          // Get container info
+          const assignedContainerInfo = await containerService.getContainer(
+            queuedContainer.containerId
+          );
+          if (!assignedContainerInfo) {
+            throw new Error("Failed to get container info after S3 assignment");
           }
+          // Pre-warmed containers are already running, so mark as running
+          containerInfo = {
+            ...assignedContainerInfo,
+            status: "running" as const, // Pre-warmed containers are already running
+          };
+        } catch (error) {
+          console.error(
+            `[Containers] Failed to assign S3 bucket to pre-warmed container:`,
+            error
+          );
+          // Return container to pre-warmed state so it can be reused
+          queueManager.returnToQueue(queuedContainer.containerId);
+          // Fall through to create new container
+          usedQueue = false;
+          containerInfo = undefined;
         }
       }
 
@@ -250,6 +265,7 @@ router.post(
         try {
           containerInfo = await containerService.createContainer({
             s3Bucket,
+            s3BucketId: s3BucketId, // Pass bucketId if provided
             s3Region: validatedRegion,
             awsAccessKeyId: awsAccessKeyId || config.awsAccessKeyId,
             awsSecretAccessKey: awsSecretAccessKey || config.awsSecretAccessKey,
@@ -265,9 +281,20 @@ router.post(
           );
         }
       } else {
-        console.log(
-          `[Containers] ✅ Using pre-warmed container ${containerInfo.id} with status: ${containerInfo.status}`
-        );
+        // CRITICAL: Verify that pre-warmed containers have S3 assignment
+        if (usedQueue && containerInfo) {
+          // Pre-warmed container - verify S3 was assigned
+          // If assignment failed, containerInfo would be undefined and we'd create a new container
+          // So if we reach here, assignment should have succeeded
+          console.log(
+            `[Containers] ✅ Using pre-warmed container ${containerInfo.id} with status: ${containerInfo.status}`
+          );
+        } else {
+          // This shouldn't happen, but defensive check
+          console.error(
+            `[Containers] ⚠️ WARNING: Container info exists but usedQueue is false - this is unexpected`
+          );
+        }
       }
 
       // Record request received in stats service

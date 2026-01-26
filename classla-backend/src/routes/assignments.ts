@@ -197,6 +197,31 @@ const filterAssignmentContentForStudent = (content: string): string => {
             block.attrs.dragDropMatchingData = dragDropMatchingData;
           }
 
+          // Filter IDE blocks to remove model solution data
+          if (block.type === "ideBlock" && block.attrs?.ideData) {
+            const ideData = block.attrs.ideData;
+            // Remove modelSolution tab data (S3 bucket and container info)
+            // Students should not see the model solution code
+            if (ideData.modelSolution) {
+              ideData.modelSolution = {
+                s3_bucket_id: null,
+                last_container_id: null,
+              };
+            }
+            // Remove autograder data if allowStudentCheckAnswer is not enabled
+            if (ideData.autograder) {
+              if (!ideData.autograder.allowStudentCheckAnswer) {
+                // Remove autograder data entirely if students can't check answers
+                delete ideData.autograder;
+              } else {
+                // Keep autograder tests visible to students if they can check answers
+                // The autograder tests are stored in ideData.autograder.tests and should remain visible
+              }
+            }
+            // Keep template tab visible (students need the starter code)
+            block.attrs.ideData = ideData;
+          }
+
           return block;
         });
     };
@@ -312,19 +337,23 @@ router.get(
       let filteredAssignments = assignments;
 
       if (userRole === UserRole.STUDENT || userRole === UserRole.AUDIT) {
-        // Filter to only published assignments
+        // Filter to only published assignments (immediate or scheduled)
+        const now = new Date();
         filteredAssignments = assignments.filter((assignment) => {
-          // If published_to is empty, the assignment is not published (draft state)
-          if (
-            !assignment.published_to ||
-            assignment.published_to.length === 0
-          ) {
-            return false;
+          // Check if user is in published_to (immediate publishing)
+          if (assignment.published_to && assignment.published_to.includes(userId)) {
+            return true;
           }
 
-          // Check if this user's ID is in the published_to list
-          // published_to only contains user IDs, never course or section IDs
-          return assignment.published_to.includes(userId);
+          // Check if user has a scheduled publish date that has passed
+          const scheduledPublishMap = assignment.scheduled_publish_map || {};
+          const scheduledTime = scheduledPublishMap[userId];
+          if (scheduledTime && new Date(scheduledTime) <= now) {
+            return true;
+          }
+
+          // Not published to this user
+          return false;
         });
 
         // Filter content for students
@@ -761,6 +790,7 @@ router.put(
         content,
         published_to,
         due_dates_map,
+        scheduled_publish_map,
         module_path,
         is_lockdown,
         lockdown_time_map,
@@ -901,6 +931,7 @@ router.put(
       if (content !== undefined) updateData.content = content;
       if (published_to !== undefined) updateData.published_to = published_to;
       if (due_dates_map !== undefined) updateData.due_dates_map = due_dates_map;
+      if (scheduled_publish_map !== undefined) (updateData as any).scheduled_publish_map = scheduled_publish_map;
       if (module_path !== undefined) updateData.module_path = module_path;
       if (is_lockdown !== undefined) updateData.is_lockdown = is_lockdown;
       if (lockdown_time_map !== undefined)

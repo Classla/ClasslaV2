@@ -69,9 +69,7 @@ RUN apt-get update && apt-get install -y \
     libsdl2-image-2.0-0 \
     libsdl2-mixer-2.0-0 \
     libsdl2-ttf-2.0-0 \
-    # Node.js 18 LTS
-    nodejs \
-    npm \
+    # Node.js will be installed from NodeSource (see below)
     # Java 17 with JavaFX
     default-jdk \
     openjfx \
@@ -85,8 +83,29 @@ RUN apt-get update && apt-get install -y \
     python3-flask-cors \
     # tmux for terminal management
     tmux \
+    # Build tools for ttyd
+    build-essential \
+    cmake \
+    libjson-c-dev \
+    libwebsockets-dev \
+    # rsync for efficient file copying
+    rsync \
     # Clean up to reduce image size
     && rm -rf /var/lib/apt/lists/*
+
+# ============================================================================
+# INSTALL NODE.JS 18 LTS (from NodeSource - required for yjs which uses modern JS)
+# ============================================================================
+RUN curl -fsSL https://deb.nodesource.com/setup_18.x | bash - && \
+    apt-get install -y nodejs && \
+    node --version && \
+    npm --version && \
+    rm -rf /var/lib/apt/lists/*
+
+# ============================================================================
+# INSTALL PYTHON PACKAGES
+# ============================================================================
+RUN pip3 install --no-cache-dir pydraw
 
 # ============================================================================
 # INSTALL NOVNC
@@ -135,6 +154,22 @@ RUN echo '#!/bin/bash' > /usr/local/bin/create-novnc-index.sh && \
 RUN curl -fsSL https://code-server.dev/install.sh | sh
 
 # ============================================================================
+# INSTALL TTYD (Web-based terminal)
+# ============================================================================
+RUN cd /tmp && \
+    git clone https://github.com/tsl0922/ttyd.git && \
+    cd ttyd && \
+    git checkout 1.7.4 && \
+    mkdir build && \
+    cd build && \
+    cmake .. && \
+    make && \
+    make install && \
+    cd / && \
+    rm -rf /tmp/ttyd && \
+    ttyd --version
+
+# ============================================================================
 # INSTALL RCLONE
 # ============================================================================
 RUN curl -O https://downloads.rclone.org/rclone-current-linux-amd64.zip && \
@@ -158,6 +193,13 @@ RUN useradd -m -s /bin/bash user && \
 RUN mkdir -p /workspace && \
     chown -R user:user /workspace && \
     chmod 755 /workspace
+
+# ============================================================================
+# SETUP AUTOGRADER-COPY DIRECTORY
+# ============================================================================
+RUN mkdir -p /autograder-copy && \
+    chown -R user:user /autograder-copy && \
+    chmod 755 /autograder-copy
 
 # ============================================================================
 # CONFIGURE USER SHELL
@@ -328,7 +370,14 @@ RUN echo '#!/bin/bash' > /home/user/.vnc/xstartup && \
     echo '[ -r $HOME/.Xresources ] && xrdb $HOME/.Xresources' >> /home/user/.vnc/xstartup && \
     echo 'export DISPLAY=:1' >> /home/user/.vnc/xstartup && \
     echo 'xsetroot -solid black &' >> /home/user/.vnc/xstartup && \
-    echo 'exec icewm-session' >> /home/user/.vnc/xstartup && \
+    echo '# Start icewm-session in background and then force black background' >> /home/user/.vnc/xstartup && \
+    echo 'icewm-session &' >> /home/user/.vnc/xstartup && \
+    echo '# Wait for icewm to start, then kill icewmbg and set black background' >> /home/user/.vnc/xstartup && \
+    echo 'sleep 3' >> /home/user/.vnc/xstartup && \
+    echo 'killall icewmbg 2>/dev/null || true' >> /home/user/.vnc/xstartup && \
+    echo 'xsetroot -solid black' >> /home/user/.vnc/xstartup && \
+    echo '# Keep script running' >> /home/user/.vnc/xstartup && \
+    echo 'wait' >> /home/user/.vnc/xstartup && \
     chmod +x /home/user/.vnc/xstartup
 
 # Create VNC config file
@@ -336,6 +385,26 @@ RUN echo 'geometry=1920x1080' > /home/user/.vnc/config && \
     echo 'depth=24' >> /home/user/.vnc/config && \
     echo 'dpi=96' >> /home/user/.vnc/config && \
     chown user:user /home/user/.vnc/config
+
+# ============================================================================
+# CONFIGURE ICEWM (Desktop Background)
+# ============================================================================
+RUN mkdir -p /home/user/.icewm && \
+    echo '# IceWM Preferences - Black Desktop Background' > /home/user/.icewm/preferences && \
+    echo 'DesktopBackgroundImage=""' >> /home/user/.icewm/preferences && \
+    echo 'DesktopBackgroundColor="black"' >> /home/user/.icewm/preferences && \
+    echo 'DesktopBackgroundCenter=0' >> /home/user/.icewm/preferences && \
+    echo 'DesktopBackgroundScaled=0' >> /home/user/.icewm/preferences && \
+    echo '# Override theme settings to ensure black background' > /home/user/.icewm/prefoverride && \
+    echo 'DesktopBackgroundImage=""' >> /home/user/.icewm/prefoverride && \
+    echo 'DesktopBackgroundColor="black"' >> /home/user/.icewm/prefoverride && \
+    echo '#!/bin/bash' > /home/user/.icewm/startup && \
+    echo '# Force black background after icewm starts' >> /home/user/.icewm/startup && \
+    echo 'sleep 1' >> /home/user/.icewm/startup && \
+    echo 'killall icewmbg 2>/dev/null || true' >> /home/user/.icewm/startup && \
+    echo 'xsetroot -solid black' >> /home/user/.icewm/startup && \
+    chmod +x /home/user/.icewm/startup && \
+    chown -R user:user /home/user/.icewm
 
 # ============================================================================
 # CONFIGURE TMUX
@@ -381,7 +450,9 @@ RUN echo '#!/usr/bin/env python3' > /usr/local/bin/run-server.py && \
     echo 'import psutil' >> /usr/local/bin/run-server.py && \
     echo '' >> /usr/local/bin/run-server.py && \
     echo 'app = Flask(__name__)' >> /usr/local/bin/run-server.py && \
-    echo 'CORS(app)' >> /usr/local/bin/run-server.py && \
+    echo '# Enable CORS for all origins to allow frontend (localhost:5173) to connect' >> /usr/local/bin/run-server.py && \
+    echo '# Allow all headers including Sentry headers (sentry-trace, baggage, etc.)' >> /usr/local/bin/run-server.py && \
+    echo 'CORS(app, resources={r"/*": {"origins": "*", "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"], "allow_headers": "*"}})' >> /usr/local/bin/run-server.py && \
     echo '' >> /usr/local/bin/run-server.py && \
     echo 'TMUX_SESSION = "code_runner"' >> /usr/local/bin/run-server.py && \
     echo 'current_pid = None' >> /usr/local/bin/run-server.py && \
@@ -498,6 +569,46 @@ RUN echo '#!/usr/bin/env python3' > /usr/local/bin/run-server.py && \
     echo '        # Ensure tmux session exists' >> /usr/local/bin/run-server.py && \
     echo '        ensure_tmux_session()' >> /usr/local/bin/run-server.py && \
     echo '        ' >> /usr/local/bin/run-server.py && \
+        echo '        # Sync from S3 before running code to get latest changes (skip if file exists locally)' >> /usr/local/bin/run-server.py && \
+        echo '        S3_ASSIGNMENT_FILE = "/tmp/s3-assignment.json"' >> /usr/local/bin/run-server.py && \
+        echo '        WORKSPACE_PATH = "/workspace"' >> /usr/local/bin/run-server.py && \
+        echo '        # Only sync if file does not exist locally (allows testing without S3)' >> /usr/local/bin/run-server.py && \
+        echo '        if not os.path.exists(filepath) and os.path.exists(S3_ASSIGNMENT_FILE):' >> /usr/local/bin/run-server.py && \
+    echo '            import json' >> /usr/local/bin/run-server.py && \
+    echo '            with open(S3_ASSIGNMENT_FILE, "r") as f:' >> /usr/local/bin/run-server.py && \
+    echo '                s3_config = json.load(f)' >> /usr/local/bin/run-server.py && \
+    echo '            S3_BUCKET = s3_config.get("bucket")' >> /usr/local/bin/run-server.py && \
+    echo '            S3_REGION = s3_config.get("region", "us-east-1")' >> /usr/local/bin/run-server.py && \
+    echo '            AWS_ACCESS_KEY_ID = s3_config.get("accessKeyId")' >> /usr/local/bin/run-server.py && \
+    echo '            AWS_SECRET_ACCESS_KEY = s3_config.get("secretAccessKey")' >> /usr/local/bin/run-server.py && \
+    echo '            if S3_BUCKET:' >> /usr/local/bin/run-server.py && \
+    echo '                env = os.environ.copy()' >> /usr/local/bin/run-server.py && \
+    echo '                env["S3_BUCKET"] = S3_BUCKET' >> /usr/local/bin/run-server.py && \
+    echo '                env["S3_REGION"] = S3_REGION' >> /usr/local/bin/run-server.py && \
+    echo '                if AWS_ACCESS_KEY_ID:' >> /usr/local/bin/run-server.py && \
+    echo '                    env["AWS_ACCESS_KEY_ID"] = AWS_ACCESS_KEY_ID' >> /usr/local/bin/run-server.py && \
+    echo '                if AWS_SECRET_ACCESS_KEY:' >> /usr/local/bin/run-server.py && \
+    echo '                    env["AWS_SECRET_ACCESS_KEY"] = AWS_SECRET_ACCESS_KEY' >> /usr/local/bin/run-server.py && \
+    echo '                env["HOME"] = "/home/user"' >> /usr/local/bin/run-server.py && \
+    echo '                S3_PATH = f"s3:{S3_BUCKET}"' >> /usr/local/bin/run-server.py && \
+    echo '                sync_result = subprocess.run(' >> /usr/local/bin/run-server.py && \
+    echo '                    ["rclone", "sync", S3_PATH, WORKSPACE_PATH,' >> /usr/local/bin/run-server.py && \
+    echo '                     "--update", "--transfers", "4", "--checkers", "8",' >> /usr/local/bin/run-server.py && \
+    echo '                     "--exclude", ".git/**",' >> /usr/local/bin/run-server.py && \
+    echo '                     "--exclude", "node_modules/**",' >> /usr/local/bin/run-server.py && \
+    echo '                     "--exclude", "__pycache__/**",' >> /usr/local/bin/run-server.py && \
+    echo '                     "--exclude", ".vscode/**",' >> /usr/local/bin/run-server.py && \
+    echo '                     "--exclude", ".idea/**"],' >> /usr/local/bin/run-server.py && \
+    echo '                    capture_output=True,' >> /usr/local/bin/run-server.py && \
+    echo '                    text=True,' >> /usr/local/bin/run-server.py && \
+    echo '                    env=env,' >> /usr/local/bin/run-server.py && \
+    echo '                    timeout=30' >> /usr/local/bin/run-server.py && \
+    echo '                )' >> /usr/local/bin/run-server.py && \
+    echo '                if sync_result.returncode != 0:' >> /usr/local/bin/run-server.py && \
+    echo '                    print(f"WARNING: S3 sync before run failed: {sync_result.stderr}")' >> /usr/local/bin/run-server.py && \
+    echo '                else:' >> /usr/local/bin/run-server.py && \
+    echo '                    print("S3 sync before run completed successfully")' >> /usr/local/bin/run-server.py && \
+    echo '        ' >> /usr/local/bin/run-server.py && \
     echo '        # Kill any running process' >> /usr/local/bin/run-server.py && \
     echo '        kill_running_process()' >> /usr/local/bin/run-server.py && \
     echo '        ' >> /usr/local/bin/run-server.py && \
@@ -550,6 +661,7 @@ RUN echo '#!/usr/bin/env python3' > /usr/local/bin/run-server.py && \
     echo '        import json' >> /usr/local/bin/run-server.py && \
     echo '        assignment = {' >> /usr/local/bin/run-server.py && \
     echo '            "bucket": bucket,' >> /usr/local/bin/run-server.py && \
+        echo '            "bucketId": data.get("bucketId"),' >> /usr/local/bin/run-server.py && \
     echo '            "region": data.get("region", "us-east-1"),' >> /usr/local/bin/run-server.py && \
     echo '            "accessKeyId": data.get("accessKeyId"),' >> /usr/local/bin/run-server.py && \
     echo '            "secretAccessKey": data.get("secretAccessKey")' >> /usr/local/bin/run-server.py && \
@@ -560,9 +672,11 @@ RUN echo '#!/usr/bin/env python3' > /usr/local/bin/run-server.py && \
     echo '        # Touch the file to set its modification time (for inactivity monitor grace period)' >> /usr/local/bin/run-server.py && \
     echo '        os.utime(S3_ASSIGNMENT_FILE, None)' >> /usr/local/bin/run-server.py && \
     echo '        ' >> /usr/local/bin/run-server.py && \
-    echo '        # Trigger rclone sync loop to start' >> /usr/local/bin/run-server.py && \
-    echo '        with open(S3_SYNC_TRIGGER_FILE, "w") as f:' >> /usr/local/bin/run-server.py && \
-    echo '            f.write("start")' >> /usr/local/bin/run-server.py && \
+    echo '        # CRITICAL: DO NOT clear workspace - Y.js handles all syncing' >> /usr/local/bin/run-server.py && \
+    echo '        # The Y.js sync service will pull files from Y.js/S3 to workspace automatically' >> /usr/local/bin/run-server.py && \
+    echo '        # Clearing the workspace would cause Y.js to sync empty content back to the IDE' >> /usr/local/bin/run-server.py && \
+    echo '        bucket_name = assignment.get("bucket", "")' >> /usr/local/bin/run-server.py && \
+    echo '        print(f"Y.js will handle syncing files from S3/Y.js to workspace for bucket: {bucket_name}")' >> /usr/local/bin/run-server.py && \
     echo '        ' >> /usr/local/bin/run-server.py && \
     echo '        return jsonify({' >> /usr/local/bin/run-server.py && \
     echo '            "status": "success",' >> /usr/local/bin/run-server.py && \
@@ -572,14 +686,492 @@ RUN echo '#!/usr/bin/env python3' > /usr/local/bin/run-server.py && \
     echo '    except Exception as e:' >> /usr/local/bin/run-server.py && \
     echo '        return jsonify({"error": str(e)}), 500' >> /usr/local/bin/run-server.py && \
     echo '' >> /usr/local/bin/run-server.py && \
+    echo 'AUTOGRADER_PATH = "/autograder-copy"' >> /usr/local/bin/run-server.py && \
+    echo 'WORKSPACE_PATH = "/workspace"' >> /usr/local/bin/run-server.py && \
+    echo '' >> /usr/local/bin/run-server.py && \
+    echo 'def generate_input_output_test(test_case, test_file_path):' >> /usr/local/bin/run-server.py && \
+    echo '    """Generate Python script for input/output test"""' >> /usr/local/bin/run-server.py && \
+    echo '    import json' >> /usr/local/bin/run-server.py && \
+    echo '    test_input = test_case.get("input", "")' >> /usr/local/bin/run-server.py && \
+    echo '    expected_output = test_case.get("expectedOutput", "")' >> /usr/local/bin/run-server.py && \
+    echo '    # Ensure test_input is a string (JSON should give us strings, but be safe)' >> /usr/local/bin/run-server.py && \
+    echo '    if isinstance(test_input, bytes):' >> /usr/local/bin/run-server.py && \
+    echo '        test_input = test_input.decode("utf-8")' >> /usr/local/bin/run-server.py && \
+    echo '    if isinstance(expected_output, bytes):' >> /usr/local/bin/run-server.py && \
+    echo '        expected_output = expected_output.decode("utf-8")' >> /usr/local/bin/run-server.py && \
+    echo '    ' >> /usr/local/bin/run-server.py && \
+    echo '    # Find main Python file in workspace' >> /usr/local/bin/run-server.py && \
+    echo '    main_files = ["main.py", "solution.py", "code.py"]' >> /usr/local/bin/run-server.py && \
+    echo '    main_file = None' >> /usr/local/bin/run-server.py && \
+    echo '    for f in main_files:' >> /usr/local/bin/run-server.py && \
+    echo '        if os.path.exists(os.path.join(WORKSPACE_PATH, f)):' >> /usr/local/bin/run-server.py && \
+    echo '            main_file = f' >> /usr/local/bin/run-server.py && \
+    echo '            break' >> /usr/local/bin/run-server.py && \
+    echo '    ' >> /usr/local/bin/run-server.py && \
+    echo '    if not main_file:' >> /usr/local/bin/run-server.py && \
+    echo '        for root, dirs, files in os.walk(WORKSPACE_PATH):' >> /usr/local/bin/run-server.py && \
+    echo '            for file in files:' >> /usr/local/bin/run-server.py && \
+    echo '                if file.endswith(".py") and not file.startswith("test_"):' >> /usr/local/bin/run-server.py && \
+    echo '                    main_file = os.path.relpath(os.path.join(root, file), WORKSPACE_PATH)' >> /usr/local/bin/run-server.py && \
+    echo '                    break' >> /usr/local/bin/run-server.py && \
+    echo '            if main_file:' >> /usr/local/bin/run-server.py && \
+    echo '                break' >> /usr/local/bin/run-server.py && \
+    echo '    ' >> /usr/local/bin/run-server.py && \
+    echo '    # Build test script using list join to avoid quote issues' >> /usr/local/bin/run-server.py && \
+    echo '    lines = [' >> /usr/local/bin/run-server.py && \
+    echo '        "#!/usr/bin/env python3",' >> /usr/local/bin/run-server.py && \
+    echo '        "import sys",' >> /usr/local/bin/run-server.py && \
+    echo '        "import subprocess",' >> /usr/local/bin/run-server.py && \
+    echo '        "import os",' >> /usr/local/bin/run-server.py && \
+    echo '        "",' >> /usr/local/bin/run-server.py && \
+    echo '        f"sys.path.insert(0, {repr(WORKSPACE_PATH)})",' >> /usr/local/bin/run-server.py && \
+    echo '        "",' >> /usr/local/bin/run-server.py && \
+    echo '        f"test_input = {repr(test_input)}",' >> /usr/local/bin/run-server.py && \
+    echo '        f"expected_output = {repr(expected_output)}",' >> /usr/local/bin/run-server.py && \
+    echo '        "# Ensure test_input is a string",' >> /usr/local/bin/run-server.py && \
+    echo '        "if isinstance(test_input, bytes):",' >> /usr/local/bin/run-server.py && \
+    echo '        "    test_input = test_input.decode(\"utf-8\")",' >> /usr/local/bin/run-server.py && \
+    echo '        "",' >> /usr/local/bin/run-server.py && \
+    echo '        "try:",' >> /usr/local/bin/run-server.py && \
+    echo '        f"    if {repr(main_file)}:",' >> /usr/local/bin/run-server.py && \
+    printf '        "        result = subprocess.run(",\n' >> /usr/local/bin/run-server.py && \
+    echo '        "            [" + repr("python3") + ", os.path.join(" + repr(WORKSPACE_PATH) + ", " + repr(main_file or "") + ")],",' >> /usr/local/bin/run-server.py && \
+    echo '        "            input=test_input,",' >> /usr/local/bin/run-server.py && \
+    echo '        "            capture_output=True,",' >> /usr/local/bin/run-server.py && \
+    echo '        "            text=True,",' >> /usr/local/bin/run-server.py && \
+    echo '        "            timeout=30",' >> /usr/local/bin/run-server.py && \
+    echo '        "        )",' >> /usr/local/bin/run-server.py && \
+    echo '        "        actual_output = result.stdout.strip()",' >> /usr/local/bin/run-server.py && \
+    echo '        "        expected_output_stripped = expected_output.strip()",' >> /usr/local/bin/run-server.py && \
+    echo '        "        if actual_output == expected_output_stripped:",' >> /usr/local/bin/run-server.py && \
+    echo '        "            print(\\"PASS\\")",' >> /usr/local/bin/run-server.py && \
+    echo '        "            sys.exit(0)",' >> /usr/local/bin/run-server.py && \
+    echo '        "        else:",' >> /usr/local/bin/run-server.py && \
+    echo '        "            print(f\\"FAIL: Expected: {expected_output_stripped}, Got: {actual_output}\\")",' >> /usr/local/bin/run-server.py && \
+    echo '        "            sys.exit(1)",' >> /usr/local/bin/run-server.py && \
+    echo '        "    else:",' >> /usr/local/bin/run-server.py && \
+    echo '        "        print(\\"ERROR: No main Python file found in workspace\\")",' >> /usr/local/bin/run-server.py && \
+    echo '        "        sys.exit(1)",' >> /usr/local/bin/run-server.py && \
+    echo '        "except subprocess.TimeoutExpired:",' >> /usr/local/bin/run-server.py && \
+    echo '        "    print(\\"ERROR: Test execution timed out\\")",' >> /usr/local/bin/run-server.py && \
+    echo '        "    sys.exit(1)",' >> /usr/local/bin/run-server.py && \
+    echo '        "except Exception as e:",' >> /usr/local/bin/run-server.py && \
+    echo '        "    print(f\\"ERROR: {str(e)}\\")",' >> /usr/local/bin/run-server.py && \
+    echo '        "    sys.exit(1)"' >> /usr/local/bin/run-server.py && \
+    echo '    ]' >> /usr/local/bin/run-server.py && \
+    echo '    ' >> /usr/local/bin/run-server.py && \
+    echo '    with open(test_file_path, "w") as f:' >> /usr/local/bin/run-server.py && \
+    echo '        f.write("\\n".join(lines))' >> /usr/local/bin/run-server.py && \
+    echo '    os.chmod(test_file_path, 0o755)' >> /usr/local/bin/run-server.py && \
+    echo '' >> /usr/local/bin/run-server.py && \
+    echo 'def generate_unittest_test(test_case, test_file_path):' >> /usr/local/bin/run-server.py && \
+    echo '    """Generate Python unittest test file"""' >> /usr/local/bin/run-server.py && \
+    echo '    test_code = test_case.get("code", "")' >> /usr/local/bin/run-server.py && \
+    echo '    ' >> /usr/local/bin/run-server.py && \
+    echo '    # Always ensure unittest.main() is called, even if test code already imports unittest' >> /usr/local/bin/run-server.py && \
+    echo '    # Check if unittest.main() is already in the code' >> /usr/local/bin/run-server.py && \
+    echo '    if "__name__" not in test_code or "unittest.main()" not in test_code:' >> /usr/local/bin/run-server.py && \
+    echo '        # Add sys.path and unittest.main() if not already present' >> /usr/local/bin/run-server.py && \
+    echo '        # Use os.getcwd() to get the isolated test workspace at runtime' >> /usr/local/bin/run-server.py && \
+    echo '        if "import sys" not in test_code and "import os" not in test_code:' >> /usr/local/bin/run-server.py && \
+    echo '            test_code = f"import sys\\nimport os\\nsys.path.insert(0, os.getcwd())\\n{test_code}"' >> /usr/local/bin/run-server.py && \
+    echo '        elif "import os" not in test_code:' >> /usr/local/bin/run-server.py && \
+    echo '            # sys imported but not os, add os and path' >> /usr/local/bin/run-server.py && \
+    echo '            test_code = test_code.replace("import sys", "import sys\\nimport os\\nsys.path.insert(0, os.getcwd())")' >> /usr/local/bin/run-server.py && \
+    echo '        elif "import sys" not in test_code:' >> /usr/local/bin/run-server.py && \
+    echo '            # os imported but not sys, add sys and path' >> /usr/local/bin/run-server.py && \
+    echo '            test_code = test_code.replace("import os", "import sys\\nimport os\\nsys.path.insert(0, os.getcwd())")' >> /usr/local/bin/run-server.py && \
+    echo '        elif "sys.path.insert" not in test_code:' >> /usr/local/bin/run-server.py && \
+    echo '            # Both imported but path not set, add it after imports' >> /usr/local/bin/run-server.py && \
+    echo '            # Find the last import statement and add after it' >> /usr/local/bin/run-server.py && \
+    echo '            lines = test_code.split("\\n")' >> /usr/local/bin/run-server.py && \
+    echo '            insert_idx = 0' >> /usr/local/bin/run-server.py && \
+    echo '            for i, line in enumerate(lines):' >> /usr/local/bin/run-server.py && \
+    echo '                if line.strip().startswith("import ") or line.strip().startswith("from "):' >> /usr/local/bin/run-server.py && \
+    echo '                    insert_idx = i + 1' >> /usr/local/bin/run-server.py && \
+    echo '            lines.insert(insert_idx, "sys.path.insert(0, os.getcwd())")' >> /usr/local/bin/run-server.py && \
+    echo '            test_code = "\\n".join(lines)' >> /usr/local/bin/run-server.py && \
+    echo '        ' >> /usr/local/bin/run-server.py && \
+    echo '        # Ensure unittest is imported' >> /usr/local/bin/run-server.py && \
+    echo '        if "import unittest" not in test_code:' >> /usr/local/bin/run-server.py && \
+    echo '            test_code = f"import unittest\\n{test_code}"' >> /usr/local/bin/run-server.py && \
+    echo '        ' >> /usr/local/bin/run-server.py && \
+    echo '        # Add unittest.main() call at the end' >> /usr/local/bin/run-server.py && \
+    echo '        test_code = f"{test_code}\\n\\nif __name__ == \\"__main__\\":\\n    unittest.main()"' >> /usr/local/bin/run-server.py && \
+    echo '    ' >> /usr/local/bin/run-server.py && \
+    echo '    with open(test_file_path, "w") as f:' >> /usr/local/bin/run-server.py && \
+    echo '        f.write(test_code)' >> /usr/local/bin/run-server.py && \
+    echo '    os.chmod(test_file_path, 0o755)' >> /usr/local/bin/run-server.py && \
+    echo '' >> /usr/local/bin/run-server.py && \
+    echo 'def generate_junit_test(test_case, test_file_path):' >> /usr/local/bin/run-server.py && \
+    echo '    """Generate Java JUnit test file"""' >> /usr/local/bin/run-server.py && \
+    echo '    test_code = test_case.get("code", "")' >> /usr/local/bin/run-server.py && \
+    echo '    with open(test_file_path, "w") as f:' >> /usr/local/bin/run-server.py && \
+    echo '        f.write(test_code)' >> /usr/local/bin/run-server.py && \
+    echo '    os.chmod(test_file_path, 0o755)' >> /usr/local/bin/run-server.py && \
+    echo '' >> /usr/local/bin/run-server.py && \
+    echo 'def execute_test(test_file_path, test_type, framework=None):' >> /usr/local/bin/run-server.py && \
+    echo '    """Execute test file and return results in isolated workspace"""' >> /usr/local/bin/run-server.py && \
+    echo '    import shutil' >> /usr/local/bin/run-server.py && \
+    echo '    import uuid' >> /usr/local/bin/run-server.py && \
+    echo '    ' >> /usr/local/bin/run-server.py && \
+    echo '    # Create isolated test workspace to prevent sync conflicts' >> /usr/local/bin/run-server.py && \
+    echo '    test_workspace_id = str(uuid.uuid4())[:8]' >> /usr/local/bin/run-server.py && \
+    echo '    test_workspace = f"/tmp/test-workspace-{test_workspace_id}"' >> /usr/local/bin/run-server.py && \
+    echo '    ' >> /usr/local/bin/run-server.py && \
+    echo '    try:' >> /usr/local/bin/run-server.py && \
+    echo '        # Copy workspace to isolated test directory' >> /usr/local/bin/run-server.py && \
+    echo '        print(f"[Test] Creating isolated test workspace at {test_workspace}")' >> /usr/local/bin/run-server.py && \
+    echo '        shutil.copytree(WORKSPACE_PATH, test_workspace, symlinks=True, dirs_exist_ok=False)' >> /usr/local/bin/run-server.py && \
+    echo '        ' >> /usr/local/bin/run-server.py && \
+    echo '        # Use absolute path for test file' >> /usr/local/bin/run-server.py && \
+    echo '        abs_test_path = os.path.abspath(test_file_path)' >> /usr/local/bin/run-server.py && \
+    echo '        ' >> /usr/local/bin/run-server.py && \
+    echo '        if test_type == "inputOutput":' >> /usr/local/bin/run-server.py && \
+    echo '            result = subprocess.run(' >> /usr/local/bin/run-server.py && \
+    echo '                ["python3", abs_test_path],' >> /usr/local/bin/run-server.py && \
+    echo '                capture_output=True,' >> /usr/local/bin/run-server.py && \
+    echo '                text=True,' >> /usr/local/bin/run-server.py && \
+    echo '                timeout=30,' >> /usr/local/bin/run-server.py && \
+    echo '                cwd=test_workspace  # Run in isolated workspace' >> /usr/local/bin/run-server.py && \
+    echo '            )' >> /usr/local/bin/run-server.py && \
+    echo '            return result.returncode == 0, result.stdout + result.stderr, None' >> /usr/local/bin/run-server.py && \
+    echo '        elif test_type == "unitTest":' >> /usr/local/bin/run-server.py && \
+    echo '            if framework == "unittest":' >> /usr/local/bin/run-server.py && \
+    echo '                # Start Xvfb for headless GUI support (for tkinter/pydraw)' >> /usr/local/bin/run-server.py && \
+    echo '                xvfb_process = None' >> /usr/local/bin/run-server.py && \
+    echo '                try:' >> /usr/local/bin/run-server.py && \
+    echo '                    # Start Xvfb on display :99' >> /usr/local/bin/run-server.py && \
+    echo '                    xvfb_process = subprocess.Popen(' >> /usr/local/bin/run-server.py && \
+    echo '                        ["Xvfb", ":99", "-screen", "0", "1024x768x24", "-ac", "+extension", "GLX", "+render", "-noreset"],' >> /usr/local/bin/run-server.py && \
+    echo '                        stdout=subprocess.DEVNULL,' >> /usr/local/bin/run-server.py && \
+    echo '                        stderr=subprocess.DEVNULL' >> /usr/local/bin/run-server.py && \
+    echo '                    )' >> /usr/local/bin/run-server.py && \
+    echo '                    # Wait a moment for Xvfb to start' >> /usr/local/bin/run-server.py && \
+    echo '                    time.sleep(0.5)' >> /usr/local/bin/run-server.py && \
+    echo '                    ' >> /usr/local/bin/run-server.py && \
+    echo '                    # Run test with DISPLAY set to Xvfb' >> /usr/local/bin/run-server.py && \
+    echo '                    env = os.environ.copy()' >> /usr/local/bin/run-server.py && \
+    echo '                    env["DISPLAY"] = ":99"' >> /usr/local/bin/run-server.py && \
+    echo '                    result = subprocess.run(' >> /usr/local/bin/run-server.py && \
+    echo '                        ["python3", abs_test_path],' >> /usr/local/bin/run-server.py && \
+    echo '                        capture_output=True,' >> /usr/local/bin/run-server.py && \
+    echo '                        text=True,' >> /usr/local/bin/run-server.py && \
+    echo '                        timeout=30,' >> /usr/local/bin/run-server.py && \
+    echo '                        cwd=test_workspace,  # Run in isolated workspace' >> /usr/local/bin/run-server.py && \
+    echo '                        env=env' >> /usr/local/bin/run-server.py && \
+    echo '                    )' >> /usr/local/bin/run-server.py && \
+    echo '                    return result.returncode == 0, result.stdout + result.stderr, None' >> /usr/local/bin/run-server.py && \
+    echo '                finally:' >> /usr/local/bin/run-server.py && \
+    echo '                    # Clean up Xvfb process' >> /usr/local/bin/run-server.py && \
+    echo '                    if xvfb_process:' >> /usr/local/bin/run-server.py && \
+    echo '                        try:' >> /usr/local/bin/run-server.py && \
+    echo '                            xvfb_process.terminate()' >> /usr/local/bin/run-server.py && \
+    echo '                            xvfb_process.wait(timeout=2)' >> /usr/local/bin/run-server.py && \
+    echo '                        except:' >> /usr/local/bin/run-server.py && \
+    echo '                            xvfb_process.kill()' >> /usr/local/bin/run-server.py && \
+    echo '                            xvfb_process.wait()' >> /usr/local/bin/run-server.py && \
+    echo '            elif framework == "junit":' >> /usr/local/bin/run-server.py && \
+    echo '                # Compile test file in isolated test workspace' >> /usr/local/bin/run-server.py && \
+    echo '                # Copy test file to isolated workspace for compilation' >> /usr/local/bin/run-server.py && \
+    echo '                import shutil' >> /usr/local/bin/run-server.py && \
+    echo '                test_basename = os.path.basename(test_file_path)' >> /usr/local/bin/run-server.py && \
+    echo '                temp_test_path = os.path.join(test_workspace, test_basename)' >> /usr/local/bin/run-server.py && \
+    echo '                shutil.copy2(test_file_path, temp_test_path)' >> /usr/local/bin/run-server.py && \
+    echo '                ' >> /usr/local/bin/run-server.py && \
+    echo '                try:' >> /usr/local/bin/run-server.py && \
+    echo '                    compile_result = subprocess.run(' >> /usr/local/bin/run-server.py && \
+    echo '                        ["javac", "-cp", ".:/usr/share/java/junit.jar", temp_test_path],' >> /usr/local/bin/run-server.py && \
+    echo '                        capture_output=True,' >> /usr/local/bin/run-server.py && \
+    echo '                        text=True,' >> /usr/local/bin/run-server.py && \
+    echo '                        timeout=30,' >> /usr/local/bin/run-server.py && \
+    echo '                        cwd=test_workspace  # Run in isolated workspace' >> /usr/local/bin/run-server.py && \
+    echo '                    )' >> /usr/local/bin/run-server.py && \
+    echo '                    if compile_result.returncode != 0:' >> /usr/local/bin/run-server.py && \
+    echo '                        return False, compile_result.stdout + compile_result.stderr, "Compilation failed"' >> /usr/local/bin/run-server.py && \
+    echo '                    ' >> /usr/local/bin/run-server.py && \
+    echo '                    test_class = os.path.splitext(test_basename)[0]' >> /usr/local/bin/run-server.py && \
+    echo '                    result = subprocess.run(' >> /usr/local/bin/run-server.py && \
+    echo '                        ["java", "-cp", ".:/usr/share/java/junit.jar:/usr/share/java/hamcrest-core.jar", "org.junit.runner.JUnitCore", test_class],' >> /usr/local/bin/run-server.py && \
+    echo '                        capture_output=True,' >> /usr/local/bin/run-server.py && \
+    echo '                        text=True,' >> /usr/local/bin/run-server.py && \
+    echo '                        timeout=30,' >> /usr/local/bin/run-server.py && \
+    echo '                        cwd=test_workspace  # Run in isolated workspace' >> /usr/local/bin/run-server.py && \
+    echo '                    )' >> /usr/local/bin/run-server.py && \
+    echo '                    return result.returncode == 0, result.stdout + result.stderr, None' >> /usr/local/bin/run-server.py && \
+    echo '                finally:' >> /usr/local/bin/run-server.py && \
+    echo '                    # Clean up temp test file and class files' >> /usr/local/bin/run-server.py && \
+    echo '                    if os.path.exists(temp_test_path):' >> /usr/local/bin/run-server.py && \
+    echo '                        try:' >> /usr/local/bin/run-server.py && \
+    echo '                            os.remove(temp_test_path)' >> /usr/local/bin/run-server.py && \
+    echo '                            class_file = temp_test_path.replace(".java", ".class")' >> /usr/local/bin/run-server.py && \
+    echo '                            if os.path.exists(class_file):' >> /usr/local/bin/run-server.py && \
+    echo '                                os.remove(class_file)' >> /usr/local/bin/run-server.py && \
+    echo '                        except:' >> /usr/local/bin/run-server.py && \
+    echo '                            pass' >> /usr/local/bin/run-server.py && \
+    echo '        return False, "", "Unknown test type"' >> /usr/local/bin/run-server.py && \
+    echo '    except subprocess.TimeoutExpired:' >> /usr/local/bin/run-server.py && \
+    echo '        return False, "", "Test execution timed out"' >> /usr/local/bin/run-server.py && \
+    echo '    except Exception as e:' >> /usr/local/bin/run-server.py && \
+    echo '        return False, "", str(e)' >> /usr/local/bin/run-server.py && \
+    echo '    finally:' >> /usr/local/bin/run-server.py && \
+    echo '        # Clean up isolated test workspace' >> /usr/local/bin/run-server.py && \
+    echo '        if test_workspace and os.path.exists(test_workspace):' >> /usr/local/bin/run-server.py && \
+    echo '            try:' >> /usr/local/bin/run-server.py && \
+    echo '                shutil.rmtree(test_workspace)' >> /usr/local/bin/run-server.py && \
+    echo '                print(f"[Test] Cleaned up isolated test workspace: {test_workspace}")' >> /usr/local/bin/run-server.py && \
+    echo '            except Exception as e:' >> /usr/local/bin/run-server.py && \
+    echo '                print(f"[Test] Warning: Failed to clean up test workspace: {e}")' >> /usr/local/bin/run-server.py && \
+    echo '' >> /usr/local/bin/run-server.py && \
+    echo '@app.route("/sync", methods=["POST"])' >> /usr/local/bin/run-server.py && \
+    echo 'def sync_to_s3():' >> /usr/local/bin/run-server.py && \
+    echo '    """Force immediate sync of workspace to S3"""' >> /usr/local/bin/run-server.py && \
+    echo '    try:' >> /usr/local/bin/run-server.py && \
+    echo '        import os' >> /usr/local/bin/run-server.py && \
+    echo '        S3_ASSIGNMENT_FILE = "/tmp/s3-assignment.json"' >> /usr/local/bin/run-server.py && \
+    echo '        WORKSPACE_PATH = "/workspace"' >> /usr/local/bin/run-server.py && \
+    echo '        ' >> /usr/local/bin/run-server.py && \
+    echo '        # Read S3 config from assignment file' >> /usr/local/bin/run-server.py && \
+    echo '        if not os.path.exists(S3_ASSIGNMENT_FILE):' >> /usr/local/bin/run-server.py && \
+    echo '            return jsonify({"error": "S3 bucket not assigned"}), 400' >> /usr/local/bin/run-server.py && \
+    echo '        ' >> /usr/local/bin/run-server.py && \
+    echo '        import json' >> /usr/local/bin/run-server.py && \
+    echo '        with open(S3_ASSIGNMENT_FILE, "r") as f:' >> /usr/local/bin/run-server.py && \
+    echo '            s3_config = json.load(f)' >> /usr/local/bin/run-server.py && \
+    echo '        ' >> /usr/local/bin/run-server.py && \
+    echo '        S3_BUCKET = s3_config.get("bucket")' >> /usr/local/bin/run-server.py && \
+    echo '        S3_REGION = s3_config.get("region", "us-east-1")' >> /usr/local/bin/run-server.py && \
+    echo '        AWS_ACCESS_KEY_ID = s3_config.get("accessKeyId")' >> /usr/local/bin/run-server.py && \
+    echo '        AWS_SECRET_ACCESS_KEY = s3_config.get("secretAccessKey")' >> /usr/local/bin/run-server.py && \
+    echo '        ' >> /usr/local/bin/run-server.py && \
+    echo '        if not S3_BUCKET:' >> /usr/local/bin/run-server.py && \
+    echo '            return jsonify({"error": "S3 bucket not configured"}), 400' >> /usr/local/bin/run-server.py && \
+    echo '        ' >> /usr/local/bin/run-server.py && \
+    echo '        # Set environment variables for rclone' >> /usr/local/bin/run-server.py && \
+    echo '        env = os.environ.copy()' >> /usr/local/bin/run-server.py && \
+    echo '        env["S3_BUCKET"] = S3_BUCKET' >> /usr/local/bin/run-server.py && \
+    echo '        env["S3_REGION"] = S3_REGION' >> /usr/local/bin/run-server.py && \
+    echo '        if AWS_ACCESS_KEY_ID:' >> /usr/local/bin/run-server.py && \
+    echo '            env["AWS_ACCESS_KEY_ID"] = AWS_ACCESS_KEY_ID' >> /usr/local/bin/run-server.py && \
+    echo '        if AWS_SECRET_ACCESS_KEY:' >> /usr/local/bin/run-server.py && \
+    echo '            env["AWS_SECRET_ACCESS_KEY"] = AWS_SECRET_ACCESS_KEY' >> /usr/local/bin/run-server.py && \
+    echo '        ' >> /usr/local/bin/run-server.py && \
+    echo '        # Run rclone copy to force sync' >> /usr/local/bin/run-server.py && \
+    echo '        S3_PATH = f"s3:{S3_BUCKET}"' >> /usr/local/bin/run-server.py && \
+    echo '        result = subprocess.run(' >> /usr/local/bin/run-server.py && \
+    echo '            ["rclone", "copy", WORKSPACE_PATH, S3_PATH,' >> /usr/local/bin/run-server.py && \
+    echo '             "--transfers", "4",' >> /usr/local/bin/run-server.py && \
+    echo '             "--exclude", ".git/**",' >> /usr/local/bin/run-server.py && \
+    echo '             "--exclude", "node_modules/**",' >> /usr/local/bin/run-server.py && \
+    echo '             "--exclude", "__pycache__/**",' >> /usr/local/bin/run-server.py && \
+    echo '             "--exclude", ".vscode/**",' >> /usr/local/bin/run-server.py && \
+    echo '             "--exclude", ".idea/**"],' >> /usr/local/bin/run-server.py && \
+    echo '            capture_output=True,' >> /usr/local/bin/run-server.py && \
+    echo '            text=True,' >> /usr/local/bin/run-server.py && \
+    echo '            env=env,' >> /usr/local/bin/run-server.py && \
+    echo '            timeout=60' >> /usr/local/bin/run-server.py && \
+    echo '        )' >> /usr/local/bin/run-server.py && \
+    echo '        ' >> /usr/local/bin/run-server.py && \
+    echo '        if result.returncode != 0:' >> /usr/local/bin/run-server.py && \
+    echo '            return jsonify({"error": f"Sync failed: {result.stderr}"}), 500' >> /usr/local/bin/run-server.py && \
+    echo '        ' >> /usr/local/bin/run-server.py && \
+    echo '        # Log the sync output for debugging' >> /usr/local/bin/run-server.py && \
+    echo '        print(f"Sync output: {result.stdout}")' >> /usr/local/bin/run-server.py && \
+    echo '        if result.stderr:' >> /usr/local/bin/run-server.py && \
+    echo '            print(f"Sync errors: {result.stderr}")' >> /usr/local/bin/run-server.py && \
+    echo '        ' >> /usr/local/bin/run-server.py && \
+    echo '        # Verify files are actually in S3 by listing them' >> /usr/local/bin/run-server.py && \
+    echo '        import time' >> /usr/local/bin/run-server.py && \
+    echo '        time.sleep(2)  # Brief delay for S3 eventual consistency' >> /usr/local/bin/run-server.py && \
+    echo '        verify_result = subprocess.run(' >> /usr/local/bin/run-server.py && \
+    echo '            ["rclone", "ls", S3_PATH],' >> /usr/local/bin/run-server.py && \
+    echo '            capture_output=True,' >> /usr/local/bin/run-server.py && \
+    echo '            text=True,' >> /usr/local/bin/run-server.py && \
+    echo '            env=env,' >> /usr/local/bin/run-server.py && \
+    echo '            timeout=30' >> /usr/local/bin/run-server.py && \
+    echo '        )' >> /usr/local/bin/run-server.py && \
+    echo '        ' >> /usr/local/bin/run-server.py && \
+    echo '        if verify_result.returncode == 0:' >> /usr/local/bin/run-server.py && \
+    echo '            s3_files = [line.split()[-1] for line in verify_result.stdout.strip().split("\\n") if line.strip()]' >> /usr/local/bin/run-server.py && \
+    echo '            file_count = len(s3_files)' >> /usr/local/bin/run-server.py && \
+    echo '            # Verify main.py was copied if it exists in workspace' >> /usr/local/bin/run-server.py && \
+    echo '            main_py_path = os.path.join(WORKSPACE_PATH, "main.py")' >> /usr/local/bin/run-server.py && \
+    echo '            main_py_in_s3 = "main.py" in s3_files' >> /usr/local/bin/run-server.py && \
+    echo '            main_py_exists = os.path.exists(main_py_path)' >> /usr/local/bin/run-server.py && \
+    echo '            if main_py_exists and not main_py_in_s3:' >> /usr/local/bin/run-server.py && \
+    echo '                return jsonify({"error": "main.py exists in workspace but not found in S3 after sync", "s3_files": s3_files[:10]}), 500' >> /usr/local/bin/run-server.py && \
+    echo '            return jsonify({' >> /usr/local/bin/run-server.py && \
+    echo '                "status": "success",' >> /usr/local/bin/run-server.py && \
+    echo '                "message": "Workspace synced to S3 and verified",' >> /usr/local/bin/run-server.py && \
+    echo '                "files_synced": file_count,' >> /usr/local/bin/run-server.py && \
+    echo '                "sync_output": result.stdout,' >> /usr/local/bin/run-server.py && \
+    echo '                "s3_files": s3_files[:10]  # First 10 files for debugging' >> /usr/local/bin/run-server.py && \
+    echo '            }), 200' >> /usr/local/bin/run-server.py && \
+    echo '        else:' >> /usr/local/bin/run-server.py && \
+    echo '            # Sync completed but verification failed - still return success as sync worked' >> /usr/local/bin/run-server.py && \
+    echo '            return jsonify({"status": "success", "message": "Workspace synced to S3 (verification failed)", "warning": verify_result.stderr}), 200' >> /usr/local/bin/run-server.py && \
+    echo '    except Exception as e:' >> /usr/local/bin/run-server.py && \
+    echo '        return jsonify({"error": str(e)}), 500' >> /usr/local/bin/run-server.py && \
+    echo '' >> /usr/local/bin/run-server.py && \
+    echo '@app.route("/run-tests", methods=["POST"])' >> /usr/local/bin/run-server.py && \
+    echo 'def run_tests():' >> /usr/local/bin/run-server.py && \
+    echo '    """Run autograder tests against workspace code"""' >> /usr/local/bin/run-server.py && \
+    echo '    try:' >> /usr/local/bin/run-server.py && \
+    echo '        data = request.get_json()' >> /usr/local/bin/run-server.py && \
+    echo '        if not data:' >> /usr/local/bin/run-server.py && \
+    echo '            return jsonify({"error": "No JSON data provided"}), 400' >> /usr/local/bin/run-server.py && \
+    echo '        ' >> /usr/local/bin/run-server.py && \
+    echo '        tests = data.get("tests", [])' >> /usr/local/bin/run-server.py && \
+    echo '        if not tests:' >> /usr/local/bin/run-server.py && \
+    echo '            return jsonify({"error": "No tests provided"}), 400' >> /usr/local/bin/run-server.py && \
+    echo '        ' >> /usr/local/bin/run-server.py && \
+    echo '        results = []' >> /usr/local/bin/run-server.py && \
+    echo '        total_points = 0' >> /usr/local/bin/run-server.py && \
+    echo '        points_earned = 0' >> /usr/local/bin/run-server.py && \
+    echo '        ' >> /usr/local/bin/run-server.py && \
+    echo '        os.makedirs(AUTOGRADER_PATH, exist_ok=True)' >> /usr/local/bin/run-server.py && \
+    echo '        ' >> /usr/local/bin/run-server.py && \
+    echo '        for test_case in tests:' >> /usr/local/bin/run-server.py && \
+    echo '            test_id = test_case.get("id", "unknown")' >> /usr/local/bin/run-server.py && \
+    echo '            test_name = test_case.get("name", "Unnamed Test")' >> /usr/local/bin/run-server.py && \
+    echo '            test_type = test_case.get("type")' >> /usr/local/bin/run-server.py && \
+    echo '            points = test_case.get("points", 0)' >> /usr/local/bin/run-server.py && \
+    echo '            total_points += points' >> /usr/local/bin/run-server.py && \
+    echo '            ' >> /usr/local/bin/run-server.py && \
+    echo '            if test_type == "manualGrading":' >> /usr/local/bin/run-server.py && \
+    echo '                continue' >> /usr/local/bin/run-server.py && \
+    echo '            ' >> /usr/local/bin/run-server.py && \
+    echo '            test_filename = f"test_{test_id}.py" if test_type != "unitTest" or test_case.get("framework") == "unittest" else f"Test_{test_id}.java"' >> /usr/local/bin/run-server.py && \
+    echo '            test_file_path = os.path.join(AUTOGRADER_PATH, test_filename)' >> /usr/local/bin/run-server.py && \
+    echo '            ' >> /usr/local/bin/run-server.py && \
+    echo '            try:' >> /usr/local/bin/run-server.py && \
+    echo '                if test_type == "inputOutput":' >> /usr/local/bin/run-server.py && \
+    echo '                    generate_input_output_test(test_case, test_file_path)' >> /usr/local/bin/run-server.py && \
+    echo '                    passed, output, error = execute_test(test_file_path, "inputOutput")' >> /usr/local/bin/run-server.py && \
+    echo '                elif test_type == "unitTest":' >> /usr/local/bin/run-server.py && \
+    echo '                    framework = test_case.get("framework", "unittest")' >> /usr/local/bin/run-server.py && \
+    echo '                    if framework == "unittest":' >> /usr/local/bin/run-server.py && \
+    echo '                        generate_unittest_test(test_case, test_file_path)' >> /usr/local/bin/run-server.py && \
+    echo '                        passed, output, error = execute_test(test_file_path, "unitTest", "unittest")' >> /usr/local/bin/run-server.py && \
+    echo '                    elif framework == "junit":' >> /usr/local/bin/run-server.py && \
+    echo '                        generate_junit_test(test_case, test_file_path)' >> /usr/local/bin/run-server.py && \
+    echo '                        passed, output, error = execute_test(test_file_path, "unitTest", "junit")' >> /usr/local/bin/run-server.py && \
+    echo '                    else:' >> /usr/local/bin/run-server.py && \
+    echo '                        passed, output, error = False, "", f"Unknown framework: {framework}"' >> /usr/local/bin/run-server.py && \
+    echo '                else:' >> /usr/local/bin/run-server.py && \
+    echo '                    passed, output, error = False, "", f"Unknown test type: {test_type}"' >> /usr/local/bin/run-server.py && \
+    echo '                ' >> /usr/local/bin/run-server.py && \
+    echo '                points_earned_for_test = points if passed else 0' >> /usr/local/bin/run-server.py && \
+    echo '                points_earned += points_earned_for_test' >> /usr/local/bin/run-server.py && \
+    echo '                ' >> /usr/local/bin/run-server.py && \
+    echo '                results.append({' >> /usr/local/bin/run-server.py && \
+    echo '                    "testId": test_id,' >> /usr/local/bin/run-server.py && \
+    echo '                    "testName": test_name,' >> /usr/local/bin/run-server.py && \
+    echo '                    "passed": passed,' >> /usr/local/bin/run-server.py && \
+    echo '                    "points": points,' >> /usr/local/bin/run-server.py && \
+    echo '                    "pointsEarned": points_earned_for_test,' >> /usr/local/bin/run-server.py && \
+    echo '                    "output": output,' >> /usr/local/bin/run-server.py && \
+    echo '                    "error": error' >> /usr/local/bin/run-server.py && \
+    echo '                })' >> /usr/local/bin/run-server.py && \
+    echo '            except Exception as e:' >> /usr/local/bin/run-server.py && \
+    echo '                results.append({' >> /usr/local/bin/run-server.py && \
+    echo '                    "testId": test_id,' >> /usr/local/bin/run-server.py && \
+    echo '                    "testName": test_name,' >> /usr/local/bin/run-server.py && \
+    echo '                    "passed": False,' >> /usr/local/bin/run-server.py && \
+    echo '                    "points": points,' >> /usr/local/bin/run-server.py && \
+    echo '                    "pointsEarned": 0,' >> /usr/local/bin/run-server.py && \
+    echo '                    "output": "",' >> /usr/local/bin/run-server.py && \
+    echo '                    "error": str(e)' >> /usr/local/bin/run-server.py && \
+    echo '                })' >> /usr/local/bin/run-server.py && \
+    echo '            finally:' >> /usr/local/bin/run-server.py && \
+    echo '                if os.path.exists(test_file_path):' >> /usr/local/bin/run-server.py && \
+    echo '                    try:' >> /usr/local/bin/run-server.py && \
+    echo '                        os.remove(test_file_path)' >> /usr/local/bin/run-server.py && \
+    echo '                    except:' >> /usr/local/bin/run-server.py && \
+    echo '                        pass' >> /usr/local/bin/run-server.py && \
+    echo '        ' >> /usr/local/bin/run-server.py && \
+    echo '        return jsonify({' >> /usr/local/bin/run-server.py && \
+    echo '            "status": "success",' >> /usr/local/bin/run-server.py && \
+    echo '            "results": results,' >> /usr/local/bin/run-server.py && \
+    echo '            "totalPoints": total_points,' >> /usr/local/bin/run-server.py && \
+    echo '            "pointsEarned": points_earned' >> /usr/local/bin/run-server.py && \
+    echo '        }), 200' >> /usr/local/bin/run-server.py && \
+    echo '    except Exception as e:' >> /usr/local/bin/run-server.py && \
+    echo '        return jsonify({"error": str(e)}), 500' >> /usr/local/bin/run-server.py && \
+    echo '' >> /usr/local/bin/run-server.py && \
+    echo '@app.route("/kill", methods=["POST"])' >> /usr/local/bin/run-server.py && \
+    echo 'def kill_container():' >> /usr/local/bin/run-server.py && \
+    echo '    """Kill the container by triggering shutdown - same logic as inactivity monitor"""' >> /usr/local/bin/run-server.py && \
+    echo '    try:' >> /usr/local/bin/run-server.py && \
+    echo '        # Get container ID from environment' >> /usr/local/bin/run-server.py && \
+    echo '        container_id = os.environ.get("CONTAINER_ID", "")' >> /usr/local/bin/run-server.py && \
+    echo '        management_api_url = os.environ.get("MANAGEMENT_API_URL", "http://localhost")' >> /usr/local/bin/run-server.py && \
+    echo '        WORKSPACE_PATH = "/workspace"' >> /usr/local/bin/run-server.py && \
+    echo '        ' >> /usr/local/bin/run-server.py && \
+    echo '        # Send response first, then shutdown in background thread' >> /usr/local/bin/run-server.py && \
+    echo '        import threading' >> /usr/local/bin/run-server.py && \
+    echo '        def shutdown_container():' >> /usr/local/bin/run-server.py && \
+    echo '            """Shutdown container using same logic as inactivity monitor"""' >> /usr/local/bin/run-server.py && \
+    echo '            time.sleep(0.5)  # Give time for HTTP response to be sent' >> /usr/local/bin/run-server.py && \
+    echo '            ' >> /usr/local/bin/run-server.py && \
+    echo '            # Stop the rclone sync loop first' >> /usr/local/bin/run-server.py && \
+    echo '            subprocess.run(["pkill", "-f", "rclone-sync-loop.sh"], capture_output=True)' >> /usr/local/bin/run-server.py && \
+    echo '            subprocess.run(["pkill", "-f", "rclone sync"], capture_output=True)' >> /usr/local/bin/run-server.py && \
+    echo '            time.sleep(2)' >> /usr/local/bin/run-server.py && \
+    echo '            ' >> /usr/local/bin/run-server.py && \
+    echo '            # Perform final S3 sync' >> /usr/local/bin/run-server.py && \
+    echo '            try:' >> /usr/local/bin/run-server.py && \
+    echo '                S3_ASSIGNMENT_FILE = "/tmp/s3-assignment.json"' >> /usr/local/bin/run-server.py && \
+    echo '                S3_BUCKET = os.environ.get("S3_BUCKET")' >> /usr/local/bin/run-server.py && \
+    echo '                ' >> /usr/local/bin/run-server.py && \
+    echo '                # Check assignment file if S3_BUCKET not in env' >> /usr/local/bin/run-server.py && \
+    echo '                if not S3_BUCKET and os.path.exists(S3_ASSIGNMENT_FILE):' >> /usr/local/bin/run-server.py && \
+    echo '                    import json' >> /usr/local/bin/run-server.py && \
+    echo '                    with open(S3_ASSIGNMENT_FILE, "r") as f:' >> /usr/local/bin/run-server.py && \
+    echo '                        s3_config = json.load(f)' >> /usr/local/bin/run-server.py && \
+    echo '                    S3_BUCKET = s3_config.get("bucket")' >> /usr/local/bin/run-server.py && \
+    echo '                ' >> /usr/local/bin/run-server.py && \
+    echo '                if S3_BUCKET:' >> /usr/local/bin/run-server.py && \
+    echo '                    env = os.environ.copy()' >> /usr/local/bin/run-server.py && \
+    echo '                    env["S3_BUCKET"] = S3_BUCKET' >> /usr/local/bin/run-server.py && \
+    echo '                    subprocess.run([' >> /usr/local/bin/run-server.py && \
+    echo '                        "rclone", "sync", WORKSPACE_PATH, f"s3:{S3_BUCKET}",' >> /usr/local/bin/run-server.py && \
+    echo '                        "--progress", "--verbose"' >> /usr/local/bin/run-server.py && \
+    echo '                    ], env=env, timeout=30, capture_output=True)' >> /usr/local/bin/run-server.py && \
+    echo '            except Exception:' >> /usr/local/bin/run-server.py && \
+    echo '                pass  # Continue even if sync fails' >> /usr/local/bin/run-server.py && \
+    echo '            ' >> /usr/local/bin/run-server.py && \
+    echo '            # Notify management API of manual shutdown' >> /usr/local/bin/run-server.py && \
+    echo '            if container_id and management_api_url:' >> /usr/local/bin/run-server.py && \
+    echo '                try:' >> /usr/local/bin/run-server.py && \
+    echo '                    subprocess.run([' >> /usr/local/bin/run-server.py && \
+    echo '                        "curl", "-s", "-X", "POST",' >> /usr/local/bin/run-server.py && \
+    echo '                        f"{management_api_url}/api/containers/{container_id}/inactivity-shutdown",' >> /usr/local/bin/run-server.py && \
+    echo '                        "-H", "Content-Type: application/json",' >> /usr/local/bin/run-server.py && \
+    echo '                        "-d", "{\\"reason\\": \\"manual-kill\\"}",' >> /usr/local/bin/run-server.py && \
+    echo '                        "--max-time", "5"' >> /usr/local/bin/run-server.py && \
+    echo '                    ], timeout=5, capture_output=True)' >> /usr/local/bin/run-server.py && \
+    echo '                except Exception:' >> /usr/local/bin/run-server.py && \
+    echo '                    pass  # Continue even if notification fails' >> /usr/local/bin/run-server.py && \
+    echo '            ' >> /usr/local/bin/run-server.py && \
+    echo '            # Kill all processes and exit (same as inactivity monitor)' >> /usr/local/bin/run-server.py && \
+    echo '            subprocess.run(["killall5", "-9"], capture_output=True)' >> /usr/local/bin/run-server.py && \
+    echo '            os._exit(0)' >> /usr/local/bin/run-server.py && \
+    echo '        ' >> /usr/local/bin/run-server.py && \
+    echo '        threading.Thread(target=shutdown_container, daemon=False).start()' >> /usr/local/bin/run-server.py && \
+    echo '        ' >> /usr/local/bin/run-server.py && \
+    echo '        return jsonify({"status": "success", "message": "Container shutdown initiated"}), 200' >> /usr/local/bin/run-server.py && \
+    echo '    except Exception as e:' >> /usr/local/bin/run-server.py && \
+    echo '        return jsonify({"error": str(e)}), 500' >> /usr/local/bin/run-server.py && \
+    echo '' >> /usr/local/bin/run-server.py && \
     echo 'if __name__ == "__main__":' >> /usr/local/bin/run-server.py && \
     echo '    app.run(host="0.0.0.0", port=3000, debug=False)' >> /usr/local/bin/run-server.py && \
     chmod +x /usr/local/bin/run-server.py
 
-# Rclone Bidirectional S3 Sync Loop
+# Rclone Workspace to S3 Sync Loop (push-only, never overwrites local changes)
 RUN echo '#!/bin/bash' > /usr/local/bin/rclone-sync-loop.sh && \
-    echo 'set -e' >> /usr/local/bin/rclone-sync-loop.sh && \
-    echo 'echo "Starting rclone sync loop..."' >> /usr/local/bin/rclone-sync-loop.sh && \
+    echo '# Don'\''t use set -e - we want to continue even if individual operations fail' >> /usr/local/bin/rclone-sync-loop.sh && \
+    echo 'echo "[$(date +%Y-%m-%d\ %H:%M:%S)] Starting rclone sync loop..."' >> /usr/local/bin/rclone-sync-loop.sh && \
     echo 'S3_ASSIGNMENT_FILE="/tmp/s3-assignment.json"' >> /usr/local/bin/rclone-sync-loop.sh && \
     echo 'WORKSPACE_PATH="/workspace"' >> /usr/local/bin/rclone-sync-loop.sh && \
     echo '' >> /usr/local/bin/rclone-sync-loop.sh && \
@@ -587,17 +1179,17 @@ RUN echo '#!/bin/bash' > /usr/local/bin/rclone-sync-loop.sh && \
     echo 'if [ -z "$S3_BUCKET" ]; then' >> /usr/local/bin/rclone-sync-loop.sh && \
     echo '    # Wait for assignment file if not present' >> /usr/local/bin/rclone-sync-loop.sh && \
     echo '    if [ ! -f "$S3_ASSIGNMENT_FILE" ]; then' >> /usr/local/bin/rclone-sync-loop.sh && \
-    echo '        echo "Waiting for S3 bucket assignment..."' >> /usr/local/bin/rclone-sync-loop.sh && \
+    echo '        echo "[$(date +%Y-%m-%d\ %H:%M:%S)] Waiting for S3 bucket assignment..."' >> /usr/local/bin/rclone-sync-loop.sh && \
     echo '        while [ ! -f "$S3_ASSIGNMENT_FILE" ]; do' >> /usr/local/bin/rclone-sync-loop.sh && \
     echo '            sleep 2' >> /usr/local/bin/rclone-sync-loop.sh && \
     echo '        done' >> /usr/local/bin/rclone-sync-loop.sh && \
     echo '    fi' >> /usr/local/bin/rclone-sync-loop.sh && \
-    echo '    # Read assignment from file' >> /usr/local/bin/rclone-sync-loop.sh && \
-    echo '    echo "Reading S3 assignment from $S3_ASSIGNMENT_FILE..."' >> /usr/local/bin/rclone-sync-loop.sh && \
-    echo '    S3_BUCKET=$(python3 -c "import json; f=open(\"$S3_ASSIGNMENT_FILE\"); d=json.load(f); print(d.get(\"bucket\", \"\"))")' >> /usr/local/bin/rclone-sync-loop.sh && \
-    echo '    S3_REGION=$(python3 -c "import json; f=open(\"$S3_ASSIGNMENT_FILE\"); d=json.load(f); print(d.get(\"region\", \"us-east-1\"))")' >> /usr/local/bin/rclone-sync-loop.sh && \
-    echo '    AWS_ACCESS_KEY_ID=$(python3 -c "import json; f=open(\"$S3_ASSIGNMENT_FILE\"); d=json.load(f); print(d.get(\"accessKeyId\", \"\") or \"\")")' >> /usr/local/bin/rclone-sync-loop.sh && \
-    echo '    AWS_SECRET_ACCESS_KEY=$(python3 -c "import json; f=open(\"$S3_ASSIGNMENT_FILE\"); d=json.load(f); print(d.get(\"secretAccessKey\", \"\") or \"\")")' >> /usr/local/bin/rclone-sync-loop.sh && \
+    echo '    # Read assignment from file (with error handling)' >> /usr/local/bin/rclone-sync-loop.sh && \
+    echo '    echo "[$(date +%Y-%m-%d\ %H:%M:%S)] Reading S3 assignment from $S3_ASSIGNMENT_FILE..."' >> /usr/local/bin/rclone-sync-loop.sh && \
+    echo '    S3_BUCKET=$(python3 -c "import json; f=open(\"$S3_ASSIGNMENT_FILE\"); d=json.load(f); print(d.get(\"bucket\", \"\"))" 2>/dev/null || echo "")' >> /usr/local/bin/rclone-sync-loop.sh && \
+    echo '    S3_REGION=$(python3 -c "import json; f=open(\"$S3_ASSIGNMENT_FILE\"); d=json.load(f); print(d.get(\"region\", \"us-east-1\"))" 2>/dev/null || echo "us-east-1")' >> /usr/local/bin/rclone-sync-loop.sh && \
+    echo '    AWS_ACCESS_KEY_ID=$(python3 -c "import json; f=open(\"$S3_ASSIGNMENT_FILE\"); d=json.load(f); print(d.get(\"accessKeyId\", \"\") or \"\")" 2>/dev/null || echo "")' >> /usr/local/bin/rclone-sync-loop.sh && \
+    echo '    AWS_SECRET_ACCESS_KEY=$(python3 -c "import json; f=open(\"$S3_ASSIGNMENT_FILE\"); d=json.load(f); print(d.get(\"secretAccessKey\", \"\") or \"\")" 2>/dev/null || echo "")' >> /usr/local/bin/rclone-sync-loop.sh && \
     echo '    export S3_BUCKET S3_REGION' >> /usr/local/bin/rclone-sync-loop.sh && \
     echo '    if [ -n "$AWS_ACCESS_KEY_ID" ]; then' >> /usr/local/bin/rclone-sync-loop.sh && \
     echo '        export AWS_ACCESS_KEY_ID' >> /usr/local/bin/rclone-sync-loop.sh && \
@@ -605,46 +1197,114 @@ RUN echo '#!/bin/bash' > /usr/local/bin/rclone-sync-loop.sh && \
     echo '    if [ -n "$AWS_SECRET_ACCESS_KEY" ]; then' >> /usr/local/bin/rclone-sync-loop.sh && \
     echo '        export AWS_SECRET_ACCESS_KEY' >> /usr/local/bin/rclone-sync-loop.sh && \
     echo '    fi' >> /usr/local/bin/rclone-sync-loop.sh && \
-    echo '    # Update rclone config with region' >> /usr/local/bin/rclone-sync-loop.sh && \
+    echo '    # Update rclone config with region (ignore errors)' >> /usr/local/bin/rclone-sync-loop.sh && \
     echo '    if [ -n "$S3_REGION" ]; then' >> /usr/local/bin/rclone-sync-loop.sh && \
-    echo '        sed -i "s/region = .*/region = $S3_REGION/" /home/user/.config/rclone/rclone.conf' >> /usr/local/bin/rclone-sync-loop.sh && \
+    echo '        sed -i "s/region = .*/region = $S3_REGION/" /home/user/.config/rclone/rclone.conf 2>/dev/null || true' >> /usr/local/bin/rclone-sync-loop.sh && \
     echo '    fi' >> /usr/local/bin/rclone-sync-loop.sh && \
     echo 'fi' >> /usr/local/bin/rclone-sync-loop.sh && \
     echo '' >> /usr/local/bin/rclone-sync-loop.sh && \
     echo 'if [ -z "$S3_BUCKET" ]; then' >> /usr/local/bin/rclone-sync-loop.sh && \
-    echo '    echo "ERROR: S3_BUCKET not set and assignment file not found"' >> /usr/local/bin/rclone-sync-loop.sh && \
+    echo '    echo "[$(date +%Y-%m-%d\ %H:%M:%S)] ERROR: S3_BUCKET not set and assignment file not found"' >> /usr/local/bin/rclone-sync-loop.sh && \
     echo '    exit 1' >> /usr/local/bin/rclone-sync-loop.sh && \
     echo 'fi' >> /usr/local/bin/rclone-sync-loop.sh && \
     echo '' >> /usr/local/bin/rclone-sync-loop.sh && \
-    echo 'echo "Using S3 bucket: $S3_BUCKET (region: ${S3_REGION:-us-east-1})"' >> /usr/local/bin/rclone-sync-loop.sh && \
+    echo 'echo "[$(date +%Y-%m-%d\ %H:%M:%S)] Using S3 bucket: $S3_BUCKET (region: ${S3_REGION:-us-east-1})"' >> /usr/local/bin/rclone-sync-loop.sh && \
     echo 'S3_PATH="s3:${S3_BUCKET}"' >> /usr/local/bin/rclone-sync-loop.sh && \
-    echo '# Perform initial download from S3 on startup (one-time pull)' >> /usr/local/bin/rclone-sync-loop.sh && \
-    echo 'echo "Performing initial download from S3 to workspace..."' >> /usr/local/bin/rclone-sync-loop.sh && \
-    echo 'rclone sync "$S3_PATH" "$WORKSPACE_PATH" --progress --transfers 4 --checkers 8 || {' >> /usr/local/bin/rclone-sync-loop.sh && \
-    echo '        echo "WARNING: Initial S3 download failed (bucket might be empty or not exist yet)"' >> /usr/local/bin/rclone-sync-loop.sh && \
+    echo '' >> /usr/local/bin/rclone-sync-loop.sh && \
+    echo '# Perform initial download from S3 ONLY if workspace is empty (don'\''t overwrite existing files)' >> /usr/local/bin/rclone-sync-loop.sh && \
+    echo 'if [ -z "$(ls -A $WORKSPACE_PATH 2>/dev/null)" ]; then' >> /usr/local/bin/rclone-sync-loop.sh && \
+    echo '    echo "[$(date +%Y-%m-%d\ %H:%M:%S)] Workspace is empty, performing initial download from S3..."' >> /usr/local/bin/rclone-sync-loop.sh && \
+    echo '    rclone sync "$S3_PATH" "$WORKSPACE_PATH" --progress --transfers 4 --checkers 8 2>&1 || {' >> /usr/local/bin/rclone-sync-loop.sh && \
+    echo '        echo "[$(date +%Y-%m-%d\ %H:%M:%S)] WARNING: Initial S3 download failed (bucket might be empty or not exist yet)"' >> /usr/local/bin/rclone-sync-loop.sh && \
     echo '    }' >> /usr/local/bin/rclone-sync-loop.sh && \
-    echo 'echo "Initial download complete. Starting continuous sync from workspace to S3..."' >> /usr/local/bin/rclone-sync-loop.sh && \
-    echo '# Continuous sync: only push workspace changes to S3 (don'\''t pull from S3 to avoid overwriting local changes)' >> /usr/local/bin/rclone-sync-loop.sh && \
+    echo '    echo "[$(date +%Y-%m-%d\ %H:%M:%S)] Initial download complete."' >> /usr/local/bin/rclone-sync-loop.sh && \
+    echo 'else' >> /usr/local/bin/rclone-sync-loop.sh && \
+    echo '    echo "[$(date +%Y-%m-%d\ %H:%M:%S)] Workspace already has files, skipping initial download to preserve local changes."' >> /usr/local/bin/rclone-sync-loop.sh && \
+    echo 'fi' >> /usr/local/bin/rclone-sync-loop.sh && \
+    echo '' >> /usr/local/bin/rclone-sync-loop.sh && \
+    echo 'echo "[$(date +%Y-%m-%d\ %H:%M:%S)] Starting pull-only sync with S3 (pull every 10s, never push)..."' >> /usr/local/bin/rclone-sync-loop.sh && \
+    echo '# Continuous sync: Pull from S3 every 10 seconds, NEVER push to S3' >> /usr/local/bin/rclone-sync-loop.sh && \
+    echo '# Frontend writes directly to S3 via backend API, container only reads' >> /usr/local/bin/rclone-sync-loop.sh && \
     echo 'while true; do' >> /usr/local/bin/rclone-sync-loop.sh && \
-    echo '    sleep 15' >> /usr/local/bin/rclone-sync-loop.sh && \
-    echo '    echo "Syncing workspace changes to S3..."' >> /usr/local/bin/rclone-sync-loop.sh && \
-    echo '    rclone sync "$WORKSPACE_PATH" "$S3_PATH" \' >> /usr/local/bin/rclone-sync-loop.sh && \
-    echo '        --progress \' >> /usr/local/bin/rclone-sync-loop.sh && \
-    echo '        --exclude ".git/**" \' >> /usr/local/bin/rclone-sync-loop.sh && \
-    echo '        --exclude "node_modules/**" \' >> /usr/local/bin/rclone-sync-loop.sh && \
-    echo '        --exclude "__pycache__/**" \' >> /usr/local/bin/rclone-sync-loop.sh && \
-    echo '        --exclude ".vscode/**" \' >> /usr/local/bin/rclone-sync-loop.sh && \
-    echo '        --exclude ".idea/**" || {' >> /usr/local/bin/rclone-sync-loop.sh && \
-    echo '        echo "WARNING: Workspace to S3 sync failed, will retry in 15 seconds"' >> /usr/local/bin/rclone-sync-loop.sh && \
-    echo '    }' >> /usr/local/bin/rclone-sync-loop.sh && \
+    echo '    sleep 10' >> /usr/local/bin/rclone-sync-loop.sh && \
+    echo '    ' >> /usr/local/bin/rclone-sync-loop.sh && \
+    echo '    # Pull from S3 every 10 seconds (update only, won'\''t overwrite newer local files)' >> /usr/local/bin/rclone-sync-loop.sh && \
+    echo '    echo "[$(date +%Y-%m-%d\ %H:%M:%S)] Pulling changes from S3..."' >> /usr/local/bin/rclone-sync-loop.sh && \
+    echo '    export HOME=/home/user' >> /usr/local/bin/rclone-sync-loop.sh && \
+    echo '    PULL_OUTPUT=$(rclone sync "$S3_PATH" "$WORKSPACE_PATH" --update --transfers 4 --checkers 8 --exclude ".git/**" --exclude "node_modules/**" --exclude "__pycache__/**" --exclude ".vscode/**" --exclude ".idea/**" 2>&1)' >> /usr/local/bin/rclone-sync-loop.sh && \
+    echo '    PULL_EXIT_CODE=$?' >> /usr/local/bin/rclone-sync-loop.sh && \
+    echo '    if [ $PULL_EXIT_CODE -ne 0 ]; then' >> /usr/local/bin/rclone-sync-loop.sh && \
+    echo '        echo "[$(date +%Y-%m-%d\ %H:%M:%S)] ERROR: rclone pull failed with exit code $PULL_EXIT_CODE"' >> /usr/local/bin/rclone-sync-loop.sh && \
+    echo '        echo "[$(date +%Y-%m-%d\ %H:%M:%S)] Error output: $PULL_OUTPUT"' >> /usr/local/bin/rclone-sync-loop.sh && \
+    echo '    else' >> /usr/local/bin/rclone-sync-loop.sh && \
+    echo '        echo "$PULL_OUTPUT" | grep -E "(Copied|Transferred|ERROR|WARNING|INFO.*file)" | head -20 || echo "No changes to pull"' >> /usr/local/bin/rclone-sync-loop.sh && \
+    echo '    fi' >> /usr/local/bin/rclone-sync-loop.sh && \
     echo 'done' >> /usr/local/bin/rclone-sync-loop.sh && \
     chmod +x /usr/local/bin/rclone-sync-loop.sh
+
+# File Watcher - watches /workspace for changes and pushes to backend API
+COPY file-watcher.sh /usr/local/bin/file-watcher.sh
+RUN chmod +x /usr/local/bin/file-watcher.sh
+
+# Install Node.js packages for Y.js container sync
+# Install globally and ensure they're accessible to all users
+RUN npm install -g yjs socket.io-client chokidar && \
+    # Set NODE_PATH for all users (npm prefix is /usr, so packages are in /usr/lib/node_modules/)
+    echo 'export NODE_PATH=/usr/lib/node_modules' >> /etc/profile && \
+    echo 'export NODE_PATH=/usr/lib/node_modules' >> /home/user/.bashrc && \
+    # Verify installation by checking package directories exist
+    ls -la /usr/lib/node_modules/ | grep -E "(yjs|socket.io-client|chokidar)" && \
+    echo "✅ All Y.js packages installed successfully" && \
+    node --version
+
+# Y.js Container Sync - syncs filesystem with Y.js documents
+COPY yjs-container-sync.js /usr/local/bin/yjs-container-sync.js
+RUN chmod +x /usr/local/bin/yjs-container-sync.js
+
+# Autograder Copy Loop (copies directly from workspace, no S3 needed)
+RUN echo '#!/bin/bash' > /usr/local/bin/rclone-autograder-sync.sh && \
+    echo '# Don'\''t use set -e - we want to continue even if individual operations fail' >> /usr/local/bin/rclone-autograder-sync.sh && \
+    echo 'echo "[$(date +%Y-%m-%d\ %H:%M:%S)] Starting autograder copy from workspace..."' >> /usr/local/bin/rclone-autograder-sync.sh && \
+    echo 'WORKSPACE_PATH="/workspace"' >> /usr/local/bin/rclone-autograder-sync.sh && \
+    echo 'AUTOGRADER_PATH="/autograder-copy"' >> /usr/local/bin/rclone-autograder-sync.sh && \
+    echo '' >> /usr/local/bin/rclone-autograder-sync.sh && \
+    echo '# Perform initial copy from workspace on startup' >> /usr/local/bin/rclone-autograder-sync.sh && \
+    echo 'echo "[$(date +%Y-%m-%d\ %H:%M:%S)] Performing initial copy from workspace to autograder-copy..."' >> /usr/local/bin/rclone-autograder-sync.sh && \
+    echo 'if rsync -av --delete "$WORKSPACE_PATH/" "$AUTOGRADER_PATH/" \' >> /usr/local/bin/rclone-autograder-sync.sh && \
+    echo '    --exclude ".git" \' >> /usr/local/bin/rclone-autograder-sync.sh && \
+    echo '    --exclude "node_modules" \' >> /usr/local/bin/rclone-autograder-sync.sh && \
+    echo '    --exclude "__pycache__" \' >> /usr/local/bin/rclone-autograder-sync.sh && \
+    echo '    --exclude ".vscode" \' >> /usr/local/bin/rclone-autograder-sync.sh && \
+    echo '    --exclude ".idea" 2>&1; then' >> /usr/local/bin/rclone-autograder-sync.sh && \
+    echo '    echo "[$(date +%Y-%m-%d\ %H:%M:%S)] Initial copy complete."' >> /usr/local/bin/rclone-autograder-sync.sh && \
+    echo 'else' >> /usr/local/bin/rclone-autograder-sync.sh && \
+    echo '    echo "[$(date +%Y-%m-%d\ %H:%M:%S)] WARNING: Initial copy to autograder-copy failed, will retry in loop"' >> /usr/local/bin/rclone-autograder-sync.sh && \
+    echo 'fi' >> /usr/local/bin/rclone-autograder-sync.sh && \
+    echo 'echo "[$(date +%Y-%m-%d\ %H:%M:%S)] Starting continuous copy from workspace to autograder-copy (every 15 seconds)..."' >> /usr/local/bin/rclone-autograder-sync.sh && \
+    echo '# Continuous copy: copy from workspace to autograder-copy (one-way, read-only for autograder)' >> /usr/local/bin/rclone-autograder-sync.sh && \
+    echo '# Stagger this copy to run 5 seconds after workspace sync to avoid conflicts' >> /usr/local/bin/rclone-autograder-sync.sh && \
+    echo 'sleep 5' >> /usr/local/bin/rclone-autograder-sync.sh && \
+    echo 'while true; do' >> /usr/local/bin/rclone-autograder-sync.sh && \
+    echo '    sleep 15' >> /usr/local/bin/rclone-autograder-sync.sh && \
+    echo '    echo "[$(date +%Y-%m-%d\ %H:%M:%S)] Copying workspace to autograder-copy..."' >> /usr/local/bin/rclone-autograder-sync.sh && \
+    echo '    if rsync -av --delete "$WORKSPACE_PATH/" "$AUTOGRADER_PATH/" \' >> /usr/local/bin/rclone-autograder-sync.sh && \
+    echo '        --exclude ".git" \' >> /usr/local/bin/rclone-autograder-sync.sh && \
+    echo '        --exclude "node_modules" \' >> /usr/local/bin/rclone-autograder-sync.sh && \
+    echo '        --exclude "__pycache__" \' >> /usr/local/bin/rclone-autograder-sync.sh && \
+    echo '        --exclude ".vscode" \' >> /usr/local/bin/rclone-autograder-sync.sh && \
+    echo '        --exclude ".idea" 2>&1; then' >> /usr/local/bin/rclone-autograder-sync.sh && \
+    echo '        echo "[$(date +%Y-%m-%d\ %H:%M:%S)] Workspace to autograder-copy copy complete"' >> /usr/local/bin/rclone-autograder-sync.sh && \
+    echo '    else' >> /usr/local/bin/rclone-autograder-sync.sh && \
+    echo '        echo "[$(date +%Y-%m-%d\ %H:%M:%S)] WARNING: Workspace to autograder-copy copy failed, will retry in 15 seconds"' >> /usr/local/bin/rclone-autograder-sync.sh && \
+    echo '    fi' >> /usr/local/bin/rclone-autograder-sync.sh && \
+    echo 'done' >> /usr/local/bin/rclone-autograder-sync.sh && \
+    chmod +x /usr/local/bin/rclone-autograder-sync.sh
 
 # Inactivity Monitor
 RUN echo '#!/bin/bash' > /usr/local/bin/inactivity-monitor.sh && \
     echo 'set -e' >> /usr/local/bin/inactivity-monitor.sh && \
     echo 'WORKSPACE_PATH="/workspace"' >> /usr/local/bin/inactivity-monitor.sh && \
-    echo 'TIMEOUT_SECONDS="${INACTIVITY_TIMEOUT_SECONDS:-300}"' >> /usr/local/bin/inactivity-monitor.sh && \
+    echo 'TIMEOUT_SECONDS="${INACTIVITY_TIMEOUT_SECONDS:-600}"' >> /usr/local/bin/inactivity-monitor.sh && \
     echo 'echo "Starting inactivity monitor (timeout: ${TIMEOUT_SECONDS}s)..."' >> /usr/local/bin/inactivity-monitor.sh && \
     echo 'shutdown_container() {' >> /usr/local/bin/inactivity-monitor.sh && \
     echo '    echo "========================================="' >> /usr/local/bin/inactivity-monitor.sh && \
@@ -674,8 +1334,19 @@ RUN echo '#!/bin/bash' > /usr/local/bin/inactivity-monitor.sh && \
     echo '    exit 0' >> /usr/local/bin/inactivity-monitor.sh && \
     echo '}' >> /usr/local/bin/inactivity-monitor.sh && \
     echo 'while true; do' >> /usr/local/bin/inactivity-monitor.sh && \
-    echo '    # Skip inactivity shutdown for pre-warmed containers (no S3_BUCKET)' >> /usr/local/bin/inactivity-monitor.sh && \
-    echo '    if [ -z "$S3_BUCKET" ]; then' >> /usr/local/bin/inactivity-monitor.sh && \
+    echo '    # Check for S3 bucket assignment (either via env var or assignment file)' >> /usr/local/bin/inactivity-monitor.sh && \
+    echo '    S3_ASSIGNMENT_FILE="/tmp/s3-assignment.json"' >> /usr/local/bin/inactivity-monitor.sh && \
+    echo '    HAS_S3_BUCKET=false' >> /usr/local/bin/inactivity-monitor.sh && \
+    echo '    if [ -n "$S3_BUCKET" ]; then' >> /usr/local/bin/inactivity-monitor.sh && \
+    echo '        HAS_S3_BUCKET=true' >> /usr/local/bin/inactivity-monitor.sh && \
+    echo '    elif [ -f "$S3_ASSIGNMENT_FILE" ]; then' >> /usr/local/bin/inactivity-monitor.sh && \
+    echo '        # Check if assignment file has a bucket (pre-warmed containers)' >> /usr/local/bin/inactivity-monitor.sh && \
+    echo '        ASSIGNED_BUCKET=$(python3 -c "import json; f=open(\"$S3_ASSIGNMENT_FILE\"); d=json.load(f); print(d.get(\"bucket\", \"\") or \"\")" 2>/dev/null || echo "")' >> /usr/local/bin/inactivity-monitor.sh && \
+    echo '        if [ -n "$ASSIGNED_BUCKET" ]; then' >> /usr/local/bin/inactivity-monitor.sh && \
+    echo '            HAS_S3_BUCKET=true' >> /usr/local/bin/inactivity-monitor.sh && \
+    echo '        fi' >> /usr/local/bin/inactivity-monitor.sh && \
+    echo '    fi' >> /usr/local/bin/inactivity-monitor.sh && \
+    echo '    if [ "$HAS_S3_BUCKET" = "false" ]; then' >> /usr/local/bin/inactivity-monitor.sh && \
     echo '        echo "Pre-warmed container (no S3_BUCKET) - skipping inactivity monitor, waiting for S3 assignment..."' >> /usr/local/bin/inactivity-monitor.sh && \
     echo '        sleep 60' >> /usr/local/bin/inactivity-monitor.sh && \
     echo '        continue' >> /usr/local/bin/inactivity-monitor.sh && \
@@ -700,41 +1371,68 @@ RUN echo '#!/bin/bash' > /usr/local/bin/inactivity-monitor.sh && \
 RUN echo '#!/bin/bash' > /usr/local/bin/entrypoint.sh && \
     echo 'set -e' >> /usr/local/bin/entrypoint.sh && \
     echo '' >> /usr/local/bin/entrypoint.sh && \
-    echo '# CRITICAL: Start code-server on localhost:8081 (nginx will proxy it)' >> /usr/local/bin/entrypoint.sh && \
-    echo 'echo "Starting code-server on 127.0.0.1:8081..."' >> /usr/local/bin/entrypoint.sh && \
-    echo 'su - user -c "cd /workspace && code-server --bind-addr 127.0.0.1:8081 --auth none --disable-telemetry --disable-update-check --disable-getting-started-override --disable-workspace-trust /workspace" &' >> /usr/local/bin/entrypoint.sh && \
-    echo 'sleep 2' >> /usr/local/bin/entrypoint.sh && \
+    echo '# Start ttyd terminal server on localhost:7681 (nginx will proxy it)' >> /usr/local/bin/entrypoint.sh && \
+    echo 'echo "Starting ttyd terminal on 127.0.0.1:7681..."' >> /usr/local/bin/entrypoint.sh && \
+    echo '# Ensure tmux session exists for code execution' >> /usr/local/bin/entrypoint.sh && \
+    echo 'su - user -c "tmux new-session -d -s code_runner -c /workspace || true"' >> /usr/local/bin/entrypoint.sh && \
+    echo '# Create a wrapper script that attaches to tmux session' >> /usr/local/bin/entrypoint.sh && \
+    echo 'cat > /usr/local/bin/ttyd-bash-wrapper.sh << '\''WRAPPEREOF'\''' >> /usr/local/bin/entrypoint.sh && \
+    echo '#!/bin/bash' >> /usr/local/bin/entrypoint.sh && \
+    echo '# Attach to tmux session if it exists, otherwise start bash' >> /usr/local/bin/entrypoint.sh && \
+    echo 'if tmux has-session -t code_runner 2>/dev/null; then' >> /usr/local/bin/entrypoint.sh && \
+    echo '    exec tmux attach-session -t code_runner' >> /usr/local/bin/entrypoint.sh && \
+    echo 'else' >> /usr/local/bin/entrypoint.sh && \
+    echo '    exec bash -il' >> /usr/local/bin/entrypoint.sh && \
+    echo 'fi' >> /usr/local/bin/entrypoint.sh && \
+    echo 'WRAPPEREOF' >> /usr/local/bin/entrypoint.sh && \
+    echo 'chmod +x /usr/local/bin/ttyd-bash-wrapper.sh' >> /usr/local/bin/entrypoint.sh && \
+    echo '# Start ttyd with wrapper that attaches to tmux - this allows run endpoint output to be visible' >> /usr/local/bin/entrypoint.sh && \
+    echo 'su - user -c '\''ttyd -p 7681 -i lo -W -t titleFixed="Terminal" -t fontSize=14 -t cursorBlink=true /usr/local/bin/ttyd-bash-wrapper.sh'\'' &' >> /usr/local/bin/entrypoint.sh && \
+    echo 'sleep 1' >> /usr/local/bin/entrypoint.sh && \
     echo '' >> /usr/local/bin/entrypoint.sh && \
-    echo '# Configure nginx to proxy code-server and strip CSP headers' >> /usr/local/bin/entrypoint.sh && \
+    echo '# Configure nginx to proxy ttyd terminal and web server' >> /usr/local/bin/entrypoint.sh && \
     echo 'mkdir -p /etc/nginx/sites-available /etc/nginx/sites-enabled' >> /usr/local/bin/entrypoint.sh && \
-    echo 'cat > /etc/nginx/sites-available/code-server << '\''NGINXEOF'\''' >> /usr/local/bin/entrypoint.sh && \
+    echo '# Add map directive to nginx.conf for WebSocket upgrade (must be in http context)' >> /usr/local/bin/entrypoint.sh && \
+    echo 'if ! grep -q "map.*connection_upgrade" /etc/nginx/nginx.conf; then' >> /usr/local/bin/entrypoint.sh && \
+    echo '    python3 << '\''PYEOF'\''' >> /usr/local/bin/entrypoint.sh && \
+    echo 'import re' >> /usr/local/bin/entrypoint.sh && \
+    echo 'with open("/etc/nginx/nginx.conf", "r") as f:' >> /usr/local/bin/entrypoint.sh && \
+    echo '    content = f.read()' >> /usr/local/bin/entrypoint.sh && \
+    echo 'map_lines = [' >> /usr/local/bin/entrypoint.sh && \
+    echo '    "    map $http_upgrade $connection_upgrade {",' >> /usr/local/bin/entrypoint.sh && \
+    echo '    "        default upgrade;",' >> /usr/local/bin/entrypoint.sh && \
+    echo '    "        \\"\\" close;",' >> /usr/local/bin/entrypoint.sh && \
+    echo '    "    }"' >> /usr/local/bin/entrypoint.sh && \
+    echo ']' >> /usr/local/bin/entrypoint.sh && \
+    echo 'map_block = "\\n".join(map_lines) + "\\n"' >> /usr/local/bin/entrypoint.sh && \
+    echo 'content = re.sub(r"(^http \\{)", r"\\1\\n" + map_block, content, flags=re.MULTILINE)' >> /usr/local/bin/entrypoint.sh && \
+    echo 'with open("/etc/nginx/nginx.conf", "w") as f:' >> /usr/local/bin/entrypoint.sh && \
+    echo '    f.write(content)' >> /usr/local/bin/entrypoint.sh && \
+    echo 'PYEOF' >> /usr/local/bin/entrypoint.sh && \
+    echo 'fi' >> /usr/local/bin/entrypoint.sh && \
+    echo 'cat > /etc/nginx/sites-available/ide-server << '\''NGINXEOF'\''' >> /usr/local/bin/entrypoint.sh && \
     echo 'server {' >> /usr/local/bin/entrypoint.sh && \
     echo '    listen 8080;' >> /usr/local/bin/entrypoint.sh && \
     echo '    server_name _;' >> /usr/local/bin/entrypoint.sh && \
+    echo '    # Proxy ttyd terminal requests' >> /usr/local/bin/entrypoint.sh && \
+    echo '    # Traefik strips /terminal/{containerId} prefix, so we handle root path' >> /usr/local/bin/entrypoint.sh && \
+    echo '    # Note: /web/ requests go directly to port 3000 via Traefik, not through this nginx' >> /usr/local/bin/entrypoint.sh && \
     echo '    location / {' >> /usr/local/bin/entrypoint.sh && \
-    echo '        proxy_pass http://127.0.0.1:8081;' >> /usr/local/bin/entrypoint.sh && \
+    echo '        proxy_pass http://127.0.0.1:7681;' >> /usr/local/bin/entrypoint.sh && \
     echo '        proxy_http_version 1.1;' >> /usr/local/bin/entrypoint.sh && \
     echo '        proxy_set_header Upgrade $http_upgrade;' >> /usr/local/bin/entrypoint.sh && \
-    echo '        proxy_set_header Connection "upgrade";' >> /usr/local/bin/entrypoint.sh && \
+    echo '        proxy_set_header Connection $connection_upgrade;' >> /usr/local/bin/entrypoint.sh && \
     echo '        proxy_set_header Host $host;' >> /usr/local/bin/entrypoint.sh && \
     echo '        proxy_set_header X-Real-IP $remote_addr;' >> /usr/local/bin/entrypoint.sh && \
     echo '        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;' >> /usr/local/bin/entrypoint.sh && \
     echo '        proxy_set_header X-Forwarded-Proto $scheme;' >> /usr/local/bin/entrypoint.sh && \
-    echo '        # Note: CSS/JS now injected directly into workbench.html during build' >> /usr/local/bin/entrypoint.sh && \
-    echo '        # CRITICAL: Remove ALL CSP and frame-related headers from backend response' >> /usr/local/bin/entrypoint.sh && \
-    echo '        # Use proxy_hide_header to hide headers from backend' >> /usr/local/bin/entrypoint.sh && \
-    echo '        proxy_hide_header Content-Security-Policy;' >> /usr/local/bin/entrypoint.sh && \
-    echo '        proxy_hide_header X-Frame-Options;' >> /usr/local/bin/entrypoint.sh && \
-    echo '        proxy_hide_header X-Content-Type-Options;' >> /usr/local/bin/entrypoint.sh && \
-    echo '        # CRITICAL: Add ONLY ONE permissive CSP header with frame-ancestors *' >> /usr/local/bin/entrypoint.sh && \
-    echo '        # The "always" flag ensures it is added even for error responses' >> /usr/local/bin/entrypoint.sh && \
-        echo '        add_header Content-Security-Policy "default-src '\''self'\'' '\''unsafe-inline'\'' '\''unsafe-eval'\'' data: blob: https:; frame-ancestors *; script-src '\''self'\'' '\''unsafe-inline'\'' '\''unsafe-eval'\'' blob:; style-src '\''self'\'' '\''unsafe-inline'\''; img-src '\''self'\'' data: https:; font-src '\''self'\'' data: https:; connect-src '\''self'\'' ws: wss: https:; worker-src '\''self'\'' blob:;" always;' >> /usr/local/bin/entrypoint.sh && \
-    echo '        # Ensure we do not pass through any other CSP headers' >> /usr/local/bin/entrypoint.sh && \
-    echo '        proxy_pass_header Content-Security-Policy;' >> /usr/local/bin/entrypoint.sh && \
+    echo '        proxy_read_timeout 300s;' >> /usr/local/bin/entrypoint.sh && \
+    echo '        proxy_send_timeout 300s;' >> /usr/local/bin/entrypoint.sh && \
+    echo '        proxy_buffering off;' >> /usr/local/bin/entrypoint.sh && \
     echo '    }' >> /usr/local/bin/entrypoint.sh && \
     echo '}' >> /usr/local/bin/entrypoint.sh && \
     echo 'NGINXEOF' >> /usr/local/bin/entrypoint.sh && \
-    echo 'ln -sf /etc/nginx/sites-available/code-server /etc/nginx/sites-enabled/' >> /usr/local/bin/entrypoint.sh && \
+    echo 'ln -sf /etc/nginx/sites-available/ide-server /etc/nginx/sites-enabled/' >> /usr/local/bin/entrypoint.sh && \
     echo 'rm -f /etc/nginx/sites-enabled/default' >> /usr/local/bin/entrypoint.sh && \
     echo 'nginx -t' >> /usr/local/bin/entrypoint.sh && \
     echo 'nginx -g "daemon off;" &' >> /usr/local/bin/entrypoint.sh && \
@@ -774,22 +1472,85 @@ RUN echo '#!/bin/bash' > /usr/local/bin/entrypoint.sh && \
     echo '' >> /usr/local/bin/entrypoint.sh && \
     echo '# Start rclone sync loop - either from env var or wait for assignment' >> /usr/local/bin/entrypoint.sh && \
     echo 'if [ -n "$S3_BUCKET" ]; then' >> /usr/local/bin/entrypoint.sh && \
-    echo '    echo "Starting rclone sync loop for bucket: $S3_BUCKET (background)..."' >> /usr/local/bin/entrypoint.sh && \
-    echo '    su user -c "S3_BUCKET=$S3_BUCKET S3_REGION=$S3_REGION AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY /usr/local/bin/rclone-sync-loop.sh" &' >> /usr/local/bin/entrypoint.sh && \
+    echo '    # Write assignment file for new containers' >> /usr/local/bin/entrypoint.sh && \
+    echo '    echo "S3_BUCKET is set, writing assignment file..."' >> /usr/local/bin/entrypoint.sh && \
+    echo '    python3 << EOF' >> /usr/local/bin/entrypoint.sh && \
+    echo 'import json' >> /usr/local/bin/entrypoint.sh && \
+    echo 'import os' >> /usr/local/bin/entrypoint.sh && \
+    echo 'assignment = {' >> /usr/local/bin/entrypoint.sh && \
+    echo '    "bucket": os.environ.get("S3_BUCKET", ""),' >> /usr/local/bin/entrypoint.sh && \
+    echo '    "bucketId": os.environ.get("S3_BUCKET_ID", ""),' >> /usr/local/bin/entrypoint.sh && \
+    echo '    "region": os.environ.get("S3_REGION", "us-east-1"),' >> /usr/local/bin/entrypoint.sh && \
+    echo '    "accessKeyId": os.environ.get("AWS_ACCESS_KEY_ID", ""),' >> /usr/local/bin/entrypoint.sh && \
+    echo '    "secretAccessKey": os.environ.get("AWS_SECRET_ACCESS_KEY", "")' >> /usr/local/bin/entrypoint.sh && \
+    echo '}' >> /usr/local/bin/entrypoint.sh && \
+    echo 'with open("/tmp/s3-assignment.json", "w") as f:' >> /usr/local/bin/entrypoint.sh && \
+    echo '    json.dump(assignment, f)' >> /usr/local/bin/entrypoint.sh && \
+    echo 'EOF' >> /usr/local/bin/entrypoint.sh && \
+    echo '    # OLD S3 SYNC LOOPS REMOVED - Y.js now handles all syncing' >> /usr/local/bin/entrypoint.sh && \
+    echo '    # rclone-sync-loop.sh and file-watcher.sh are no longer needed' >> /usr/local/bin/entrypoint.sh && \
+    echo '    # Y.js syncs container changes -> backend -> S3 automatically' >> /usr/local/bin/entrypoint.sh && \
+    echo '    # Start Y.js container sync service (this handles all file syncing)' >> /usr/local/bin/entrypoint.sh && \
+    echo '    if [ -n "$S3_BUCKET_ID" ]; then' >> /usr/local/bin/entrypoint.sh && \
+    echo '        su user -c "NODE_PATH=/usr/lib/node_modules BACKEND_API_URL=${BACKEND_API_URL:-http://localhost:8000/api} S3_BUCKET_ID=$S3_BUCKET_ID CONTAINER_ID=${CONTAINER_ID:-} CONTAINER_SERVICE_TOKEN=${CONTAINER_SERVICE_TOKEN:-} WORKSPACE_PATH=/workspace /usr/local/bin/yjs-container-sync.js" &' >> /usr/local/bin/entrypoint.sh && \
+    echo '    fi' >> /usr/local/bin/entrypoint.sh && \
     echo 'else' >> /usr/local/bin/entrypoint.sh && \
     echo '    echo "S3_BUCKET not set - container is pre-warmed, waiting for S3 assignment..."' >> /usr/local/bin/entrypoint.sh && \
     echo '    # Start background process to wait for S3 assignment' >> /usr/local/bin/entrypoint.sh && \
     echo '    (' >> /usr/local/bin/entrypoint.sh && \
     echo '        S3_ASSIGNMENT_FILE="/tmp/s3-assignment.json"' >> /usr/local/bin/entrypoint.sh && \
     echo '        S3_SYNC_TRIGGER_FILE="/tmp/s3-sync-trigger"' >> /usr/local/bin/entrypoint.sh && \
-    echo '        echo "Waiting for S3 bucket assignment..."' >> /usr/local/bin/entrypoint.sh && \
-    echo '        # Wait for assignment file to appear' >> /usr/local/bin/entrypoint.sh && \
-    echo '        while [ ! -f "$S3_ASSIGNMENT_FILE" ]; do' >> /usr/local/bin/entrypoint.sh && \
+    echo '        SYNC_STARTED=false' >> /usr/local/bin/entrypoint.sh && \
+    echo '        # Function to start sync loops if not already started' >> /usr/local/bin/entrypoint.sh && \
+        echo '        start_sync_loops() {' >> /usr/local/bin/entrypoint.sh && \
+        echo '            if [ "$SYNC_STARTED" = "false" ] && [ -f "$S3_ASSIGNMENT_FILE" ]; then' >> /usr/local/bin/entrypoint.sh && \
+        echo '                echo "S3 bucket assignment detected, starting Y.js sync..."' >> /usr/local/bin/entrypoint.sh && \
+        echo '                # Wait a moment to ensure file is fully written' >> /usr/local/bin/entrypoint.sh && \
+        echo '                sleep 1' >> /usr/local/bin/entrypoint.sh && \
+        echo '                # Read credentials from assignment file and pass as env vars' >> /usr/local/bin/entrypoint.sh && \
+        echo '                S3_BUCKET_VAL=$(python3 -c "import json; f=open(\"$S3_ASSIGNMENT_FILE\"); d=json.load(f); print(d.get(\"bucket\", \"\"))" 2>/dev/null || echo "")' >> /usr/local/bin/entrypoint.sh && \
+        echo '                S3_REGION_VAL=$(python3 -c "import json; f=open(\"$S3_ASSIGNMENT_FILE\"); d=json.load(f); print(d.get(\"region\", \"us-east-1\"))" 2>/dev/null || echo "us-east-1")' >> /usr/local/bin/entrypoint.sh && \
+        echo '                AWS_ACCESS_KEY_ID_VAL=$(python3 -c "import json; f=open(\"$S3_ASSIGNMENT_FILE\"); d=json.load(f); print(d.get(\"accessKeyId\", \"\") or \"\")" 2>/dev/null || echo "")' >> /usr/local/bin/entrypoint.sh && \
+        echo '                AWS_SECRET_ACCESS_KEY_VAL=$(python3 -c "import json; f=open(\"$S3_ASSIGNMENT_FILE\"); d=json.load(f); print(d.get(\"secretAccessKey\", \"\") or \"\")" 2>/dev/null || echo "")' >> /usr/local/bin/entrypoint.sh && \
+        echo '                if [ -n "$S3_BUCKET_VAL" ]; then' >> /usr/local/bin/entrypoint.sh && \
+        echo '                    # OLD S3 SYNC LOOPS REMOVED - Y.js now handles all syncing' >> /usr/local/bin/entrypoint.sh && \
+        echo '                    SYNC_STARTED=true' >> /usr/local/bin/entrypoint.sh && \
+                    echo '                    # Start Y.js container sync service (this handles all file syncing)' >> /usr/local/bin/entrypoint.sh && \
+                    echo '                    S3_BUCKET_ID_VAL=$(python3 -c "import json; f=open(\"$S3_ASSIGNMENT_FILE\"); d=json.load(f); print(d.get(\"bucketId\", \"\") or \"\")" 2>/dev/null || echo "")' >> /usr/local/bin/entrypoint.sh && \
+                    echo '                    if [ -n "$S3_BUCKET_ID_VAL" ]; then' >> /usr/local/bin/entrypoint.sh && \
+                    echo '                        su user -c "NODE_PATH=/usr/lib/node_modules BACKEND_API_URL=${BACKEND_API_URL:-http://localhost:8000/api} S3_BUCKET_ID=$S3_BUCKET_ID_VAL CONTAINER_ID=${CONTAINER_ID:-} CONTAINER_SERVICE_TOKEN=${CONTAINER_SERVICE_TOKEN:-} WORKSPACE_PATH=/workspace /usr/local/bin/yjs-container-sync.js" &' >> /usr/local/bin/entrypoint.sh && \
+                    echo '                    fi' >> /usr/local/bin/entrypoint.sh && \
+                    echo '                    echo "Y.js container sync started with bucket: $S3_BUCKET_VAL"' >> /usr/local/bin/entrypoint.sh && \
+        echo '                else' >> /usr/local/bin/entrypoint.sh && \
+        echo '                    echo "ERROR: Failed to read S3 bucket from assignment file"' >> /usr/local/bin/entrypoint.sh && \
+        echo '                fi' >> /usr/local/bin/entrypoint.sh && \
+        echo '            fi' >> /usr/local/bin/entrypoint.sh && \
+        echo '        }' >> /usr/local/bin/entrypoint.sh && \
+    echo '        # Check if assignment file already exists (container restart)' >> /usr/local/bin/entrypoint.sh && \
+    echo '        if [ -f "$S3_ASSIGNMENT_FILE" ]; then' >> /usr/local/bin/entrypoint.sh && \
+    echo '            echo "S3 assignment file already exists, starting sync loops..."' >> /usr/local/bin/entrypoint.sh && \
+    echo '            start_sync_loops' >> /usr/local/bin/entrypoint.sh && \
+    echo '        fi' >> /usr/local/bin/entrypoint.sh && \
+    echo '        # Wait for assignment file to appear or trigger file' >> /usr/local/bin/entrypoint.sh && \
+    echo '        while true; do' >> /usr/local/bin/entrypoint.sh && \
+    echo '            if [ -f "$S3_ASSIGNMENT_FILE" ] || [ -f "$S3_SYNC_TRIGGER_FILE" ]; then' >> /usr/local/bin/entrypoint.sh && \
+    echo '                start_sync_loops' >> /usr/local/bin/entrypoint.sh && \
+    echo '                # Verify sync loops actually started by checking for running processes' >> /usr/local/bin/entrypoint.sh && \
+    echo '                sleep 2' >> /usr/local/bin/entrypoint.sh && \
+    echo '                SYNC_RUNNING=$(pgrep -f "yjs-container-sync" | wc -l)' >> /usr/local/bin/entrypoint.sh && \
+    echo '                if [ "$SYNC_RUNNING" -gt 0 ]; then' >> /usr/local/bin/entrypoint.sh && \
+    echo '                    echo "Sync loops verified running ($SYNC_RUNNING processes)"' >> /usr/local/bin/entrypoint.sh && \
+    echo '                else' >> /usr/local/bin/entrypoint.sh && \
+    echo '                    echo "WARNING: Sync loops did not start, will retry..."' >> /usr/local/bin/entrypoint.sh && \
+    echo '                    SYNC_STARTED=false  # Reset flag to allow retry' >> /usr/local/bin/entrypoint.sh && \
+    echo '                fi' >> /usr/local/bin/entrypoint.sh && \
+    echo '                # If sync started by trigger, remove trigger file to reset' >> /usr/local/bin/entrypoint.sh && \
+    echo '                if [ -f "$S3_SYNC_TRIGGER_FILE" ]; then' >> /usr/local/bin/entrypoint.sh && \
+    echo '                    rm "$S3_SYNC_TRIGGER_FILE"' >> /usr/local/bin/entrypoint.sh && \
+    echo '                fi' >> /usr/local/bin/entrypoint.sh && \
+    echo '            fi' >> /usr/local/bin/entrypoint.sh && \
     echo '            sleep 2' >> /usr/local/bin/entrypoint.sh && \
     echo '        done' >> /usr/local/bin/entrypoint.sh && \
-    echo '        echo "S3 bucket assignment detected, starting sync loop..."' >> /usr/local/bin/entrypoint.sh && \
-    echo '        # Read assignment and start sync loop' >> /usr/local/bin/entrypoint.sh && \
-    echo '        su user -c "/usr/local/bin/rclone-sync-loop.sh" &' >> /usr/local/bin/entrypoint.sh && \
     echo '    ) &' >> /usr/local/bin/entrypoint.sh && \
     echo 'fi' >> /usr/local/bin/entrypoint.sh && \
     echo '' >> /usr/local/bin/entrypoint.sh && \
@@ -806,7 +1567,7 @@ RUN echo '#!/bin/bash' > /usr/local/bin/entrypoint.sh && \
     echo 'echo "========================================="' >> /usr/local/bin/entrypoint.sh && \
     echo 'echo "Access your development environment:"' >> /usr/local/bin/entrypoint.sh && \
     echo 'echo ""' >> /usr/local/bin/entrypoint.sh && \
-    echo 'echo "  VS Code:     http://localhost:8080"' >> /usr/local/bin/entrypoint.sh && \
+    echo 'echo "  Terminal:    http://localhost:8080/terminal/{containerId}/"' >> /usr/local/bin/entrypoint.sh && \
     echo 'echo "  GUI Desktop: http://localhost:6080"' >> /usr/local/bin/entrypoint.sh && \
     echo 'echo "  Run Server:  http://localhost:3000"' >> /usr/local/bin/entrypoint.sh && \
     echo 'echo ""' >> /usr/local/bin/entrypoint.sh && \

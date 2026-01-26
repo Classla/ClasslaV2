@@ -5,8 +5,7 @@ import {
   validateShortAnswerData,
   sanitizeShortAnswerData,
 } from "../../extensions/ShortAnswerBlock";
-import { AlertTriangle, Save, Send } from "lucide-react";
-import { Button } from "../../ui/button";
+import { AlertTriangle } from "lucide-react";
 
 interface ShortAnswerViewerProps {
   node: any;
@@ -25,7 +24,6 @@ const ShortAnswerViewer: React.FC<ShortAnswerViewerProps> = memo(
     const [answer, setAnswer] = useState<string>("");
     const [wordCount, setWordCount] = useState<number>(0);
     const [hasDataError, setHasDataError] = useState(false);
-    const [isSubmitted, setIsSubmitted] = useState(false);
     const [shortAnswerData, setShortAnswerData] =
       useState<ShortAnswerData>(rawShortAnswerData);
 
@@ -49,11 +47,9 @@ const ShortAnswerViewer: React.FC<ShortAnswerViewerProps> = memo(
       const getBlockAnswerState = (editor?.storage as any)?.getBlockAnswerState;
 
       if (getBlockAnswerState && shortAnswerData.id) {
-        const blockState: BlockAnswerState = getBlockAnswerState(
-          shortAnswerData.id
-        );
-        if (blockState) {
-          setAnswer(blockState.answer || "");
+        const blockState = getBlockAnswerState(shortAnswerData.id);
+        if (blockState && blockState.answer) {
+          setAnswer(blockState.answer);
         }
       }
     }, [editor, shortAnswerData.id]);
@@ -82,21 +78,6 @@ const ShortAnswerViewer: React.FC<ShortAnswerViewerProps> = memo(
       },
       [shortAnswerData.id, onAnswerChange, editor]
     );
-
-    const handleSaveDraft = useCallback(() => {
-      const setBlockAnswerState = (editor?.storage as any)?.setBlockAnswerState;
-      if (setBlockAnswerState && shortAnswerData.id) {
-        setBlockAnswerState(shortAnswerData.id, {
-          answer,
-          timestamp: new Date(),
-        });
-      }
-    }, [shortAnswerData.id, answer, editor]);
-
-    const handleSubmit = useCallback(() => {
-      setIsSubmitted(true);
-      handleSaveDraft();
-    }, [handleSaveDraft]);
 
     const isReadOnly = (editor?.storage as any)?.isReadOnly;
     const minWords = shortAnswerData.minWords;
@@ -142,14 +123,9 @@ const ShortAnswerViewer: React.FC<ShortAnswerViewerProps> = memo(
                   Short Answer Question
                 </div>
                 <div className="text-xs text-gray-500">
-                  {isSubmitted ? "Submitted" : "Type your answer"}
+                  Type your answer
                 </div>
               </div>
-              {isSubmitted && (
-                <span className="text-xs text-green-600 bg-green-50 px-2 py-1 rounded-full font-medium border border-green-200 select-none">
-                  Submitted
-                </span>
-              )}
             </div>
           </div>
 
@@ -169,57 +145,29 @@ const ShortAnswerViewer: React.FC<ShortAnswerViewerProps> = memo(
             <textarea
               value={answer}
               onChange={(e) => handleAnswerChange(e.target.value)}
-              disabled={isReadOnly || isSubmitted}
+              disabled={isReadOnly}
               placeholder="Type your answer here..."
               className={`w-full p-3 border rounded-md resize-y min-h-[120px] ${
-                isReadOnly || isSubmitted
+                isReadOnly
                   ? "opacity-50 cursor-not-allowed"
                   : "border-gray-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
               } ${!wordCountValid ? "border-yellow-500" : ""}`}
             />
-            <div className="flex items-center justify-between mt-2 text-xs text-gray-500">
-              <span>
-                {wordCount} word{wordCount !== 1 ? "s" : ""}
+            {!wordCountValid && (
+              <div className="mt-2 text-xs text-yellow-600">
+                Word count requirement not met
                 {minWords && ` (min: ${minWords})`}
                 {maxWords && ` (max: ${maxWords})`}
-              </span>
-              {!wordCountValid && (
-                <span className="text-yellow-600">
-                  Word count requirement not met
-                </span>
-              )}
-            </div>
+              </div>
+            )}
           </div>
 
-          {!isReadOnly && !isSubmitted && (
-            <div className="flex items-center gap-2">
-              <Button variant="outline" size="sm" onClick={handleSaveDraft}>
-                <Save className="w-4 h-4 mr-1" />
-                Save Draft
-              </Button>
-              <Button
-                variant="default"
-                size="sm"
-                onClick={handleSubmit}
-                disabled={!answer.trim() || !wordCountValid}
-              >
-                <Send className="w-4 h-4 mr-1" />
-                Submit
-              </Button>
-            </div>
-          )}
-
-          {isSubmitted && (
-            <div className="mb-3 p-2 bg-green-50 border border-green-200 rounded text-sm text-green-800">
-              Answer submitted successfully.
-            </div>
-          )}
 
           <div className="mt-4 pt-3 border-t border-gray-200 text-xs text-gray-500 select-none">
             <div className="flex justify-between items-center">
               <span>
                 {answer.trim()
-                  ? `${wordCount} word${wordCount !== 1 ? "s" : ""}`
+                  ? `${wordCount} word${wordCount !== 1 ? "s" : ""}${minWords ? ` (min: ${minWords})` : ""}${maxWords ? ` (max: ${maxWords})` : ""}`
                   : "No answer yet"}
               </span>
               <span>{shortAnswerData.points} points</span>

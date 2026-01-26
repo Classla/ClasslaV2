@@ -86,8 +86,9 @@ export interface Assignment {
   course_id: string;
   settings: AssignmentSettings;
   content: string; // tiptap editor content, stores all blocks, questions, and autograder data.
-  published_to: string[]; // Array of course/section IDs
+  published_to: string[]; // Array of user IDs for immediate publishing
   due_dates_map: Record<string, Date>; // user_id to Date
+  scheduled_publish_map?: Record<string, string>; // user_id to ISO date string for scheduled publishing
   module_path: string[]; // e.g., ["unit 1", "module 1"] for "unit 1/module 1"
   is_lockdown: boolean;
   lockdown_time_map: Record<string, number>; // user_id to number in seconds
@@ -316,4 +317,68 @@ export interface AutogradeResponse {
   grader?: Grader; // Present when scores are visible
   totalPossiblePoints?: number; // Present when scores are visible
   message?: string; // Present when scores are hidden
+}
+
+// Managed Student Types
+
+/**
+ * Managed Student - A student account created and managed by a teacher
+ * These accounts use local username/password authentication instead of WorkOS
+ */
+export interface ManagedStudent {
+  id: string;
+  username: string;
+  email: string; // Generated placeholder email
+  first_name?: string;
+  last_name?: string;
+  is_managed: boolean;
+  managed_by_id: string; // Teacher who manages this account
+  last_password_reset?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * Managed Student with their course enrollments
+ */
+export interface ManagedStudentWithEnrollments extends ManagedStudent {
+  enrollments: ManagedStudentEnrollment[];
+}
+
+/**
+ * Enrollment info for a managed student
+ */
+export interface ManagedStudentEnrollment {
+  id: string;
+  course_id: string;
+  course_name: string;
+  role: string;
+  enrolled_at: string;
+}
+
+/**
+ * Request to create a managed student
+ */
+export interface CreateManagedStudentRequest {
+  username: string;
+  password: string;
+  firstName?: string;
+  lastName?: string;
+  courseId?: string; // Optional: immediately enroll in a course
+}
+
+/**
+ * Request to update a managed student
+ */
+export interface UpdateManagedStudentRequest {
+  firstName?: string;
+  lastName?: string;
+}
+
+/**
+ * Response from password reset
+ */
+export interface ResetPasswordResponse {
+  success: boolean;
+  temporaryPassword: string;
 }

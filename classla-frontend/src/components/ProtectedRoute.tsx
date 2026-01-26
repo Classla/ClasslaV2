@@ -11,6 +11,14 @@ const ProtectedRoute = ({ children, requireAdmin = false }: ProtectedRouteProps)
   const { user, loading, isAuthenticated } = useAuth()
   const location = useLocation()
 
+  // Allow test routes in development without authentication
+  const isTestRoute = process.env.NODE_ENV === 'development' && location.pathname.startsWith('/test/')
+  
+  if (isTestRoute) {
+    // Test routes don't require authentication
+    return <>{children}</>
+  }
+
   // Show loading state while checking authentication
   if (loading) {
     return (

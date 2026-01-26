@@ -20,6 +20,7 @@ import {
   useSensor,
   useSensors,
   DragEndEvent,
+  DragOverlay,
 } from "@dnd-kit/core";
 import {
   arrayMove,
@@ -28,6 +29,15 @@ import {
   verticalListSortingStrategy,
   useSortable,
 } from "@dnd-kit/sortable";
+import {
+  useDroppable,
+} from "@dnd-kit/core";
+
+// Droppable area component
+const DroppableArea: React.FC<{ id: string; children: React.ReactNode }> = ({ id, children }) => {
+  const { setNodeRef } = useDroppable({ id });
+  return <div ref={setNodeRef}>{children}</div>;
+};
 import { CSS } from "@dnd-kit/utilities";
 import { AlertTriangle, GripVertical } from "lucide-react";
 
@@ -78,19 +88,15 @@ const SortableBlock: React.FC<SortableBlockProps> = ({
     <div
       ref={setNodeRef}
       style={style}
-      className={`flex items-center gap-2 p-2 rounded border ${bgColor} ${
+      {...attributes}
+      {...listeners}
+      className={`flex items-center gap-2 p-2 rounded border ${bgColor} cursor-grab active:cursor-grabbing ${
         isDragging ? "shadow-lg" : ""
       }`}
     >
-      <div
-        {...attributes}
-        {...listeners}
-        className="cursor-grab active:cursor-grabbing"
-      >
-        <GripVertical className="w-4 h-4 text-gray-400" />
-      </div>
+      <GripVertical className="w-4 h-4 text-gray-400 flex-shrink-0" />
       {showLineNumbers && (
-        <span className="text-xs text-gray-500 w-6 text-right">
+        <span className="text-xs text-gray-500 w-6 text-right flex-shrink-0">
           {block.indentLevel + 1}
         </span>
       )}
@@ -110,6 +116,7 @@ const ParsonsProblemViewer: React.FC<ParsonsProblemViewerProps> = memo(
     const [solutionBlocks, setSolutionBlocks] = useState<ParsonsProblemBlock[]>([]);
     const [isAnswerChanged, setIsAnswerChanged] = useState(false);
     const [hasDataError, setHasDataError] = useState(false);
+    const [activeId, setActiveId] = useState<string | null>(null);
 
     const sensors = useSensors(
       useSensor(PointerSensor),
@@ -137,10 +144,14 @@ const ParsonsProblemViewer: React.FC<ParsonsProblemViewerProps> = memo(
 
     // Initialize blocks - shuffle and split into available/solution
     useEffect(() => {
-      if (parsonsProblemData.blocks.length === 0) return;
+      if (parsonsProblemData.blocks.length === 0 && parsonsProblemData.distractorBlocks.length === 0) return;
 
-      // Combine correct blocks and distractors, then shuffle
-      // Note: blocks array is filtered out for students, so we need to reconstruct from available data
+      const getBlockAnswerState = (editor?.storage as any)?.getBlockAnswerState;
+      const blockState: BlockAnswerState | null = getBlockAnswerState && parsonsProblemData.id
+        ? getBlockAnswerState(parsonsProblemData.id)
+        : null;
+
+      // Combine correct blocks and distractors
       const blocks = (parsonsProblemData as any).blocks || [];
       const allBlocks: ParsonsProblemBlock[] = [
         ...blocks,
@@ -151,43 +162,30 @@ const ParsonsProblemViewer: React.FC<ParsonsProblemViewerProps> = memo(
         })),
       ];
 
+      // Remove duplicates by ID
+      const uniqueBlocks = Array.from(
+        new Map(allBlocks.map((b) => [b.id, b])).values()
+      );
+
       // Shuffle array
-      const shuffled = [...allBlocks].sort(() => Math.random() - 0.5);
-      setAvailableBlocks(shuffled);
-      setSolutionBlocks([]);
-    }, [parsonsProblemData]);
+      const shuffled = [...uniqueBlocks].sort(() => Math.random() - 0.5);
 
-    // Load initial state from editor storage
-    useEffect(() => {
-      const getBlockAnswerState = (editor?.storage as any)?.getBlockAnswerState;
-      if (getBlockAnswerState && parsonsProblemData.id) {
-        const blockState: BlockAnswerState = getBlockAnswerState(
-          parsonsProblemData.id
-        );
-        if (blockState && blockState.solution) {
-          // Restore solution order
-          const blocks = (parsonsProblemData as any).blocks || [];
-          const restored = blockState.solution
-            .map((id) => {
-              const block = [...blocks, ...(parsonsProblemData.distractorBlocks || []).map(d => ({
-                id: d.id,
-                code: d.code,
-                indentLevel: 0,
-              }))].find((b) => b.id === id);
-              return block;
-            })
-            .filter(Boolean) as ParsonsProblemBlock[];
+      // If we have saved state, restore it
+      if (blockState && blockState.solution) {
+        const restored = blockState.solution
+          .map((id) => uniqueBlocks.find((b) => b.id === id))
+          .filter(Boolean) as ParsonsProblemBlock[];
 
-          if (restored.length > 0) {
-            setSolutionBlocks(restored);
-            const remaining = availableBlocks.filter(
-              (b) => !restored.find((r) => r.id === b.id)
-            );
-            setAvailableBlocks(remaining);
-          }
-        }
+        const restoredIds = new Set(restored.map((b) => b.id));
+        const remaining = shuffled.filter((b) => !restoredIds.has(b.id));
+
+        setSolutionBlocks(restored);
+        setAvailableBlocks(remaining);
+      } else {
+        setAvailableBlocks(shuffled);
+        setSolutionBlocks([]);
       }
-    }, [editor, parsonsProblemData.id, parsonsProblemData.distractorBlocks, availableBlocks]);
+    }, [parsonsProblemData, editor]);
 
     // Auto-save answer state when it changes
     useEffect(() => {
@@ -212,9 +210,14 @@ const ParsonsProblemViewer: React.FC<ParsonsProblemViewerProps> = memo(
       setIsAnswerChanged(false);
     }, [solutionBlocks, parsonsProblemData.id, editor, onAnswerChange, isAnswerChanged]);
 
+    const handleDragStart = useCallback((event: any) => {
+      setActiveId(event.active.id);
+    }, []);
+
     const handleDragEnd = useCallback(
       (event: DragEndEvent) => {
         const { active, over } = event;
+        setActiveId(null);
         if (!over) return;
 
         const activeId = active.id as string;
@@ -231,12 +234,25 @@ const ParsonsProblemViewer: React.FC<ParsonsProblemViewerProps> = memo(
         const isInAvailable = availableBlocks.some((b) => b.id === activeId);
         const isInSolution = solutionBlocks.some((b) => b.id === activeId);
 
-        if (isInAvailable && overId === "solution-area") {
+        if (isInAvailable && (overId === "solution-area" || solutionBlocks.some((b) => b.id === overId))) {
           // Move from available to solution
           setAvailableBlocks(availableBlocks.filter((b) => b.id !== activeId));
-          setSolutionBlocks([...solutionBlocks, draggedBlock]);
+          if (overId === "solution-area") {
+            // Add to end
+            setSolutionBlocks([...solutionBlocks, draggedBlock]);
+          } else {
+            // Insert at specific position
+            const insertIndex = solutionBlocks.findIndex((b) => b.id === overId);
+            if (insertIndex !== -1) {
+              const newSolution = [...solutionBlocks];
+              newSolution.splice(insertIndex, 0, draggedBlock);
+              setSolutionBlocks(newSolution);
+            } else {
+              setSolutionBlocks([...solutionBlocks, draggedBlock]);
+            }
+          }
           setIsAnswerChanged(true);
-        } else if (isInSolution && overId === "available-area") {
+        } else if (isInSolution && (overId === "available-area" || availableBlocks.some((b) => b.id === overId))) {
           // Move from solution to available
           setSolutionBlocks(solutionBlocks.filter((b) => b.id !== activeId));
           setAvailableBlocks([...availableBlocks, draggedBlock]);
@@ -281,6 +297,7 @@ const ParsonsProblemViewer: React.FC<ParsonsProblemViewerProps> = memo(
           <DndContext
             sensors={sensors}
             collisionDetection={closestCenter}
+            onDragStart={handleDragStart}
             onDragEnd={handleDragEnd}
           >
             <div className="grid grid-cols-2 gap-4 mb-4">
@@ -289,37 +306,36 @@ const ParsonsProblemViewer: React.FC<ParsonsProblemViewerProps> = memo(
                 <div className="text-sm font-medium text-gray-700 mb-2">
                   Available Blocks
                 </div>
-                <div
-                  id="available-area"
-                  className="min-h-[200px] p-3 bg-gray-50 border-2 border-dashed border-gray-300 rounded"
-                >
-                  <SortableContext
-                    items={availableBlocks.map((b) => b.id)}
-                    strategy={verticalListSortingStrategy}
-                  >
-                    <div className="space-y-2">
-                      {availableBlocks.map((block) => {
-                        const isDistractor = parsonsProblemData.distractorBlocks.some(
-                          (d) => d.id === block.id
-                        );
-                        return (
-                          <SortableBlock
-                            key={block.id}
-                            block={block}
-                            indentSpaces={parsonsProblemData.indentSpaces || 4}
-                            showLineNumbers={parsonsProblemData.showLineNumbers}
-                            isDistractor={isDistractor}
-                          />
-                        );
-                      })}
-                    </div>
-                  </SortableContext>
-                  {availableBlocks.length === 0 && (
-                    <div className="text-sm text-gray-400 text-center py-8">
-                      All blocks used
-                    </div>
-                  )}
-                </div>
+                <DroppableArea id="available-area">
+                  <div className="min-h-[200px] p-3 bg-gray-50 border-2 border-dashed border-gray-300 rounded">
+                    <SortableContext
+                      items={availableBlocks.map((b) => b.id)}
+                      strategy={verticalListSortingStrategy}
+                    >
+                      <div className="space-y-2">
+                        {availableBlocks.map((block) => {
+                          const isDistractor = parsonsProblemData.distractorBlocks.some(
+                            (d) => d.id === block.id
+                          );
+                          return (
+                            <SortableBlock
+                              key={block.id}
+                              block={block}
+                              indentSpaces={parsonsProblemData.indentSpaces || 4}
+                              showLineNumbers={parsonsProblemData.showLineNumbers}
+                              isDistractor={isDistractor}
+                            />
+                          );
+                        })}
+                      </div>
+                    </SortableContext>
+                    {availableBlocks.length === 0 && (
+                      <div className="text-sm text-gray-400 text-center py-8">
+                        All blocks used
+                      </div>
+                    )}
+                  </div>
+                </DroppableArea>
               </div>
 
               {/* Solution Area */}
@@ -327,49 +343,58 @@ const ParsonsProblemViewer: React.FC<ParsonsProblemViewerProps> = memo(
                 <div className="text-sm font-medium text-gray-700 mb-2">
                   Your Solution
                 </div>
-                <div
-                  id="solution-area"
-                  className="min-h-[200px] p-3 bg-blue-50 border-2 border-dashed border-blue-300 rounded"
-                >
-                  <SortableContext
-                    items={solutionBlocks.map((b) => b.id)}
-                    strategy={verticalListSortingStrategy}
-                  >
-                    <div className="space-y-2">
-                      {solutionBlocks.map((block, index) => {
-                        const correctBlock = parsonsProblemData.blocks[index];
-                        const isCorrectBlock =
-                          correctBlock && correctBlock.id === block.id;
-                        const isCorrectIndent =
-                          !parsonsProblemData.enableIndentation ||
-                          (correctBlock &&
-                            correctBlock.indentLevel === block.indentLevel);
-                        const isCorrect = isCorrectBlock && isCorrectIndent;
+                <DroppableArea id="solution-area">
+                  <div className="min-h-[200px] p-3 bg-blue-50 border-2 border-dashed border-blue-300 rounded">
+                    <SortableContext
+                      items={solutionBlocks.map((b) => b.id)}
+                      strategy={verticalListSortingStrategy}
+                    >
+                      <div className="space-y-2">
+                        {solutionBlocks.map((block, index) => {
+                          const correctBlock = parsonsProblemData.blocks[index];
+                          const isCorrectBlock =
+                            correctBlock && correctBlock.id === block.id;
+                          const isCorrectIndent =
+                            !parsonsProblemData.enableIndentation ||
+                            (correctBlock &&
+                              correctBlock.indentLevel === block.indentLevel);
+                          const isCorrect = isCorrectBlock && isCorrectIndent;
 
-                        const isDistractor = parsonsProblemData.distractorBlocks.some(
-                          (d) => d.id === block.id
-                        );
+                          const isDistractor = parsonsProblemData.distractorBlocks.some(
+                            (d) => d.id === block.id
+                          );
 
-                        return (
-                          <SortableBlock
-                            key={block.id}
-                            block={block}
-                            indentSpaces={parsonsProblemData.indentSpaces || 4}
-                            showLineNumbers={parsonsProblemData.showLineNumbers}
-                            isDistractor={isDistractor}
-                          />
-                        );
-                      })}
-                    </div>
-                  </SortableContext>
-                  {solutionBlocks.length === 0 && (
-                    <div className="text-sm text-gray-400 text-center py-8">
-                      Drag blocks here
-                    </div>
-                  )}
-                </div>
+                          return (
+                            <SortableBlock
+                              key={block.id}
+                              block={block}
+                              indentSpaces={parsonsProblemData.indentSpaces || 4}
+                              showLineNumbers={parsonsProblemData.showLineNumbers}
+                              isDistractor={isDistractor}
+                            />
+                          );
+                        })}
+                      </div>
+                    </SortableContext>
+                    {solutionBlocks.length === 0 && (
+                      <div className="text-sm text-gray-400 text-center py-8">
+                        Drag blocks here
+                      </div>
+                    )}
+                  </div>
+                </DroppableArea>
               </div>
             </div>
+            <DragOverlay>
+              {activeId ? (
+                <div className="flex items-center gap-2 p-2 rounded border bg-white border-gray-300 shadow-lg">
+                  <GripVertical className="w-4 h-4 text-gray-400 flex-shrink-0" />
+                  <code className="text-sm font-mono">
+                    {[...availableBlocks, ...solutionBlocks].find((b) => b.id === activeId)?.code || ""}
+                  </code>
+                </div>
+              ) : null}
+            </DragOverlay>
           </DndContext>
 
         </div>

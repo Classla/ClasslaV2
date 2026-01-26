@@ -17,17 +17,19 @@ import { Course, UserRole } from "../../../types";
 import { hasTAPermission } from "../../../lib/taPermissions";
 import { Allotment } from "allotment";
 import "allotment/dist/style.css";
+import { IDEPanelProvider, useIDEPanel } from "../../../contexts/IDEPanelContext";
 
 interface CourseLayoutProps {
   children: React.ReactNode;
 }
 
-const CourseLayout: React.FC<CourseLayoutProps> = ({ children }) => {
+const CourseLayoutInner: React.FC<CourseLayoutProps> = ({ children }) => {
   const { courseSlug } = useParams<{ courseSlug: string }>();
   const { user } = useAuth();
   const { toast } = useToast();
   const navigate = useNavigate();
   const location = useLocation();
+  const { panelMode } = useIDEPanel();
 
   const [course, setCourse] = useState<Course | null>(null);
   const [userRole, setUserRole] = useState<UserRole | null>(null);
@@ -227,130 +229,132 @@ const CourseLayout: React.FC<CourseLayoutProps> = ({ children }) => {
 
       <div className="flex-1 overflow-hidden">
         <Allotment>
-          {/* Sidebar - Resizable */}
-          <Allotment.Pane minSize={200} maxSize={400} preferredSize={256}>
-            <div className="h-full bg-white border-r border-gray-200 flex flex-col">
-              {/* Navigation Items */}
-              <div className="flex-1 overflow-auto py-6">
-                <nav className="space-y-1 px-3">
-                  {navigationTabs.map((tab) => {
-                    const Icon = tab.icon;
-                    const isActive = currentPage === tab.id;
+          {/* Sidebar - Resizable - Hidden in side-panel mode */}
+          {panelMode !== 'side-panel' && (
+            <Allotment.Pane minSize={200} maxSize={400} preferredSize={256}>
+              <div className="h-full bg-white border-r border-gray-200 flex flex-col">
+                {/* Navigation Items */}
+                <div className="flex-1 overflow-auto py-6">
+                  <nav className="space-y-1 px-3">
+                    {navigationTabs.map((tab) => {
+                      const Icon = tab.icon;
+                      const isActive = currentPage === tab.id;
 
-                    return (
-                      <button
-                        key={tab.id}
-                        onClick={() =>
-                          navigate(`/course/${courseSlug}/${tab.path}`)
-                        }
-                        className={`w-full flex items-center space-x-3 px-3 py-2 text-sm font-medium rounded-md transition-colors ${
-                          isActive
-                            ? "bg-purple-100 text-purple-700"
-                            : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
-                        }`}
-                      >
-                        <Icon className="w-5 h-5" />
-                        <span>{tab.label}</span>
-                      </button>
-                    );
-                  })}
-                </nav>
+                      return (
+                        <button
+                          key={tab.id}
+                          onClick={() =>
+                            navigate(`/course/${courseSlug}/${tab.path}`)
+                          }
+                          className={`w-full flex items-center space-x-3 px-3 py-2 text-sm font-medium rounded-md transition-colors ${
+                            isActive
+                              ? "bg-purple-100 text-purple-700"
+                              : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
+                          }`}
+                        >
+                          <Icon className="w-5 h-5" />
+                          <span>{tab.label}</span>
+                        </button>
+                      );
+                    })}
+                  </nav>
 
-                {/* Assignments Section */}
-                <div className="mt-8 px-3 flex-1 min-h-0 flex flex-col">
-                  <ModuleTree
-                    courseId={course.id}
-                    course={course}
-                    userRole={userRole || undefined}
-                    isStudent={isStudent}
-                    isInstructor={isInstructor}
-                  />
+                  {/* Assignments Section */}
+                  <div className="mt-8 px-3 flex-1 min-h-0 flex flex-col">
+                    <ModuleTree
+                      courseId={course.id}
+                      course={course}
+                      userRole={userRole || undefined}
+                      isStudent={isStudent}
+                      isInstructor={isInstructor}
+                    />
+                  </div>
                 </div>
+
+                {/* Create button at bottom */}
+                {canCreate && (
+                  <div className="border-t border-gray-200 p-3">
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button className="w-full bg-purple-600 hover:bg-purple-700 text-white">
+                          <Plus className="w-4 h-4 mr-2" />
+                          Create
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" side="top" className="w-48">
+                        <DropdownMenuItem
+                          onClick={async () => {
+                            try {
+                              const response = await apiClient.createAssignment({
+                                name: "New Assignment",
+                                course_id: course.id,
+                                module_path: [],
+                                settings: {},
+                                content: "",
+                                published_to: [],
+                                due_dates_map: {},
+                                is_lockdown: false,
+                                lockdown_time_map: {},
+                                order_index: 0,
+                              });
+
+                              const newAssignment = response.data;
+                              navigate(`/course/${courseSlug}/assignment/${newAssignment.id}`);
+
+                              toast({
+                                title: "Assignment created",
+                                description: "New assignment has been created successfully",
+                              });
+                            } catch (error: any) {
+                              toast({
+                                title: "Error creating assignment",
+                                description: error.message || "Failed to create assignment",
+                                variant: "destructive",
+                              });
+                            }
+                          }}
+                          className="cursor-pointer"
+                        >
+                          <FileText className="w-4 h-4 mr-2" />
+                          Create Assignment
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onClick={async () => {
+                            const folderName = prompt("Enter folder name:");
+                            if (!folderName?.trim()) return;
+
+                            try {
+                              await apiClient.createFolder({
+                                course_id: course.id,
+                                path: [folderName.trim()],
+                                name: folderName.trim(),
+                                order_index: 0,
+                              });
+
+                              toast({
+                                title: "Folder created",
+                                description: "New folder has been created successfully",
+                              });
+                            } catch (error: any) {
+                              toast({
+                                title: "Error creating folder",
+                                description: error.message || "Failed to create folder",
+                                variant: "destructive",
+                              });
+                            }
+                          }}
+                          className="cursor-pointer"
+                        >
+                          <Folder className="w-4 h-4 mr-2" />
+                          Create Folder
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
+                )}
               </div>
-
-              {/* Create button at bottom */}
-              {canCreate && (
-                <div className="border-t border-gray-200 p-3">
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button className="w-full bg-purple-600 hover:bg-purple-700 text-white">
-                        <Plus className="w-4 h-4 mr-2" />
-                        Create
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" side="top" className="w-48">
-                      <DropdownMenuItem
-                        onClick={async () => {
-                          try {
-                            const response = await apiClient.createAssignment({
-                              name: "New Assignment",
-                              course_id: course.id,
-                              module_path: [],
-                              settings: {},
-                              content: "",
-                              published_to: [],
-                              due_dates_map: {},
-                              is_lockdown: false,
-                              lockdown_time_map: {},
-                              order_index: 0,
-                            });
-
-                            const newAssignment = response.data;
-                            navigate(`/course/${courseSlug}/assignment/${newAssignment.id}`);
-
-                            toast({
-                              title: "Assignment created",
-                              description: "New assignment has been created successfully",
-                            });
-                          } catch (error: any) {
-                            toast({
-                              title: "Error creating assignment",
-                              description: error.message || "Failed to create assignment",
-                              variant: "destructive",
-                            });
-                          }
-                        }}
-                        className="cursor-pointer"
-                      >
-                        <FileText className="w-4 h-4 mr-2" />
-                        Create Assignment
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        onClick={async () => {
-                          const folderName = prompt("Enter folder name:");
-                          if (!folderName?.trim()) return;
-
-                          try {
-                            await apiClient.createFolder({
-                              course_id: course.id,
-                              path: [folderName.trim()],
-                              name: folderName.trim(),
-                              order_index: 0,
-                            });
-
-                            toast({
-                              title: "Folder created",
-                              description: "New folder has been created successfully",
-                            });
-                          } catch (error: any) {
-                            toast({
-                              title: "Error creating folder",
-                              description: error.message || "Failed to create folder",
-                              variant: "destructive",
-                            });
-                          }
-                        }}
-                        className="cursor-pointer"
-                      >
-                        <Folder className="w-4 h-4 mr-2" />
-                        Create Folder
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </div>
-              )}
-            </div>
-          </Allotment.Pane>
+            </Allotment.Pane>
+          )}
 
           {/* Main Content */}
           <Allotment.Pane minSize={400}>
@@ -369,6 +373,15 @@ const CourseLayout: React.FC<CourseLayoutProps> = ({ children }) => {
         </Allotment>
       </div>
     </div>
+  );
+};
+
+// Wrap with IDEPanelProvider to enable IDE panel functionality
+const CourseLayout: React.FC<CourseLayoutProps> = (props) => {
+  return (
+    <IDEPanelProvider>
+      <CourseLayoutInner {...props} />
+    </IDEPanelProvider>
   );
 };
 

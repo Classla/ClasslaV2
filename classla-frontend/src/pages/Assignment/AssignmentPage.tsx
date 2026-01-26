@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../../contexts/AuthContext";
 import { apiClient } from "../../lib/api";
@@ -6,10 +6,10 @@ import { useToast } from "../../hooks/use-toast";
 import { Card } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
-import { Calendar, Users, Eye, Settings } from "lucide-react";
+import { Calendar, Users, Eye, Settings, X } from "lucide-react";
 import { Assignment, UserRole, RubricSchema, Course } from "../../types";
 import { hasTAPermission } from "../../lib/taPermissions";
-import PublishAssignmentModal from "./components/PublishAssignmentModal";
+import PublishingModal from "../../components/PublishingModal";
 import DueDatesModal from "../Course/components/DueDatesModal";
 import AssignmentSettingsPanel from "./components/AssignmentSettingsPanel";
 import GradingSidebar from "./components/grader/GradingSidebar";
@@ -21,6 +21,8 @@ import AssignmentPageSkeleton from "./components/AssignmentPageSkeleton";
 import { Allotment } from "allotment";
 import "allotment/dist/style.css";
 import { calculateAssignmentPoints } from "../../utils/assignmentPoints";
+import { useIDEPanel } from "../../contexts/IDEPanelContext";
+import MonacoIDE from "../../components/Blocks/IDE/MonacoIDE";
 
 interface AssignmentPageProps {
   course?: Course;
@@ -48,6 +50,7 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
   const { user } = useAuth();
   const { toast } = useToast();
   const navigate = useNavigate();
+  const { panelMode, activePanelState, closeSidePanel } = useIDEPanel();
 
   const [assignment, setAssignment] = useState<Assignment | null>(null);
   const [loading, setLoading] = useState(true);
@@ -77,6 +80,16 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
   >(undefined);
   const [rubricSchema, setRubricSchema] = useState<RubricSchema | null>(null);
 
+  // Student Preview Mode state - persists to localStorage
+  const [isPreviewMode, setIsPreviewMode] = useState<boolean>(() => {
+    if (!assignmentId) return false;
+    try {
+      return localStorage.getItem(`student-preview-${assignmentId}`) === 'true';
+    } catch {
+      return false;
+    }
+  });
+
   // Wait for user role to be determined before making API calls
   const effectiveIsStudent = isStudent ?? false;
   const effectiveIsInstructor = isInstructor ?? false;
@@ -91,6 +104,41 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
 
   // Check if user has instructional privileges (can see sidebar)
   const hasInstructionalPrivileges = effectiveIsInstructor; // This already covers instructor, TA, and admin roles
+
+  // Sync preview mode to localStorage when it changes
+  useEffect(() => {
+    if (assignmentId) {
+      try {
+        if (isPreviewMode) {
+          localStorage.setItem(`student-preview-${assignmentId}`, 'true');
+        } else {
+          localStorage.removeItem(`student-preview-${assignmentId}`);
+        }
+      } catch {
+        // localStorage may not be available
+      }
+    }
+  }, [isPreviewMode, assignmentId]);
+
+  // Reset preview mode when assignment changes
+  useEffect(() => {
+    if (assignmentId) {
+      try {
+        setIsPreviewMode(localStorage.getItem(`student-preview-${assignmentId}`) === 'true');
+      } catch {
+        setIsPreviewMode(false);
+      }
+    }
+  }, [assignmentId]);
+
+  // Toggle preview mode
+  const togglePreviewMode = useCallback(() => {
+    setIsPreviewMode(prev => !prev);
+    // Reset grading student when entering preview mode
+    if (!isPreviewMode) {
+      setSelectedGradingStudent(null);
+    }
+  }, [isPreviewMode]);
 
   // Set loading immediately when assignmentId changes
   useEffect(() => {
@@ -503,6 +551,27 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
               </div>
             </Card>
 
+            {/* Student Preview Mode Banner */}
+            {isPreviewMode && (
+              <div className="bg-amber-500 text-white px-4 py-2 mx-6 mt-2 rounded-lg flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Eye className="w-5 h-5" />
+                  <span className="font-medium">Student Preview Mode</span>
+                  <span className="text-sm opacity-90">
+                    - You are viewing this assignment as a student would see it
+                  </span>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setIsPreviewMode(false)}
+                  className="text-white hover:bg-amber-600"
+                >
+                  Exit Preview
+                </Button>
+              </div>
+            )}
+
             {/* Assignment Content */}
             <div className="flex-1 mx-6">
               <Card className="h-full p-0 overflow-hidden">
@@ -526,12 +595,23 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
                           locked={true}
                           grader={selectedGradingStudent.grader}
                         />
+                      ) : isPreviewMode ? (
+                        // Student Preview Mode - show what students see
+                        <AssignmentViewer
+                          assignment={assignment}
+                          isStudent={true}
+                          locked={true}
+                          previewMode={true}
+                          studentId={user?.id}
+                        />
                       ) : (
                         <AssignmentEditor
                           key={assignment.id}
                           assignment={assignment}
                           onAssignmentUpdated={handleAssignmentUpdated}
                           isReadOnly={false}
+                          isPreviewMode={isPreviewMode}
+                          onTogglePreview={togglePreviewMode}
                         />
                       )
                     ) : submissionId ? (
@@ -620,6 +700,97 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
           </div>
         </Allotment.Pane>
 
+        {/* IDE Panel - Shows when in side-panel mode */}
+        {panelMode === 'side-panel' && activePanelState && (
+          <Allotment.Pane minSize={400} preferredSize={800}>
+            <div className="h-full bg-white border-l border-gray-200 shadow-xl flex flex-col">
+              <div className="p-2 border-b bg-gray-50 flex-shrink-0 flex items-center justify-between">
+                <h3 className="text-lg font-semibold">IDE Environment</h3>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={closeSidePanel}
+                  className="w-8 h-8 p-0"
+                  title="Close IDE Panel"
+                >
+                  <X className="w-4 h-4" />
+                </Button>
+              </div>
+              <div className="flex-1 overflow-hidden">
+                <MonacoIDE
+                  bucketId={activePanelState.bucketId}
+                  containerId={activePanelState.container?.id || null}
+                  containerTerminalUrl={activePanelState.container?.urls?.terminal}
+                  containerVncUrl={activePanelState.container?.urls?.vnc}
+                  containerWebServerUrl={activePanelState.container?.urls?.webServer}
+                  ideApiBaseUrl={activePanelState.ideApiBaseUrl}
+                  runFilename={activePanelState.runFilename}
+                  isStarting={activePanelState.isStarting}
+                  showDesktop={activePanelState.showDesktop}
+                  layoutMode="side-panel"
+                  onRun={async () => {
+                    // Run code in the container
+                    if (!activePanelState.container) return;
+                    
+                    const filename = activePanelState.runFilename || "main.py";
+                    const ext = filename.split(".").pop()?.toLowerCase();
+                    const languageMap: Record<string, string> = {
+                      py: "python",
+                      js: "node",
+                      java: "java",
+                      sh: "bash",
+                      ts: "node",
+                    };
+                    const language = languageMap[ext || ""] || "python";
+
+                    try {
+                      const response = await fetch(
+                        `${activePanelState.ideApiBaseUrl}/web/${activePanelState.container.id}/run`,
+                        {
+                          method: "POST",
+                          headers: {
+                            "Content-Type": "application/json",
+                          },
+                          body: JSON.stringify({
+                            filename,
+                            language,
+                          }),
+                        }
+                      );
+
+                      const data = await response.json();
+
+                      if (!response.ok) {
+                        throw new Error(data.error || "Failed to execute code");
+                      }
+                    } catch (error: any) {
+                      console.error("Failed to execute code:", error);
+                      toast({
+                        title: "Execution failed",
+                        description: error.message || "Failed to execute code.",
+                        variant: "destructive",
+                      });
+                    }
+                  }}
+                  onFilenameChange={(filename) => {
+                    // Update the filename in panel state
+                    // Note: This won't sync back to the original block, but that's okay
+                    // The side panel has its own ephemeral state
+                  }}
+                  onToggleDesktop={() => {
+                    // Toggle desktop view - local to side panel
+                    // We'd need to manage this in local state if needed
+                  }}
+                  onContainerKilled={() => {
+                    // Container was killed, close the side panel
+                    closeSidePanel();
+                  }}
+                />
+              </div>
+            </div>
+          </Allotment.Pane>
+        )}
+
         {/* Sidebar Panel - Resizable */}
         {hasInstructionalPrivileges && activeSidebarPanel && assignment && (
           <Allotment.Pane minSize={280} maxSize={600} preferredSize={320}>
@@ -703,7 +874,7 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
       {/* Modals */}
       {assignment && (
         <>
-          <PublishAssignmentModal
+          <PublishingModal
             isOpen={isPublishModalOpen}
             onClose={() => setIsPublishModalOpen(false)}
             assignment={assignment}

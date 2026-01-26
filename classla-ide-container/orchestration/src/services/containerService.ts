@@ -10,6 +10,7 @@ import {
 
 export interface ContainerConfig {
   s3Bucket?: string; // Optional for pre-warmed containers
+  s3BucketId?: string; // Optional: bucketId for file sync
   s3Region?: string;
   awsAccessKeyId?: string;
   awsSecretAccessKey?: string;
@@ -73,17 +74,25 @@ export class ContainerService {
       // Base paths for path-based routing
       `CODE_BASE_PATH=/code/${containerId}`,
       `VNC_BASE_PATH=/vnc/${containerId}`,
-      // Inactivity timeout (30 seconds for local dev, 10 minutes default)
-      `INACTIVITY_TIMEOUT_SECONDS=${config.nodeEnv === "development" || config.nodeEnv === "local" ? "30" : "600"}`,
+      // Inactivity timeout (10 minutes default, configurable via INACTIVITY_TIMEOUT_SECONDS env var)
+      `INACTIVITY_TIMEOUT_SECONDS=${process.env.INACTIVITY_TIMEOUT_SECONDS || "600"}`,
       // Management API URL for shutdown webhook
       `MANAGEMENT_API_URL=http://ide-local_management-api:3001`,
       `CONTAINER_ID=${containerId}`,
+      // Backend API URL for file sync
+      `BACKEND_API_URL=${config.backendApiUrl || "http://localhost:8000/api"}`,
+      // Container service token for authentication
+      `CONTAINER_SERVICE_TOKEN=${config.containerServiceToken || ""}`,
     ];
 
     // Only set S3_BUCKET if not skipping (for pre-warmed containers)
     if (!containerConfig.skipS3Bucket && containerConfig.s3Bucket) {
       env.push(`S3_BUCKET=${containerConfig.s3Bucket}`);
       env.push(`S3_REGION=${containerConfig.s3Region || "us-east-1"}`);
+      // Also set bucketId if provided (for new containers)
+      if (containerConfig.s3BucketId) {
+        env.push(`S3_BUCKET_ID=${containerConfig.s3BucketId}`);
+      }
     } else if (!containerConfig.skipS3Bucket) {
       // If skipS3Bucket is false but no bucket provided, still set region
       env.push(`S3_REGION=${containerConfig.s3Region || "us-east-1"}`);
@@ -114,6 +123,14 @@ export class ContainerService {
           Image: config.ideContainerImage,
           Env: env,
           // Labels removed from ContainerSpec - Traefik reads from service level in Swarm mode
+        },
+        LogDriver: {
+          Name: "json-file",
+          Options: {
+            "max-size": "10m",      // Maximum size of log file before rotation
+            "max-file": "5",        // Maximum number of log files to keep
+            "labels": "container_id,service_name", // Add labels to logs for easier filtering
+          },
         },
         Resources: {
           Limits: {
@@ -467,6 +484,7 @@ export class ContainerService {
     containerId: string,
     s3Config: {
       bucket: string;
+      bucketId?: string;
       region?: string;
       accessKeyId?: string;
       secretAccessKey?: string;
@@ -535,11 +553,16 @@ export class ContainerService {
         }
       }
       
+      // CRITICAL FIX: Even if web server health check fails, try assignment anyway
+      // The web server might be running but health endpoint might not be responding yet
+      // We should attempt assignment regardless - the endpoint will handle errors gracefully
       if (!webServerReady) {
-        throw new Error(`Web server for container ${containerId} is not ready after ${maxRetries} attempts`);
+        console.warn(
+          `[ContainerService] Web server health check failed for container ${containerId}, but attempting S3 assignment anyway (web server might still be starting)`
+        );
       }
       
-      // Call the /assign-s3-bucket endpoint
+      // Call the /assign-s3-bucket endpoint (even if health check failed)
       const response = await fetch(`${webServerUrl}/assign-s3-bucket`, {
         method: "POST",
         headers: {
@@ -547,6 +570,7 @@ export class ContainerService {
         },
         body: JSON.stringify({
           bucket: s3Config.bucket,
+          bucketId: s3Config.bucketId,
           region: s3Config.region || "us-east-1",
           accessKeyId: s3Config.accessKeyId,
           secretAccessKey: s3Config.secretAccessKey,

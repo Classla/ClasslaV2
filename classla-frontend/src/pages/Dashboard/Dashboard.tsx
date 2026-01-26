@@ -34,7 +34,7 @@ interface Course {
 }
 
 const Dashboard: React.FC = () => {
-  const { user, refreshUser } = useAuth();
+  const { user, refreshUser, isManagedStudent } = useAuth();
   const { toast } = useToast();
   const navigate = useNavigate();
   const [courses, setCourses] = useState<Course[]>([]);
@@ -313,119 +313,121 @@ const Dashboard: React.FC = () => {
           </p>
         </div>
 
-        <div className="flex space-x-3">
-          <Dialog open={joinDialogOpen} onOpenChange={setJoinDialogOpen}>
-            <DialogTrigger asChild>
-              <Button
-                variant="outline"
-                className="border-purple-600 text-purple-600 hover:bg-purple-50"
-              >
-                <BookOpen className="w-4 h-4 mr-2" />
-                Join Course
-              </Button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Join a Course</DialogTitle>
-                <DialogDescription>
-                  Enter the course join code provided by your instructor.
-                </DialogDescription>
-              </DialogHeader>
-              <div className="space-y-4 py-4">
-                <div className="space-y-2">
-                  <Label htmlFor="join-code">Course Join Code</Label>
-                  <Input
-                    id="join-code"
-                    placeholder="Enter join code (e.g., ABC123)"
-                    value={joinCode}
-                    onChange={(e) => {
-                      const value = e.target.value
-                        .toUpperCase()
-                        .replace(/[^A-Z0-9]/g, "");
-                      setJoinCode(value);
-                    }}
-                    maxLength={6}
-                  />
-                </div>
-              </div>
-              <DialogFooter>
+        {!isManagedStudent && (
+          <div className="flex space-x-3">
+            <Dialog open={joinDialogOpen} onOpenChange={setJoinDialogOpen}>
+              <DialogTrigger asChild>
                 <Button
                   variant="outline"
-                  onClick={() => setJoinDialogOpen(false)}
+                  className="border-purple-600 text-purple-600 hover:bg-purple-50"
                 >
-                  Cancel
-                </Button>
-                <Button
-                  onClick={handleJoinCourse}
-                  disabled={joinCode.length !== 6}
-                  className="bg-purple-600 hover:bg-purple-700"
-                >
+                  <BookOpen className="w-4 h-4 mr-2" />
                   Join Course
                 </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Join a Course</DialogTitle>
+                  <DialogDescription>
+                    Enter the course join code provided by your instructor.
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="space-y-4 py-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="join-code">Course Join Code</Label>
+                    <Input
+                      id="join-code"
+                      placeholder="Enter join code (e.g., ABC123)"
+                      value={joinCode}
+                      onChange={(e) => {
+                        const value = e.target.value
+                          .toUpperCase()
+                          .replace(/[^A-Z0-9]/g, "");
+                        setJoinCode(value);
+                      }}
+                      maxLength={6}
+                    />
+                  </div>
+                </div>
+                <DialogFooter>
+                  <Button
+                    variant="outline"
+                    onClick={() => setJoinDialogOpen(false)}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    onClick={handleJoinCourse}
+                    disabled={joinCode.length !== 6}
+                    className="bg-purple-600 hover:bg-purple-700"
+                  >
+                    Join Course
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
 
-          <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
-            <DialogTrigger asChild>
-              <Button className="bg-purple-600 hover:bg-purple-700">
-                <Plus className="w-4 h-4 mr-2" />
-                Create Course
-              </Button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Create New Course</DialogTitle>
-                <DialogDescription>
-                  Create a new course and start teaching your students.
-                </DialogDescription>
-              </DialogHeader>
-              <div className="space-y-4 py-4">
-                <div className="space-y-2">
-                  <Label htmlFor="course-name">Course Name</Label>
-                  <Input
-                    id="course-name"
-                    placeholder="Enter course name"
-                    value={newCourseName}
-                    onChange={(e) => setNewCourseName(e.target.value)}
-                    maxLength={150}
-                  />
-                  <p className="text-sm text-gray-500 text-right">
-                    {newCourseName.length}/150
-                  </p>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="course-description">Course Description</Label>
-                  <Input
-                    id="course-description"
-                    placeholder="Enter course description"
-                    value={newCourseDescription}
-                    onChange={(e) => setNewCourseDescription(e.target.value)}
-                    maxLength={250}
-                  />
-                  <p className="text-sm text-gray-500 text-right">
-                    {newCourseDescription.length}/250
-                  </p>
-                </div>
-              </div>
-              <DialogFooter>
-                <Button
-                  variant="outline"
-                  onClick={() => setCreateDialogOpen(false)}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  onClick={handleCreateCourse}
-                  disabled={!newCourseName.trim()}
-                  className="bg-purple-600 hover:bg-purple-700"
-                >
+            <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
+              <DialogTrigger asChild>
+                <Button className="bg-purple-600 hover:bg-purple-700">
+                  <Plus className="w-4 h-4 mr-2" />
                   Create Course
                 </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
-        </div>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Create New Course</DialogTitle>
+                  <DialogDescription>
+                    Create a new course and start teaching your students.
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="space-y-4 py-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="course-name">Course Name</Label>
+                    <Input
+                      id="course-name"
+                      placeholder="Enter course name"
+                      value={newCourseName}
+                      onChange={(e) => setNewCourseName(e.target.value)}
+                      maxLength={150}
+                    />
+                    <p className="text-sm text-gray-500 text-right">
+                      {newCourseName.length}/150
+                    </p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="course-description">Course Description</Label>
+                    <Input
+                      id="course-description"
+                      placeholder="Enter course description"
+                      value={newCourseDescription}
+                      onChange={(e) => setNewCourseDescription(e.target.value)}
+                      maxLength={250}
+                    />
+                    <p className="text-sm text-gray-500 text-right">
+                      {newCourseDescription.length}/250
+                    </p>
+                  </div>
+                </div>
+                <DialogFooter>
+                  <Button
+                    variant="outline"
+                    onClick={() => setCreateDialogOpen(false)}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    onClick={handleCreateCourse}
+                    disabled={!newCourseName.trim()}
+                    className="bg-purple-600 hover:bg-purple-700"
+                  >
+                    Create Course
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+          </div>
+        )}
       </div>
 
       {/* Courses Grid */}
@@ -436,24 +438,27 @@ const Dashboard: React.FC = () => {
             No courses found
           </h3>
           <p className="text-gray-600 mb-6">
-            It looks like you're not part of any courses yet. Create or join one
-            to get started!
+            {isManagedStudent
+              ? "You haven't been enrolled in any courses yet. Please contact your teacher."
+              : "It looks like you're not part of any courses yet. Create or join one to get started!"}
           </p>
-          <div className="flex justify-center space-x-3">
-            <Button
-              variant="outline"
-              onClick={() => setJoinDialogOpen(true)}
-              className="border-purple-600 text-purple-600 hover:bg-purple-50"
-            >
-              Join Course
-            </Button>
-            <Button
-              onClick={() => setCreateDialogOpen(true)}
-              className="bg-purple-600 hover:bg-purple-700"
-            >
-              Create Course
-            </Button>
-          </div>
+          {!isManagedStudent && (
+            <div className="flex justify-center space-x-3">
+              <Button
+                variant="outline"
+                onClick={() => setJoinDialogOpen(true)}
+                className="border-purple-600 text-purple-600 hover:bg-purple-50"
+              >
+                Join Course
+              </Button>
+              <Button
+                onClick={() => setCreateDialogOpen(true)}
+                className="bg-purple-600 hover:bg-purple-700"
+              >
+                Create Course
+              </Button>
+            </div>
+          )}
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">

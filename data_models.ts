@@ -229,6 +229,7 @@ interface S3Bucket {
   course_id?: string; // Optional - if bucket is associated with a course
   assignment_id?: string; // Optional - if bucket is for a specific assignment
   status: "creating" | "active" | "deleting" | "deleted" | "error";
+  is_template?: boolean; // Whether this bucket is a template that can be cloned
   created_at: Date;
   deleted_at?: Date;
 }

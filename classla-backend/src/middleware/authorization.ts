@@ -386,6 +386,26 @@ export const requireAdmin = asyncHandler(
 );
 
 /**
+ * Middleware to block managed students from certain actions
+ * Managed students cannot create courses, join courses by code, etc.
+ */
+export const blockManagedStudents = asyncHandler(
+  (req: Request, res: Response, next: NextFunction): void => {
+    if (!req.user) {
+      throw new AuthenticationError();
+    }
+
+    if (req.user.isManagedStudent) {
+      throw new AuthorizationError(
+        "This action is not available for managed student accounts"
+      );
+    }
+
+    next();
+  }
+);
+
+/**
  * Middleware to require course enrollment
  */
 export const requireCourseEnrollment = (courseIdParam: string = "courseId") => {

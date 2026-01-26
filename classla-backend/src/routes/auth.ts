@@ -11,6 +11,10 @@ import {
   userSynchronizationService,
   UserSynchronizationError,
 } from "../services/userSync";
+import {
+  managedStudentService,
+  ManagedStudentServiceError,
+} from "../services/managedStudentService";
 import { authenticateToken } from "../middleware/auth";
 import { logger } from "../utils/logger";
 import { storeOAuthState, validateOAuthState } from "../services/stateStore";
@@ -116,6 +120,106 @@ router.post("/auth/password-login", async (req: Request, res: Response) => {
       success: false,
       error: "Authentication failed",
       code: "PASSWORD_AUTH_ERROR",
+    });
+  }
+});
+
+/**
+ * POST /auth/managed-login
+ * Authenticate managed student with username and password
+ */
+router.post("/auth/managed-login", async (req: Request, res: Response) => {
+  try {
+    const { username, password } = req.body;
+
+    // Validate required parameters
+    if (!username || !password) {
+      logger.warn("Managed login missing credentials", {
+        requestId: req.headers["x-request-id"],
+        username: username ? "[PROVIDED]" : "[MISSING]",
+        password: password ? "[PROVIDED]" : "[MISSING]",
+        ip: req.ip,
+      });
+
+      return res.status(400).json({
+        success: false,
+        error: "Username and password are required",
+        code: "MISSING_CREDENTIALS",
+      });
+    }
+
+    // Authenticate the managed student
+    const student = await managedStudentService.authenticateManagedStudent(
+      username,
+      password
+    );
+
+    if (!student) {
+      logger.warn("Managed login failed - invalid credentials", {
+        requestId: req.headers["x-request-id"],
+        username,
+        ip: req.ip,
+      });
+
+      return res.status(401).json({
+        success: false,
+        error: "Invalid username or password",
+        code: "INVALID_CREDENTIALS",
+      });
+    }
+
+    logger.info("Managed student authentication successful", {
+      requestId: req.headers["x-request-id"],
+      studentId: student.id,
+      username: student.username,
+      ip: req.ip,
+    });
+
+    // Create session for managed student
+    await sessionManagementService.createManagedStudentSession(req, {
+      id: student.id,
+      email: student.email,
+      firstName: student.first_name,
+      lastName: student.last_name,
+    });
+
+    logger.info("Managed student session created", {
+      requestId: req.headers["x-request-id"],
+      studentId: student.id,
+      username: student.username,
+    });
+
+    return res.json({
+      success: true,
+      message: "Authentication successful",
+    });
+  } catch (error) {
+    logger.error("Managed login failed", {
+      requestId: req.headers["x-request-id"],
+      error: error instanceof Error ? error.message : "Unknown error",
+      ip: req.ip,
+    });
+
+    if (error instanceof ManagedStudentServiceError) {
+      return res.status(error.statusCode || 500).json({
+        success: false,
+        error: error.message,
+        code: error.code,
+      });
+    }
+
+    if (error instanceof SessionManagementError) {
+      return res.status(error.statusCode || 500).json({
+        success: false,
+        error: "Failed to create session",
+        code: error.code || "SESSION_ERROR",
+      });
+    }
+
+    return res.status(500).json({
+      success: false,
+      error: "Authentication failed",
+      code: "MANAGED_AUTH_ERROR",
     });
   }
 });
@@ -491,6 +595,7 @@ router.get(
           firstName: supabaseUser.first_name,
           lastName: supabaseUser.last_name,
           isAdmin: supabaseUser.is_admin,
+          isManagedStudent: supabaseUser.is_managed === true,
           createdAt: supabaseUser.created_at,
           updatedAt: supabaseUser.updated_at,
         },
@@ -692,5 +797,83 @@ router.post("/auth/signup", async (req: Request, res: Response) => {
     });
   }
 });
+
+/**
+ * POST /auth/change-password
+ * Allow managed students to change their own password
+ * Protected route - requires valid session and must be a managed student
+ */
+router.post(
+  "/auth/change-password",
+  authenticateToken,
+  async (req: Request, res: Response) => {
+    try {
+      if (!req.user) {
+        return res.status(401).json({
+          success: false,
+          error: "Not authenticated",
+          code: "NOT_AUTHENTICATED",
+        });
+      }
+
+      // Only managed students can use this endpoint
+      if (!req.user.isManagedStudent) {
+        return res.status(403).json({
+          success: false,
+          error: "This feature is only available for managed student accounts",
+          code: "NOT_MANAGED_STUDENT",
+        });
+      }
+
+      const { currentPassword, newPassword } = req.body;
+
+      if (!currentPassword || !newPassword) {
+        return res.status(400).json({
+          success: false,
+          error: "Current password and new password are required",
+          code: "MISSING_FIELDS",
+        });
+      }
+
+      await managedStudentService.changeOwnPassword(
+        req.user.id,
+        currentPassword,
+        newPassword
+      );
+
+      logger.info("Managed student changed password", {
+        requestId: req.headers["x-request-id"],
+        userId: req.user.id,
+        ip: req.ip,
+      });
+
+      return res.json({
+        success: true,
+        message: "Password changed successfully",
+      });
+    } catch (error) {
+      logger.error("Password change failed", {
+        requestId: req.headers["x-request-id"],
+        userId: req.user?.id,
+        error: error instanceof Error ? error.message : "Unknown error",
+        ip: req.ip,
+      });
+
+      if (error instanceof ManagedStudentServiceError) {
+        return res.status(error.statusCode || 500).json({
+          success: false,
+          error: error.message,
+          code: error.code,
+        });
+      }
+
+      return res.status(500).json({
+        success: false,
+        error: "Failed to change password",
+        code: "PASSWORD_CHANGE_ERROR",
+      });
+    }
+  }
+);
 
 export default router;

@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { Link } from "react-router-dom";
 import { useAuth } from "../../contexts/AuthContext";
 import { apiClient } from "../../lib/api";
 import { useToast } from "../../hooks/use-toast";
@@ -13,7 +14,7 @@ import {
 import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
 import { Alert, AlertDescription } from "../../components/ui/alert";
-import { User, Mail, Loader2 } from "lucide-react";
+import { User, Mail, Loader2, Users, ChevronRight, Lock } from "lucide-react";
 
 interface UserProfile {
   id: string;
@@ -24,7 +25,7 @@ interface UserProfile {
 }
 
 const UserSettings = () => {
-  const { user, refreshUser } = useAuth();
+  const { user, refreshUser, isManagedStudent } = useAuth();
   const { toast } = useToast();
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [firstName, setFirstName] = useState(user?.firstName ?? "");
@@ -33,6 +34,14 @@ const UserSettings = () => {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+
+  // Password change state (for managed students)
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [changingPassword, setChangingPassword] = useState(false);
+  const [passwordError, setPasswordError] = useState("");
+  const [passwordSuccess, setPasswordSuccess] = useState("");
 
   useEffect(() => {
     const fetchUserProfile = async () => {
@@ -105,6 +114,52 @@ const UserSettings = () => {
       });
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleChangePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setPasswordError("");
+    setPasswordSuccess("");
+
+    if (!currentPassword || !newPassword || !confirmPassword) {
+      setPasswordError("All fields are required");
+      return;
+    }
+
+    if (newPassword.length < 8) {
+      setPasswordError("New password must be at least 8 characters");
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      setPasswordError("New passwords do not match");
+      return;
+    }
+
+    try {
+      setChangingPassword(true);
+      await apiClient.changePassword(currentPassword, newPassword);
+
+      setPasswordSuccess("Password changed successfully!");
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+
+      toast({
+        title: "Password changed",
+        description: "Your password has been updated successfully.",
+      });
+    } catch (err: any) {
+      const errorMessage = err.response?.data?.error || "Failed to change password";
+      setPasswordError(errorMessage);
+      toast({
+        title: "Failed to change password",
+        description: errorMessage,
+        variant: "destructive",
+      });
+    } finally {
+      setChangingPassword(false);
     }
   };
 
@@ -240,6 +295,112 @@ const UserSettings = () => {
             </form>
           </CardContent>
         </Card>
+
+        {/* Change Password Card - only shown for managed students */}
+        {isManagedStudent && (
+          <Card className="shadow-xl border-0 mt-6">
+            <CardHeader>
+              <div className="flex items-center space-x-2">
+                <Lock className="h-5 w-5 text-purple-600" />
+                <CardTitle className="text-2xl font-semibold">Change Password</CardTitle>
+              </div>
+              <CardDescription>
+                Update your password. You'll need to enter your current password to confirm.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <form onSubmit={handleChangePassword} className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="currentPassword">Current Password</Label>
+                  <Input
+                    type="password"
+                    id="currentPassword"
+                    value={currentPassword}
+                    onChange={(e) => setCurrentPassword(e.target.value)}
+                    disabled={changingPassword}
+                    placeholder="Enter your current password"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="newPassword">New Password</Label>
+                  <Input
+                    type="password"
+                    id="newPassword"
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    disabled={changingPassword}
+                    placeholder="Enter new password (min. 8 characters)"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="confirmPassword">Confirm New Password</Label>
+                  <Input
+                    type="password"
+                    id="confirmPassword"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    disabled={changingPassword}
+                    placeholder="Confirm new password"
+                  />
+                </div>
+
+                {passwordError && (
+                  <Alert variant="destructive">
+                    <AlertDescription>{passwordError}</AlertDescription>
+                  </Alert>
+                )}
+
+                {passwordSuccess && (
+                  <Alert className="border-green-200 bg-green-50">
+                    <AlertDescription className="text-green-800">
+                      {passwordSuccess}
+                    </AlertDescription>
+                  </Alert>
+                )}
+
+                <div className="flex justify-end pt-2">
+                  <Button
+                    type="submit"
+                    disabled={changingPassword || !currentPassword || !newPassword || !confirmPassword}
+                    className="bg-purple-600 hover:bg-purple-700 text-white min-w-[140px]"
+                  >
+                    {changingPassword ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Changing...
+                      </>
+                    ) : (
+                      "Change Password"
+                    )}
+                  </Button>
+                </div>
+              </form>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Managed Students Card - only shown for non-managed users */}
+        {!isManagedStudent && (
+          <Card className="shadow-xl border-0 mt-6">
+            <CardHeader>
+              <div className="flex items-center space-x-2">
+                <Users className="h-5 w-5 text-purple-600" />
+                <CardTitle className="text-2xl font-semibold">Managed Students</CardTitle>
+              </div>
+              <CardDescription>
+                Create and manage student accounts for your courses. These accounts use username/password authentication.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Link to="/managed-students">
+                <Button variant="outline" className="w-full justify-between">
+                  <span>Manage Student Accounts</span>
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </Link>
+            </CardContent>
+          </Card>
+        )}
       </div>
     </div>
   );

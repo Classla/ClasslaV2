@@ -50,7 +50,7 @@ export class ApiError extends Error {
 // Create axios instance configured for session-based authentication
 const api = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 10000, // 10 second timeout for most requests
+  timeout: 30000, // 30 second timeout for most requests
   withCredentials: true, // Include cookies for session-based auth (required for WorkOS sessions)
 });
 
@@ -62,8 +62,67 @@ const aiApi = axios.create({
   withCredentials: true,
 });
 
+// Create separate axios instance for container operations with longer timeout
+// Container operations (start/stop) can take 30+ seconds, especially in local mode
+const containerApi = axios.create({
+  baseURL: API_BASE_URL,
+  timeout: 60000, // 60 second timeout for container operations
+  withCredentials: true,
+});
+
 // Add response interceptor for AI API (same error handling)
 aiApi.interceptors.response.use(
+  (response) => {
+    if (import.meta.env.DEV) {
+      console.log(
+        `✅ ${response.config.method?.toUpperCase()} ${response.config.url}`,
+        {
+          status: response.status,
+          data: response.data,
+        }
+      );
+    }
+    return response;
+  },
+  (error: AxiosError) => {
+    if (error.response) {
+      const response = error.response as AxiosResponse<ApiErrorResponse>;
+      if (import.meta.env.DEV) {
+        console.error(
+          `❌ ${error.config?.method?.toUpperCase()} ${error.config?.url}`,
+          {
+            status: response.status,
+            error: response.data,
+          }
+        );
+      }
+      if (response.status === 401) {
+        window.dispatchEvent(new CustomEvent("auth:session-expired"));
+        const currentPath = window.location.pathname;
+        if (
+          !currentPath.startsWith("/signin") &&
+          !currentPath.startsWith("/signup") &&
+          !currentPath.startsWith("/auth")
+        ) {
+          window.location.href = "/signin";
+        }
+      }
+      if (response.status === 403) {
+        console.warn("Access forbidden - insufficient permissions");
+      }
+      throw new ApiError(response);
+    } else if (error.request) {
+      console.error("Network error:", error.message);
+      throw new Error("Network error: Unable to connect to server");
+    } else {
+      console.error("Request error:", error.message);
+      throw new Error(`Request error: ${error.message}`);
+    }
+  }
+);
+
+// Add response interceptor for container API (same error handling)
+containerApi.interceptors.response.use(
   (response) => {
     if (import.meta.env.DEV) {
       console.log(
@@ -150,12 +209,13 @@ api.interceptors.response.use(
         // Session expired or invalid, dispatch custom event for AuthContext
         window.dispatchEvent(new CustomEvent("auth:session-expired"));
 
-        // Only redirect if not already on auth pages
+        // Only redirect if not already on auth pages or test pages
         const currentPath = window.location.pathname;
         if (
           !currentPath.startsWith("/signin") &&
           !currentPath.startsWith("/signup") &&
-          !currentPath.startsWith("/auth")
+          !currentPath.startsWith("/auth") &&
+          !currentPath.startsWith("/test/") // Don't redirect from test pages
         ) {
           window.location.href = "/signin";
         }
@@ -281,6 +341,7 @@ export const apiClient = {
     content?: string;
     published_to?: string[];
     due_dates_map?: Record<string, string>;
+    scheduled_publish_map?: Record<string, string>;
     module_path?: string[];
     is_lockdown?: boolean;
     lockdown_time_map?: Record<string, number>;
@@ -294,6 +355,7 @@ export const apiClient = {
       content?: string;
       published_to?: string[];
       due_dates_map?: Record<string, string>;
+      scheduled_publish_map?: Record<string, string>;
       module_path?: string[];
       is_lockdown?: boolean;
       lockdown_time_map?: Record<string, number>;
@@ -407,6 +469,7 @@ export const apiClient = {
   // IDE Block endpoints
   startIDEContainer: (data: {
     s3Bucket: string;
+    s3BucketId?: string; // Optional: bucketId for file sync
     s3Region: string;
     userId?: string;
     useLocalIDE?: boolean;
@@ -417,7 +480,7 @@ export const apiClient = {
     }
     // Remove useLocalIDE from body before sending
     const { useLocalIDE, ...bodyData } = data;
-    return api.post("/ide-blocks/start-container", bodyData, { headers });
+    return containerApi.post("/ide-blocks/start-container", bodyData, { headers });
   },
   checkContainerStatus: (containerId: string, useLocalIDE?: boolean) => {
     const headers: Record<string, string> = {};
@@ -432,7 +495,31 @@ export const apiClient = {
     course_id?: string;
     assignment_id?: string;
     region?: string;
+    is_template?: boolean;
   }) => api.post("/s3buckets", data),
+  cloneS3Bucket: (
+    sourceBucketId: string,
+    data: {
+      course_id?: string;
+      assignment_id?: string;
+      region?: string;
+    }
+  ) => api.post(`/s3buckets/${sourceBucketId}/clone`, data),
+  softDeleteS3Bucket: (bucketId: string) => api.post(`/s3buckets/${bucketId}/soft-delete`),
+  
+  // S3 file operations
+  listS3Files: (bucketId: string) => api.get(`/s3buckets/${bucketId}/files`),
+  getS3File: (bucketId: string, filePath: string) =>
+    api.get(`/s3buckets/${bucketId}/files/${encodeURIComponent(filePath)}`, {
+      // Add cache-busting to prevent browser caching
+      params: { _t: Date.now() },
+    }),
+  saveS3File: (bucketId: string, filePath: string, content: string) =>
+    api.put(`/s3buckets/${bucketId}/files/${encodeURIComponent(filePath)}`, { content }),
+  deleteS3File: (bucketId: string, filePath: string) =>
+    api.delete(`/s3buckets/${bucketId}/files/${encodeURIComponent(filePath)}`),
+  createS3File: (bucketId: string, filePath: string, content?: string) =>
+    api.post(`/s3buckets/${bucketId}/files`, { path: filePath, content: content || "" }),
 
   // Organization endpoints
   getOrganizations: () => api.get("/organizations"),
@@ -492,6 +579,36 @@ export const apiClient = {
   cloneTemplate: (id: string) => api.post(`/template/${id}/clone`),
   exportCourseToTemplate: (courseId: string, data: { organizationId: string; name: string }) =>
     api.post(`/export-to-template/${courseId}`, data),
+
+  // Managed Students endpoints
+  getManagedStudents: () => api.get("/managed-students"),
+  getManagedStudent: (id: string) => api.get(`/managed-students/${id}`),
+  createManagedStudent: (data: {
+    username: string;
+    password: string;
+    firstName?: string;
+    lastName?: string;
+    courseId?: string;
+  }) => api.post("/managed-students", data),
+  updateManagedStudent: (
+    id: string,
+    data: {
+      firstName?: string;
+      lastName?: string;
+    }
+  ) => api.put(`/managed-students/${id}`, data),
+  deleteManagedStudent: (id: string) => api.delete(`/managed-students/${id}`),
+  resetManagedStudentPassword: (id: string) =>
+    api.post(`/managed-students/${id}/reset-password`),
+  enrollManagedStudent: (studentId: string, courseId: string) =>
+    api.post(`/managed-students/${studentId}/enroll`, { courseId }),
+  unenrollManagedStudent: (studentId: string, courseId: string) =>
+    api.delete(`/managed-students/${studentId}/enroll/${courseId}`),
+  getManagedStudentCourses: () => api.get("/managed-students/courses"),
+
+  // Self-service password change for managed students
+  changePassword: (currentPassword: string, newPassword: string) =>
+    api.post("/auth/change-password", { currentPassword, newPassword }),
 };
 
 export default api;

@@ -42,11 +42,15 @@ services:
           - node.role == manager
       labels:
         - "traefik.enable=true"
-        - "traefik.http.routers.traefik-dashboard.rule=${TRAEFIK_DASHBOARD_RULE:-Host(`traefik.localhost`) || Host(`localhost`)}"
+        # Traefik dashboard - accessible at /traefik in production, port 8080 in local
+        - "traefik.http.routers.traefik-dashboard.rule=${TRAEFIK_DASHBOARD_RULE:-Host(`localhost`)}"
         - "traefik.http.routers.traefik-dashboard.entrypoints=${TRAEFIK_DASHBOARD_ENTRYPOINT:-web}"
         - "traefik.http.routers.traefik-dashboard.tls.certresolver=${TRAEFIK_DASHBOARD_TLS:-}"
         - "traefik.http.routers.traefik-dashboard.service=api@internal"
         - "traefik.http.services.traefik-dashboard.loadbalancer.server.port=8080"
+        # Strip /traefik prefix for path-based routing (production)
+        - "traefik.http.middlewares.traefik-strip.stripprefix.prefixes=/traefik"
+        - "traefik.http.routers.traefik-dashboard.middlewares=traefik-strip"
 
   management-api:
     image: ide-orchestration-api:latest
@@ -62,7 +66,7 @@ services:
       - DATABASE_PATH=/app/data/containers.db
       - LOG_LEVEL=${LOG_LEVEL:-info}
       - PRE_WARMED_QUEUE_SIZE=${PRE_WARMED_QUEUE_SIZE:-1}
-      - INACTIVITY_TIMEOUT_SECONDS=${INACTIVITY_TIMEOUT_SECONDS:-30}
+      - INACTIVITY_TIMEOUT_SECONDS=${INACTIVITY_TIMEOUT_SECONDS:-600}
       - RESOURCE_CPU_LIMIT=${RESOURCE_CPU_LIMIT:-2}
       - RESOURCE_MEMORY_LIMIT=${RESOURCE_MEMORY_LIMIT:-4294967296}
       - RESOURCE_CPU_THRESHOLD=${RESOURCE_CPU_THRESHOLD:-90}
@@ -74,6 +78,8 @@ services:
       - CONTAINER_RESTART_MAX_ATTEMPTS=${CONTAINER_RESTART_MAX_ATTEMPTS:-3}
       - SUPABASE_URL=${SUPABASE_URL:-}
       - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY:-}
+      - BACKEND_API_URL=${BACKEND_API_URL:-http://localhost:8000/api}
+      - CONTAINER_SERVICE_TOKEN=${CONTAINER_SERVICE_TOKEN:-}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - api-data:/app/data
@@ -92,26 +98,29 @@ services:
         - "traefik.http.services.ide-api.loadbalancer.server.port=3001"
         - "traefik.http.middlewares.ide-api-stripprefix.stripprefix.prefixes=/api"
         - "traefik.http.routers.ide-api.middlewares=ide-api-stripprefix"
-        # Production mode: Additional routes (only created when DOMAIN is not localhost)
-        # These use environment variables that are only set in production mode by start.sh
+        # Local mode: Dashboard accessible at localhost/dashboard
+        - "traefik.http.routers.ide-dashboard.rule=Host(`localhost`) && PathPrefix(`/dashboard`)"
+        - "traefik.http.routers.ide-dashboard.entrypoints=web"
+        - "traefik.http.routers.ide-dashboard.service=ide-api"
+        - "traefik.http.middlewares.ide-dashboard-stripprefix.stripprefix.prefixes=/dashboard"
+        - "traefik.http.routers.ide-dashboard.middlewares=ide-dashboard-stripprefix"
+        # Production mode: Path-based routes under main domain
+        # These use environment variables set by start.sh in production mode
+        # API route at /api (strips prefix before forwarding)
         - "traefik.http.routers.management-api-main.rule=${MANAGEMENT_API_MAIN_RULE:-Host(`invalid.localhost`) && PathPrefix(`/api`)}"
         - "traefik.http.routers.management-api-main.entrypoints=${MANAGEMENT_API_MAIN_ENTRYPOINT:-web}"
         - "traefik.http.routers.management-api-main.tls.certresolver=${MANAGEMENT_API_MAIN_TLS:-}"
         - "traefik.http.routers.management-api-main.service=management-api"
         - "traefik.http.middlewares.management-api-main-strip.stripprefix.prefixes=/api"
         - "traefik.http.routers.management-api-main.middlewares=management-api-main-strip,security-headers@file"
-        - "traefik.http.routers.management-api.rule=${MANAGEMENT_API_SUBDOMAIN_RULE:-Host(`invalid-api.localhost`)}"
-        - "traefik.http.routers.management-api.entrypoints=${MANAGEMENT_API_ENTRYPOINT:-web}"
-        - "traefik.http.routers.management-api.tls.certresolver=${MANAGEMENT_API_TLS:-}"
-        - "traefik.http.routers.management-api.service=management-api"
         - "traefik.http.services.management-api.loadbalancer.server.port=3001"
-        - "traefik.http.routers.management-api.middlewares=security-headers@file"
-        - "traefik.http.routers.dashboard.rule=${DASHBOARD_RULE:-Host(`invalid-dashboard.localhost`)}"
+        # Dashboard route at /dashboard (strips prefix before forwarding)
+        - "traefik.http.routers.dashboard.rule=${DASHBOARD_RULE:-Host(`invalid.localhost`) && PathPrefix(`/dashboard`)}"
         - "traefik.http.routers.dashboard.entrypoints=${DASHBOARD_ENTRYPOINT:-web}"
         - "traefik.http.routers.dashboard.tls.certresolver=${DASHBOARD_TLS:-}"
-        - "traefik.http.routers.dashboard.service=${DASHBOARD_SERVICE:-dashboard}"
-        - "traefik.http.services.dashboard.loadbalancer.server.port=${DASHBOARD_SERVICE_PORT:-3001}"
-        - "traefik.http.routers.dashboard.middlewares=security-headers@file"
+        - "traefik.http.routers.dashboard.service=management-api"
+        - "traefik.http.middlewares.dashboard-strip.stripprefix.prefixes=/dashboard"
+        - "traefik.http.routers.dashboard.middlewares=dashboard-strip,security-headers@file"
 
 networks:
   ide-network:

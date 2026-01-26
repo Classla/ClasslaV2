@@ -146,6 +146,7 @@ import ideBlocksRoutes from "./routes/ideBlocks";
 import aiRoutes from "./routes/ai";
 import organizationRoutes from "./routes/organizations";
 import courseTemplateRoutes from "./routes/courseTemplates";
+import managedStudentsRoutes from "./routes/managedStudents";
 
 // Auth routes (mounted at root for WorkOS callback compatibility)
 app.use("/", authRoutes);
@@ -169,6 +170,7 @@ app.use("/api/ide-blocks", ideBlocksRoutes);
 app.use("/api", aiRoutes);
 app.use("/api", organizationRoutes);
 app.use("/api", courseTemplateRoutes);
+app.use("/api", managedStudentsRoutes);
 
 // Error handling - must be after all routes
 app.use(errorHandler);
@@ -179,6 +181,14 @@ const io = initializeWebSocket(server, sessionMiddleware);
 
 // Set up AI WebSocket namespace
 setupAIWebSocket(io);
+
+// Set up Y.js WebSocket namespace (replaces old file sync WebSocket)
+const { setupYjsWebSocket } = require("./services/yjsProviderService");
+setupYjsWebSocket(io);
+
+// Old file sync WebSocket (deprecated - kept for backward compatibility during migration)
+// const { setupFileSyncWebSocket } = require("./services/fileSyncService");
+// setupFileSyncWebSocket(io);
 
 // Wait for Redis connection before starting server (in production)
 waitForRedisConnection()

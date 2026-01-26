@@ -66,12 +66,18 @@ interface AssignmentViewerProps {
   onSubmissionSelect?: (submissionId: string) => void; // Callback when submission is selected
   locked?: boolean; // If true, viewer is read-only (for viewing submitted work)
   grader?: any; // Grader object with block_scores for displaying scores on blocks
+  previewMode?: boolean; // If true, this is a teacher preview - disable all submissions
 }
 
-// Answer state management for MCQ blocks
+// Answer state management for all block types
 interface AnswerState {
   [blockId: string]: {
-    selectedOptions: string[];
+    selectedOptions?: string[]; // For MCQ and Poll
+    answer?: string; // For Short Answer
+    solution?: string[]; // For Parsons Problem (array of block IDs)
+    selectedLines?: number[]; // For Clickable Area
+    matches?: Record<string, string>; // For Drag-Drop Matching (itemId -> zoneId)
+    answers?: Record<string, string>; // For Fill-in-the-Blank (blankId -> answer)
     timestamp: Date;
   };
 }
@@ -96,6 +102,7 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
   onSubmissionSelect,
   locked = false,
   grader,
+  previewMode = false,
 }) => {
   const { toast } = useToast();
   const [answerState, setAnswerState] = useState<AnswerState>({});
@@ -180,10 +187,77 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
         const newAnswerState: AnswerState = {};
         if (submission.values && typeof submission.values === "object") {
           Object.keys(submission.values).forEach((blockId) => {
+            const value = submission.values[blockId];
+            if (Array.isArray(value) && value.length > 0) {
+              // Try to determine the type based on the first value
+              const firstVal = value[0];
+              if (typeof firstVal === "string") {
+                // Could be selectedOptions, solution, selectedLines, or JSON string
+                // Try parsing as JSON first
+                try {
+                  const parsed = JSON.parse(firstVal);
+                  if (typeof parsed === "object" && !Array.isArray(parsed)) {
+                    // It's a matches object
             newAnswerState[blockId] = {
-              selectedOptions: submission.values[blockId] || [],
+                      matches: parsed,
               timestamp: new Date(submission.timestamp),
             };
+                  } else {
+                    // It's a regular string array
+                    newAnswerState[blockId] = {
+                      selectedOptions: value,
+                      timestamp: new Date(submission.timestamp),
+                    };
+                  }
+                } catch {
+                  // Not JSON, check if it's a number string (selectedLines)
+                  if (value.every((v) => !isNaN(Number(v)))) {
+                    newAnswerState[blockId] = {
+                      selectedLines: value.map((v) => Number(v)),
+                      timestamp: new Date(submission.timestamp),
+                    };
+                  } else if (value.length === 1) {
+                    // Single string - could be answer, solution, or JSON
+                    try {
+                      const parsed = JSON.parse(value[0]);
+                      if (typeof parsed === "object" && !Array.isArray(parsed)) {
+                        // It's a matches or answers object
+                        if (Object.keys(parsed).every((k) => typeof parsed[k] === "string")) {
+                          // Check if it looks like answers (blankId -> answer) or matches (itemId -> zoneId)
+                          newAnswerState[blockId] = {
+                            answers: parsed,
+                            timestamp: new Date(submission.timestamp),
+                          };
+                        } else {
+                          newAnswerState[blockId] = {
+                            matches: parsed,
+                            timestamp: new Date(submission.timestamp),
+                          };
+                        }
+                      } else {
+                        // It's a regular string answer
+                        newAnswerState[blockId] = {
+                          answer: value[0],
+                          timestamp: new Date(submission.timestamp),
+                        };
+                      }
+                    } catch {
+                      // Not JSON, it's a regular string answer
+                      newAnswerState[blockId] = {
+                        answer: value[0],
+                        timestamp: new Date(submission.timestamp),
+                      };
+                    }
+                  } else {
+                    // Multiple strings - likely selectedOptions or solution
+                    newAnswerState[blockId] = {
+                      selectedOptions: value,
+                      timestamp: new Date(submission.timestamp),
+                    };
+                  }
+                }
+              }
+            }
           });
         }
 
@@ -250,6 +324,7 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
     async (values: Record<string, string[]>) => {
       if (!isStudent) return; // Only students can save submissions
       if (isReadOnly) return; // Don't auto-save when read-only
+      if (previewMode) return; // Don't auto-save in preview mode
 
       // Clear existing timeout
       if (saveTimeoutRef.current) {
@@ -288,6 +363,7 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
     [
       isStudent,
       isReadOnly,
+      previewMode,
       submissionId,
       assignment.id,
       assignment.course_id,
@@ -334,7 +410,18 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
         if (isStudent) {
           const submissionValues: Record<string, string[]> = {};
           Object.keys(newAnswerState).forEach((key) => {
-            submissionValues[key] = newAnswerState[key].selectedOptions;
+            const state = newAnswerState[key];
+            if (state.answer) {
+              submissionValues[key] = [state.answer];
+            } else if (state.selectedOptions) {
+              submissionValues[key] = state.selectedOptions;
+            } else if (state.solution) {
+              submissionValues[key] = state.solution;
+            } else if (state.selectedLines) {
+              submissionValues[key] = state.selectedLines.map((n) => n.toString());
+            } else if (state.matches) {
+              submissionValues[key] = [JSON.stringify(state.matches)];
+            }
           });
           autoSaveSubmission(submissionValues);
         }
@@ -352,10 +439,238 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
     ]
   );
 
+  // Handler for Short Answer
+  const handleShortAnswerChange = useCallback(
+    (blockId: string, answer: string) => {
+      const newAnswerState = {
+        ...answerState,
+        [blockId]: {
+          answer,
+          timestamp: new Date(),
+        },
+      };
+      setAnswerState(newAnswerState);
+      saveAnswerState(newAnswerState);
+      onAnswerChange?.(blockId, answer);
+
+      // Auto-save to backend if student
+      if (isStudent) {
+        const submissionValues: Record<string, string[]> = {};
+        Object.keys(newAnswerState).forEach((key) => {
+          const state = newAnswerState[key];
+          if (state.answer) {
+            submissionValues[key] = [state.answer];
+          } else if (state.selectedOptions) {
+            submissionValues[key] = state.selectedOptions;
+          } else if (state.solution) {
+            submissionValues[key] = state.solution;
+          } else if (state.selectedLines) {
+            submissionValues[key] = state.selectedLines.map((n) => n.toString());
+          } else if (state.matches) {
+            submissionValues[key] = [JSON.stringify(state.matches)];
+          } else if (state.answers) {
+            submissionValues[key] = [JSON.stringify(state.answers)];
+          }
+        });
+        autoSaveSubmission(submissionValues);
+      }
+    },
+    [answerState, saveAnswerState, onAnswerChange, isStudent, autoSaveSubmission]
+  );
+
+  // Handler for Parsons Problem
+  const handleParsonsProblemChange = useCallback(
+    (blockId: string, answer: { solution: string[] }) => {
+      const newAnswerState = {
+        ...answerState,
+        [blockId]: {
+          solution: answer.solution,
+          timestamp: new Date(),
+        },
+      };
+      setAnswerState(newAnswerState);
+      saveAnswerState(newAnswerState);
+      onAnswerChange?.(blockId, answer);
+
+      if (isStudent) {
+        const submissionValues: Record<string, string[]> = {};
+        Object.keys(newAnswerState).forEach((key) => {
+          const state = newAnswerState[key];
+          if (state.answer) {
+            submissionValues[key] = [state.answer];
+          } else if (state.selectedOptions) {
+            submissionValues[key] = state.selectedOptions;
+          } else if (state.solution) {
+            submissionValues[key] = state.solution;
+          } else if (state.selectedLines) {
+            submissionValues[key] = state.selectedLines.map((n) => n.toString());
+          } else if (state.matches) {
+            submissionValues[key] = [JSON.stringify(state.matches)];
+          } else if (state.answers) {
+            submissionValues[key] = [JSON.stringify(state.answers)];
+          }
+        });
+        autoSaveSubmission(submissionValues);
+      }
+    },
+    [answerState, saveAnswerState, onAnswerChange, isStudent, autoSaveSubmission]
+  );
+
+  // Handler for Clickable Area
+  const handleClickableAreaChange = useCallback(
+    (blockId: string, selectedLines: number[]) => {
+      const newAnswerState = {
+        ...answerState,
+        [blockId]: {
+          selectedLines,
+          timestamp: new Date(),
+        },
+      };
+      setAnswerState(newAnswerState);
+      saveAnswerState(newAnswerState);
+      onAnswerChange?.(blockId, selectedLines);
+
+      if (isStudent) {
+        const submissionValues: Record<string, string[]> = {};
+        Object.keys(newAnswerState).forEach((key) => {
+          const state = newAnswerState[key];
+          if (state.answer) {
+            submissionValues[key] = [state.answer];
+          } else if (state.selectedOptions) {
+            submissionValues[key] = state.selectedOptions;
+          } else if (state.solution) {
+            submissionValues[key] = state.solution;
+          } else if (state.selectedLines) {
+            submissionValues[key] = state.selectedLines.map((n) => n.toString());
+          } else if (state.matches) {
+            submissionValues[key] = [JSON.stringify(state.matches)];
+          } else if (state.answers) {
+            submissionValues[key] = [JSON.stringify(state.answers)];
+          }
+        });
+        autoSaveSubmission(submissionValues);
+      }
+    },
+    [answerState, saveAnswerState, onAnswerChange, isStudent, autoSaveSubmission]
+  );
+
+  // Handler for Drag-Drop Matching
+  const handleDragDropMatchingChange = useCallback(
+    (blockId: string, answer: { matches: Record<string, string> }) => {
+      const newAnswerState = {
+        ...answerState,
+        [blockId]: {
+          matches: answer.matches,
+          timestamp: new Date(),
+        },
+      };
+      setAnswerState(newAnswerState);
+      saveAnswerState(newAnswerState);
+      onAnswerChange?.(blockId, answer);
+
+      if (isStudent) {
+        const submissionValues: Record<string, string[]> = {};
+        Object.keys(newAnswerState).forEach((key) => {
+          const state = newAnswerState[key];
+          if (state.answer) {
+            submissionValues[key] = [state.answer];
+          } else if (state.selectedOptions) {
+            submissionValues[key] = state.selectedOptions;
+          } else if (state.solution) {
+            submissionValues[key] = state.solution;
+          } else if (state.selectedLines) {
+            submissionValues[key] = state.selectedLines.map((n) => n.toString());
+          } else if (state.matches) {
+            submissionValues[key] = [JSON.stringify(state.matches)];
+          } else if (state.answers) {
+            submissionValues[key] = [JSON.stringify(state.answers)];
+          }
+        });
+        autoSaveSubmission(submissionValues);
+      }
+    },
+    [answerState, saveAnswerState, onAnswerChange, isStudent, autoSaveSubmission]
+  );
+
+  // Handler for Poll
+  const handlePollChange = useCallback(
+    (blockId: string, answer: { selectedOptions: string[] }) => {
+      const newAnswerState = {
+        ...answerState,
+        [blockId]: {
+          selectedOptions: answer.selectedOptions,
+          timestamp: new Date(),
+        },
+      };
+      setAnswerState(newAnswerState);
+      saveAnswerState(newAnswerState);
+      onAnswerChange?.(blockId, answer);
+
+      if (isStudent) {
+        const submissionValues: Record<string, string[]> = {};
+        Object.keys(newAnswerState).forEach((key) => {
+          const state = newAnswerState[key];
+          if (state.answer) {
+            submissionValues[key] = [state.answer];
+          } else if (state.selectedOptions) {
+            submissionValues[key] = state.selectedOptions;
+          } else if (state.solution) {
+            submissionValues[key] = state.solution;
+          } else if (state.selectedLines) {
+            submissionValues[key] = state.selectedLines.map((n) => n.toString());
+          } else if (state.matches) {
+            submissionValues[key] = [JSON.stringify(state.matches)];
+          } else if (state.answers) {
+            submissionValues[key] = [JSON.stringify(state.answers)];
+          }
+        });
+        autoSaveSubmission(submissionValues);
+      }
+    },
+    [answerState, saveAnswerState, onAnswerChange, isStudent, autoSaveSubmission]
+  );
+
+  // Handler for Fill-in-the-Blank
+  const handleFillInTheBlankChange = useCallback(
+    (blockId: string, answers: Record<string, string>) => {
+      const newAnswerState = {
+        ...answerState,
+        [blockId]: {
+          answers,
+          timestamp: new Date(),
+        },
+      };
+      setAnswerState(newAnswerState);
+      saveAnswerState(newAnswerState);
+      onAnswerChange?.(blockId, answers);
+
+      if (isStudent) {
+        const submissionValues: Record<string, string[]> = {};
+        Object.keys(newAnswerState).forEach((key) => {
+          const state = newAnswerState[key];
+          if (state.answer) {
+            submissionValues[key] = [state.answer];
+          } else if (state.selectedOptions) {
+            submissionValues[key] = state.selectedOptions;
+          } else if (state.solution) {
+            submissionValues[key] = state.solution;
+          } else if (state.selectedLines) {
+            submissionValues[key] = state.selectedLines.map((n) => n.toString());
+          } else if (state.matches) {
+            submissionValues[key] = [JSON.stringify(state.matches)];
+          } else if (state.answers) {
+            submissionValues[key] = [JSON.stringify(state.answers)];
+          }
+        });
+        autoSaveSubmission(submissionValues);
+      }
+    },
+    [answerState, saveAnswerState, onAnswerChange, isStudent, autoSaveSubmission]
+  );
+
   // Function to get answer state for a specific block - optimized with ref
   const getBlockAnswerState = useCallback((blockId: string) => {
     const state = answerStateRef.current[blockId] || {
-      selectedOptions: [],
       timestamp: new Date(),
     };
     console.log("[AssignmentViewer] getBlockAnswerState called:", {
@@ -444,8 +759,13 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
     content: "", // Start with empty content, we'll set it properly in useEffect
     editable: !isReadOnly, // Read-only when submitted/graded
     onCreate: ({ editor }) => {
-      // Store the answer change callback and state getter in the editor's storage
+      // Store the answer change callbacks and state getter in the editor's storage
       (editor.storage as any).mcqAnswerCallback = handleMCQAnswerChange;
+      (editor.storage as any).shortAnswerCallback = handleShortAnswerChange;
+      (editor.storage as any).parsonsProblemAnswerCallback = handleParsonsProblemChange;
+      (editor.storage as any).clickableAreaAnswerCallback = handleClickableAreaChange;
+      (editor.storage as any).dragDropMatchingAnswerCallback = handleDragDropMatchingChange;
+      (editor.storage as any).pollAnswerCallback = handlePollChange;
       (editor.storage as any).getBlockAnswerState = getBlockAnswerState;
       (editor.storage as any).isReadOnly = isReadOnly;
       (editor.storage as any).hasSubmission = hasSubmission;
@@ -604,6 +924,11 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
   useEffect(() => {
     if (editor) {
       (editor.storage as any).mcqAnswerCallback = handleMCQAnswerChange;
+      (editor.storage as any).shortAnswerCallback = handleShortAnswerChange;
+      (editor.storage as any).parsonsProblemAnswerCallback = handleParsonsProblemChange;
+      (editor.storage as any).clickableAreaAnswerCallback = handleClickableAreaChange;
+      (editor.storage as any).dragDropMatchingAnswerCallback = handleDragDropMatchingChange;
+      (editor.storage as any).pollAnswerCallback = handlePollChange;
       (editor.storage as any).getBlockAnswerState = getBlockAnswerState;
       (editor.storage as any).isReadOnly = isReadOnly;
       (editor.storage as any).hasSubmission = hasSubmission;
@@ -622,6 +947,12 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
   }, [
     editor,
     handleMCQAnswerChange,
+    handleShortAnswerChange,
+    handleParsonsProblemChange,
+    handleClickableAreaChange,
+    handleDragDropMatchingChange,
+    handlePollChange,
+    handleFillInTheBlankChange,
     getBlockAnswerState,
     isReadOnly,
     hasSubmission,
@@ -694,7 +1025,20 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
       // Create a new submission with current answer state
       const submissionValues: Record<string, string[]> = {};
       Object.keys(answerState).forEach((key) => {
-        submissionValues[key] = answerState[key].selectedOptions;
+        const state = answerState[key];
+        if (state.answer) {
+          submissionValues[key] = [state.answer];
+        } else if (state.selectedOptions) {
+          submissionValues[key] = state.selectedOptions;
+        } else if (state.solution) {
+          submissionValues[key] = state.solution;
+        } else if (state.selectedLines) {
+          submissionValues[key] = state.selectedLines.map((n) => n.toString());
+        } else if (state.matches) {
+          submissionValues[key] = [JSON.stringify(state.matches)];
+        } else if (state.answers) {
+          submissionValues[key] = [JSON.stringify(state.answers)];
+        }
       });
 
       const response = await apiClient.createOrUpdateSubmission({
@@ -792,6 +1136,15 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
   }, [submissionId, toast, onSubmissionStatusChange]);
 
   const handleSubmit = useCallback(async () => {
+    // Prevent submission in preview mode
+    if (previewMode) {
+      toast({
+        title: "Preview Mode",
+        description: "Submissions are disabled in preview mode.",
+      });
+      return;
+    }
+
     if (!submissionId) {
       toast({
         title: "No submission to submit",
@@ -817,7 +1170,20 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
       if (isStudent && !isReadOnly) {
         const submissionValues: Record<string, string[]> = {};
         Object.keys(answerState).forEach((key) => {
-          submissionValues[key] = answerState[key].selectedOptions;
+          const state = answerState[key];
+          if (state.answer) {
+            submissionValues[key] = [state.answer];
+          } else if (state.selectedOptions) {
+            submissionValues[key] = state.selectedOptions;
+          } else if (state.solution) {
+            submissionValues[key] = state.solution;
+          } else if (state.selectedLines) {
+            submissionValues[key] = state.selectedLines.map((n) => n.toString());
+          } else if (state.matches) {
+            submissionValues[key] = [JSON.stringify(state.matches)];
+          } else if (state.answers) {
+            submissionValues[key] = [JSON.stringify(state.answers)];
+          }
         });
 
         // Save immediately before submitting
@@ -919,13 +1285,25 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
     onSubmissionStatusChange,
     isStudent,
     isReadOnly,
+    previewMode,
     answerState,
   ]);
 
   return (
     <div className="h-full flex flex-col bg-white relative">
+      {/* Preview Mode Banner */}
+      {previewMode && (
+        <div className="bg-amber-100 border-b border-amber-300 px-4 py-3">
+          <div className="max-w-4xl mx-auto flex items-center justify-center gap-2">
+            <span className="font-medium text-amber-800">
+              Preview Mode - This is how students will see this assignment. Submissions are disabled.
+            </span>
+          </div>
+        </div>
+      )}
+
       {/* No Submission Banner */}
-      {!hasSubmission && (
+      {!hasSubmission && !previewMode && (
         <div className="bg-yellow-50 border-b border-yellow-200 px-4 py-3">
           <div className="max-w-4xl mx-auto flex items-center justify-center gap-2">
             <AlertTriangle className="w-5 h-5 text-yellow-600" />
@@ -1191,8 +1569,8 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
         )}
       </div>
 
-      {/* Fixed Bottom Bar for Students */}
-      {isStudent && (
+      {/* Fixed Bottom Bar for Students (hidden in preview mode) */}
+      {isStudent && !previewMode && (
         <div className="sticky bottom-0 left-0 right-0 border-t border-gray-200 bg-white shadow-lg z-40">
           <div className="max-w-4xl mx-auto px-6 py-4 flex items-center justify-between">
             <div className="flex items-center gap-4">
@@ -1265,7 +1643,8 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
                   isSubmitting ||
                   submissionStatus === "submitted" ||
                   submissionStatus === "graded" ||
-                  !submissionId
+                  !submissionId ||
+                  previewMode
                 }
                 className="bg-purple-600 hover:bg-purple-700 text-white disabled:opacity-50 disabled:cursor-not-allowed"
                 size="lg"

@@ -13,6 +13,8 @@ import {
   Loader2,
   AlertCircle,
   Code2,
+  ExternalLink,
+  PanelLeft,
 } from "lucide-react";
 import { Button } from "../../ui/button";
 import { Input } from "../../ui/input";
@@ -27,6 +29,7 @@ import {
 import { useToast } from "../../../hooks/use-toast";
 import { apiClient } from "../../../lib/api";
 import { useAuth } from "../../../contexts/AuthContext";
+import { useIDEPanel } from "../../../contexts/IDEPanelContext";
 
 interface IDEBlockViewerProps {
   node: any;
@@ -53,6 +56,7 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
     const ideData = node.attrs.ideData as IDEBlockData;
     const { toast } = useToast();
     const { user } = useAuth();
+    const { openSidePanel, openFullscreen } = useIDEPanel();
 
     const [activeTab, setActiveTab] = useState<TabType>("code");
     const [container, setContainer] = useState<ContainerInfo | null>(null);
@@ -155,16 +159,14 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
       setIsStarting(true);
 
       try {
-        // Use template tab data for student view (they see the template)
-        const tabData = ideData.template;
-
-        // Get or create S3 bucket
-        let bucketId = tabData.s3_bucket_id;
+        // For student view, always clone from template bucket
+        // Students should not use the template bucket directly
+        const templateBucketId = ideData.template.s3_bucket_id;
         let bucketName: string;
         let bucketRegion: string;
 
-        if (!bucketId) {
-          // Create new S3 bucket
+        if (!templateBucketId) {
+          // No template bucket exists, create a new empty bucket
           const bucketResponse = await apiClient.createS3Bucket({
             user_id: user.id,
             region: "us-east-1",
@@ -174,17 +176,31 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
             throw new Error("Failed to create S3 bucket");
           }
 
-          bucketId = bucketResponse.data.id;
           bucketName = bucketResponse.data.bucket_name;
           bucketRegion = bucketResponse.data.region;
         } else {
-          // Get existing bucket info
-          const bucketResponse = await apiClient.getS3Bucket(bucketId);
-          bucketName = bucketResponse.data.bucket_name;
-          bucketRegion = bucketResponse.data.region || "us-east-1";
+          // Clone from template bucket
+          try {
+            const cloneResponse = await apiClient.cloneS3Bucket(templateBucketId, {
+              region: "us-east-1",
+            });
+
+            if (!cloneResponse?.data) {
+              throw new Error("Failed to clone S3 bucket");
+            }
+
+            bucketName = cloneResponse.data.bucket_name;
+            bucketRegion = cloneResponse.data.region;
+          } catch (cloneError: any) {
+            // If clone fails (e.g., user not enrolled), show error
+            throw new Error(
+              cloneError.response?.data?.error || "Failed to clone template. You may not be enrolled in this course."
+            );
+          }
         }
 
         // Start container
+        // Note: bucketId not available in viewer (student view), will need to be looked up by backend
         const containerResponse = await apiClient.startIDEContainer({
           s3Bucket: bucketName,
           s3Region: bucketRegion,
@@ -314,13 +330,17 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
                 </div>
               </div>
             </div>
+            <div className="flex items-center gap-2">
+            </div>
           </div>
 
           {/* Tabs */}
           <Tabs value={activeTab} onValueChange={handleTabChange}>
-            <TabsList className="grid w-full grid-cols-2">
+            <TabsList className={ideData.autograder?.allowStudentCheckAnswer ? "grid w-full grid-cols-2" : "grid w-full grid-cols-1"}>
               <TabsTrigger value="code">Code</TabsTrigger>
-              <TabsTrigger value="autoGrader">Auto Grader</TabsTrigger>
+              {ideData.autograder?.allowStudentCheckAnswer && (
+                <TabsTrigger value="autoGrader">Auto Grader</TabsTrigger>
+              )}
             </TabsList>
 
             {/* Code Tab */}
@@ -330,7 +350,7 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
                 <div className="flex items-center justify-end gap-2">
                   <div className="flex items-center gap-2">
                     <Label htmlFor="default-run-file" className="text-xs text-gray-600 whitespace-nowrap">
-                      Default Run File:
+                      Run File:
                     </Label>
                     <Input
                       id="default-run-file"
@@ -350,6 +370,40 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
                   >
                     <Play className="w-4 h-4 mr-2" />
                     Run
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => openSidePanel({
+                      ideData,
+                      container,
+                      bucketId: ideData.template.s3_bucket_id,
+                      isStarting,
+                      showDesktop,
+                      runFilename,
+                      ideApiBaseUrl: IDE_API_BASE_URL,
+                    })}
+                    className="text-purple-600 hover:text-purple-700 hover:bg-purple-50 w-8 h-8 p-0"
+                    title="Open in Side Panel"
+                  >
+                    <PanelLeft className="w-4 h-4" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => openFullscreen({
+                      ideData,
+                      container,
+                      bucketId: ideData.template.s3_bucket_id,
+                      isStarting,
+                      showDesktop,
+                      runFilename,
+                      ideApiBaseUrl: IDE_API_BASE_URL,
+                    })}
+                    className="text-blue-600 hover:text-blue-700 hover:bg-blue-50 w-8 h-8 p-0"
+                    title="Open in New Tab"
+                  >
+                    <ExternalLink className="w-4 h-4" />
                   </Button>
                 </div>
 
@@ -420,17 +474,32 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
             </TabsContent>
 
             {/* Auto Grader Tab */}
-            <TabsContent value="autoGrader" className="mt-4">
-              <div className="flex items-center justify-center h-64 bg-gray-50 rounded-lg border-2 border-dashed border-gray-300">
-                <div className="text-center">
-                  <AlertCircle className="w-12 h-12 text-gray-400 mx-auto mb-2" />
-                  <p className="text-gray-600 font-medium">Coming Soon</p>
-                  <p className="text-sm text-gray-500 mt-1">
-                    Auto grading functionality will be available soon
-                  </p>
+            {ideData.autograder?.allowStudentCheckAnswer && (
+              <TabsContent value="autoGrader" className="mt-4">
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className="text-xl font-bold">Autograder</h3>
+                      <p className="text-sm text-gray-600">
+                        Run tests to check your solution
+                      </p>
+                    </div>
+                    <Button
+                      className="bg-purple-600 hover:bg-purple-700 text-white"
+                      size="sm"
+                      disabled={true}
+                    >
+                      Run Tests
+                    </Button>
+                  </div>
+                  <div className="border border-gray-200 rounded-lg p-4 bg-gray-50">
+                    <p className="text-sm text-gray-600 text-center py-8">
+                      Test execution will be available soon. You can run tests here to check your solution.
+                    </p>
+                  </div>
                 </div>
-              </div>
-            </TabsContent>
+              </TabsContent>
+            )}
           </Tabs>
 
           {/* Footer */}

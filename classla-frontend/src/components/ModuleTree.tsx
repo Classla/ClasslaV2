@@ -30,10 +30,12 @@ import {
   Edit,
   Trash2,
   Copy,
+  Calendar,
 } from "lucide-react";
 import { Assignment, Folder, UserRole, Course } from "../types";
 import { hasTAPermission } from "../lib/taPermissions";
 import { useAuth } from "../contexts/AuthContext";
+import PublishingModal from "./PublishingModal";
 
 interface ModuleTreeProps {
   courseId: string;
@@ -100,6 +102,13 @@ const ModuleTree: React.FC<ModuleTreeProps> = ({ courseId, course, userRole, isI
     open: boolean;
     assignment: Assignment | null;
   }>({ open: false, assignment: null });
+  const [publishingModalData, setPublishingModalData] = useState<{
+    isOpen: boolean;
+    mode: "assignment" | "folder";
+    assignment?: Assignment;
+    folder?: Folder;
+    folderAssignments?: Assignment[];
+  }>({ isOpen: false, mode: "assignment" });
 
   // Default to instructor false if not specified
   const effectiveIsInstructor = isInstructor ?? false;
@@ -521,6 +530,53 @@ const ModuleTree: React.FC<ModuleTreeProps> = ({ courseId, course, userRole, isI
     navigate(`/course/${courseSlug}/assignment/${assignment.id}`);
   };
 
+  // Get all assignments within a folder (including nested folders)
+  const getAssignmentsInFolder = (folder: Folder): Assignment[] => {
+    return assignments.filter((a) =>
+      folder.path.every((seg, i) => a.module_path[i] === seg)
+    );
+  };
+
+  // Handle managing publishing for folder or assignment
+  const handleManagePublishing = (item: Assignment | Folder, isFolder: boolean) => {
+    if (isFolder) {
+      const folder = item as Folder;
+      const folderAssignments = getAssignmentsInFolder(folder);
+      setPublishingModalData({
+        isOpen: true,
+        mode: "folder",
+        folder,
+        folderAssignments,
+      });
+    } else {
+      setPublishingModalData({
+        isOpen: true,
+        mode: "assignment",
+        assignment: item as Assignment,
+      });
+    }
+  };
+
+  // Handle assignment updated from publishing modal
+  const handleAssignmentUpdated = (updatedAssignment: Assignment) => {
+    setAssignments((prev) =>
+      prev.map((a) => (a.id === updatedAssignment.id ? updatedAssignment : a))
+    );
+  };
+
+  // Handle multiple assignments updated from folder publishing modal
+  const handleFolderAssignmentsUpdated = (updatedAssignments: Assignment[]) => {
+    const updatedIds = new Set(updatedAssignments.map((a) => a.id));
+    setAssignments((prev) =>
+      prev.map((a) => {
+        if (updatedIds.has(a.id)) {
+          return updatedAssignments.find((ua) => ua.id === a.id) || a;
+        }
+        return a;
+      })
+    );
+  };
+
   // Helper function to update folder hierarchy when a folder is moved
   const updateFolderHierarchy = async (
     movedFolder: Folder,
@@ -825,6 +881,18 @@ const ModuleTree: React.FC<ModuleTreeProps> = ({ courseId, course, userRole, isI
                       <Trash2 className="w-4 h-4 mr-2" />
                       Delete Folder
                     </button>
+                    <hr className="my-1 border-gray-200" />
+                    <button
+                      className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100 flex items-center"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleManagePublishing(folder, true);
+                        setContextMenu({ ...contextMenu, show: false });
+                      }}
+                    >
+                      <Calendar className="w-4 h-4 mr-2" />
+                      Manage Publishing
+                    </button>
                   </>
                 )}
 
@@ -884,6 +952,18 @@ const ModuleTree: React.FC<ModuleTreeProps> = ({ courseId, course, userRole, isI
                     >
                       <Trash2 className="w-4 h-4 mr-2" />
                       Delete Assignment
+                    </button>
+                    <hr className="my-1 border-gray-200" />
+                    <button
+                      className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100 flex items-center"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleManagePublishing(assignment, false);
+                        setContextMenu({ ...contextMenu, show: false });
+                      }}
+                    >
+                      <Calendar className="w-4 h-4 mr-2" />
+                      Manage Publishing
                     </button>
                   </>
                 )}
@@ -1074,6 +1154,20 @@ const ModuleTree: React.FC<ModuleTreeProps> = ({ courseId, course, userRole, isI
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Unified Publishing Modal */}
+      {publishingModalData.isOpen && (
+        <PublishingModal
+          isOpen={true}
+          onClose={() => setPublishingModalData({ ...publishingModalData, isOpen: false })}
+          assignment={publishingModalData.mode === "assignment" ? publishingModalData.assignment : undefined}
+          onAssignmentUpdated={handleAssignmentUpdated}
+          folder={publishingModalData.mode === "folder" ? publishingModalData.folder : undefined}
+          folderAssignments={publishingModalData.mode === "folder" ? publishingModalData.folderAssignments : undefined}
+          courseId={courseId}
+          onAssignmentsUpdated={handleFolderAssignmentsUpdated}
+        />
+      )}
     </div>
   );
 };

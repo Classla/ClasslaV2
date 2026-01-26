@@ -33,10 +33,11 @@ declare global {
     interface Request {
       user?: {
         id: string;
-        workosUserId: string;
+        workosUserId?: string; // Optional for managed students
         email?: string;
         roles?: string[];
         isAdmin?: boolean;
+        isManagedStudent?: boolean; // True for managed student accounts
       };
     }
   }
@@ -48,6 +49,27 @@ declare global {
  */
 export const authenticateToken = asyncHandler(
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    // Allow test user ID in development mode without authentication
+    // This enables E2E testing without requiring actual user sessions
+    if (process.env.NODE_ENV === 'development') {
+      const testUserId = req.body?.userId || req.body?.user_id || req.query?.userId;
+      if (testUserId === '00000000-0000-0000-0000-000000000000') {
+        // Create a mock user for testing
+        req.user = {
+          id: '00000000-0000-0000-0000-000000000000',
+          workosUserId: 'test-workos-user-id',
+          email: 'test@example.com',
+          isAdmin: false,
+        };
+        logger.info("Test user authentication bypass", {
+          path: req.path,
+          testUserId,
+        });
+        next();
+        return;
+      }
+    }
+
     // Log cookie information for debugging
     logger.debug("Authentication attempt", {
       path: req.path,
@@ -73,30 +95,70 @@ export const authenticateToken = asyncHandler(
       throw new AuthenticationError("Valid session is required");
     }
 
-    // Extract user information from the database using WorkOS user ID
-    const { data: userData, error: userError } = await supabase
-      .from("users")
-      .select(
-        "id, email, is_admin, workos_user_id, first_name, last_name, settings"
-      )
-      .eq("workos_user_id", sessionData.workosUserId)
-      .single();
+    // Extract user information from the database
+    // Handle both WorkOS users and managed students
+    let userData;
+    let userError;
 
-    if (userError || !userData) {
-      logger.error("User not found in database", {
-        error: userError,
-        workosUserId: sessionData.workosUserId,
-      });
-      throw new AuthenticationError("User not found");
+    if (sessionData.isManagedStudent) {
+      // For managed students, look up by user ID directly
+      const result = await supabase
+        .from("users")
+        .select(
+          "id, email, is_admin, is_managed, first_name, last_name, settings"
+        )
+        .eq("id", sessionData.userId)
+        .eq("is_managed", true)
+        .single();
+
+      userData = result.data;
+      userError = result.error;
+
+      if (userError || !userData) {
+        logger.error("Managed student not found in database", {
+          error: userError,
+          userId: sessionData.userId,
+        });
+        throw new AuthenticationError("User not found");
+      }
+
+      // Set user context for managed student
+      req.user = {
+        id: userData.id,
+        email: userData.email,
+        isAdmin: false, // Managed students are never admins
+        isManagedStudent: true,
+      };
+    } else {
+      // For regular users, look up by WorkOS user ID
+      const result = await supabase
+        .from("users")
+        .select(
+          "id, email, is_admin, workos_user_id, first_name, last_name, settings"
+        )
+        .eq("workos_user_id", sessionData.workosUserId)
+        .single();
+
+      userData = result.data;
+      userError = result.error;
+
+      if (userError || !userData) {
+        logger.error("User not found in database", {
+          error: userError,
+          workosUserId: sessionData.workosUserId,
+        });
+        throw new AuthenticationError("User not found");
+      }
+
+      // Set user context from database data
+      req.user = {
+        id: userData.id,
+        workosUserId: userData.workos_user_id,
+        email: userData.email,
+        isAdmin: userData.is_admin || false,
+        isManagedStudent: false,
+      };
     }
-
-    // Set user context from database data
-    req.user = {
-      id: userData.id,
-      workosUserId: userData.workos_user_id,
-      email: userData.email,
-      isAdmin: userData.is_admin || false,
-    };
 
     next();
   }
@@ -122,21 +184,45 @@ export const optionalAuth = async (
     }
 
     // If session is valid, try to get user data
-    const { data: userData, error: userError } = await supabase
-      .from("users")
-      .select(
-        "id, email, is_admin, workos_user_id, first_name, last_name, settings"
-      )
-      .eq("workos_user_id", sessionData.workosUserId)
-      .single();
+    // Handle both WorkOS users and managed students
+    if (sessionData.isManagedStudent) {
+      // For managed students, look up by user ID
+      const { data: userData, error: userError } = await supabase
+        .from("users")
+        .select(
+          "id, email, is_admin, is_managed, first_name, last_name, settings"
+        )
+        .eq("id", sessionData.userId)
+        .eq("is_managed", true)
+        .single();
 
-    if (!userError && userData) {
-      req.user = {
-        id: userData.id,
-        workosUserId: userData.workos_user_id,
-        email: userData.email,
-        isAdmin: userData.is_admin || false,
-      };
+      if (!userError && userData) {
+        req.user = {
+          id: userData.id,
+          email: userData.email,
+          isAdmin: false,
+          isManagedStudent: true,
+        };
+      }
+    } else {
+      // For regular users, look up by WorkOS user ID
+      const { data: userData, error: userError } = await supabase
+        .from("users")
+        .select(
+          "id, email, is_admin, workos_user_id, first_name, last_name, settings"
+        )
+        .eq("workos_user_id", sessionData.workosUserId)
+        .single();
+
+      if (!userError && userData) {
+        req.user = {
+          id: userData.id,
+          workosUserId: userData.workos_user_id,
+          email: userData.email,
+          isAdmin: userData.is_admin || false,
+          isManagedStudent: false,
+        };
+      }
     }
 
     next();

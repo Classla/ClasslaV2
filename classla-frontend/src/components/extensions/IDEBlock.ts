@@ -1,6 +1,7 @@
 import { Node, mergeAttributes } from "@tiptap/core";
 import { ReactNodeViewRenderer } from "@tiptap/react";
 import IDEBlockEditorComponent from "../Blocks/IDE/IDEBlockEditor";
+import { generateUUID } from "./blockUtils";
 
 // IDE Block data interface
 export interface IDEBlockTabData {
@@ -12,6 +13,41 @@ export interface IDEBlockSettings {
   default_run_file: string;
 }
 
+// Test case types
+export type TestCaseType = "inputOutput" | "unitTest" | "manualGrading";
+
+export interface InputOutputTestCase {
+  id: string;
+  name: string;
+  type: "inputOutput";
+  input: string;
+  expectedOutput: string;
+  points: number;
+}
+
+export interface UnitTestCase {
+  id: string;
+  name: string;
+  type: "unitTest";
+  code: string;
+  points: number;
+  framework?: "junit" | "unittest"; // Unit testing framework
+}
+
+export interface ManualGradingTestCase {
+  id: string;
+  name: string;
+  type: "manualGrading";
+  points: number;
+}
+
+export type TestCase = InputOutputTestCase | UnitTestCase | ManualGradingTestCase;
+
+export interface IDEBlockAutograder {
+  tests: TestCase[];
+  allowStudentCheckAnswer?: boolean; // Whether students can check their answers
+}
+
 export interface IDEBlockData {
   id: string;
   template: IDEBlockTabData;
@@ -19,16 +55,8 @@ export interface IDEBlockData {
   autoGrading: IDEBlockTabData;
   points: number;
   settings: IDEBlockSettings;
+  autograder?: IDEBlockAutograder;
 }
-
-// Generate a UUID v4 compatible ID
-const generateUUID = (): string => {
-  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
-    const r = (Math.random() * 16) | 0;
-    const v = c === "x" ? r : (r & 0x3) | 0x8;
-    return v.toString(16);
-  });
-};
 
 // Default IDE block data for new blocks
 const defaultIDEBlockData: IDEBlockData = {
@@ -48,6 +76,10 @@ const defaultIDEBlockData: IDEBlockData = {
   points: 1,
   settings: {
     default_run_file: "main.py",
+  },
+  autograder: {
+    tests: [],
+    allowStudentCheckAnswer: false,
   },
 };
 
@@ -107,6 +139,52 @@ export const validateIDEBlockData = (
     }
   }
 
+  // Validate autograder data if present
+  if (data.autograder !== undefined) {
+    if (data.autograder === null || typeof data.autograder !== "object") {
+      errors.push("IDE block autograder must be an object or undefined");
+    } else {
+      if (!Array.isArray(data.autograder.tests)) {
+        errors.push("IDE block autograder.tests must be an array");
+      } else {
+        // Validate each test case
+        data.autograder.tests.forEach((test: any, index: number) => {
+          if (!test || typeof test !== "object") {
+            errors.push(`IDE block autograder.tests[${index}] must be an object`);
+            return;
+          }
+          if (!test.id || typeof test.id !== "string") {
+            errors.push(`IDE block autograder.tests[${index}].id must be a string`);
+          }
+          if (!test.name || typeof test.name !== "string") {
+            errors.push(`IDE block autograder.tests[${index}].name must be a string`);
+          }
+          if (!test.type || !["inputOutput", "unitTest", "manualGrading"].includes(test.type)) {
+            errors.push(`IDE block autograder.tests[${index}].type must be one of: inputOutput, unitTest, manualGrading`);
+          }
+          if (typeof test.points !== "number" || test.points < 0) {
+            errors.push(`IDE block autograder.tests[${index}].points must be a number >= 0`);
+          }
+          if (test.type === "inputOutput") {
+            if (typeof test.input !== "string") {
+              errors.push(`IDE block autograder.tests[${index}].input must be a string`);
+            }
+            if (typeof test.expectedOutput !== "string") {
+              errors.push(`IDE block autograder.tests[${index}].expectedOutput must be a string`);
+            }
+          } else if (test.type === "unitTest") {
+            if (typeof test.code !== "string") {
+              errors.push(`IDE block autograder.tests[${index}].code must be a string`);
+            }
+            if (test.framework !== undefined && !["junit", "unittest"].includes(test.framework)) {
+              errors.push(`IDE block autograder.tests[${index}].framework must be one of: junit, unittest`);
+            }
+          }
+        });
+      }
+    }
+  }
+
   return { isValid: errors.length === 0, errors };
 };
 
@@ -161,6 +239,39 @@ export const sanitizeIDEBlockData = (data: any): IDEBlockData => {
           ? data.settings.default_run_file
           : "main.py",
     },
+    autograder: data.autograder && typeof data.autograder === "object" && Array.isArray(data.autograder.tests)
+      ? {
+          tests: data.autograder.tests.map((test: any) => {
+            // Sanitize each test case
+            const sanitizedTest: any = {
+              id: test.id && typeof test.id === "string" ? test.id : generateUUID(),
+              name: test.name && typeof test.name === "string" ? test.name : "",
+              type: test.type && ["inputOutput", "unitTest", "manualGrading"].includes(test.type)
+                ? test.type
+                : "manualGrading",
+              points: typeof test.points === "number" && test.points >= 0 ? test.points : 1,
+            };
+
+            if (sanitizedTest.type === "inputOutput") {
+              sanitizedTest.input = typeof test.input === "string" ? test.input : "";
+              sanitizedTest.expectedOutput = typeof test.expectedOutput === "string" ? test.expectedOutput : "";
+            } else if (sanitizedTest.type === "unitTest") {
+              sanitizedTest.code = typeof test.code === "string" ? test.code : "";
+              sanitizedTest.framework = test.framework && ["junit", "unittest"].includes(test.framework)
+                ? test.framework
+                : "unittest";
+            }
+
+            return sanitizedTest;
+          }),
+          allowStudentCheckAnswer: typeof data.autograder.allowStudentCheckAnswer === "boolean"
+            ? data.autograder.allowStudentCheckAnswer
+            : false,
+        }
+      : {
+          tests: [],
+          allowStudentCheckAnswer: false,
+        },
   };
 
   return sanitized;
@@ -339,6 +450,13 @@ export const IDEBlock = Node.create({
       stopEvent: ({ event }) => {
         const target = event.target as HTMLElement;
 
+        // Stop ALL keyboard events inside IDE editor to prevent page scrolling
+        if (event.type.startsWith("key")) {
+          if (target.closest(".ide-editor-wrapper")) {
+            return true;
+          }
+        }
+
         // Only stop specific events that interfere with ProseMirror
         // Allow normal text editing events to pass through
         if (target.tagName === "INPUT" || target.tagName === "TEXTAREA") {
@@ -352,10 +470,13 @@ export const IDEBlock = Node.create({
         }
 
         // Stop events on the IDE editor wrapper but not on inputs
+        // Also check for Monaco Editor iframe
         if (
           target.closest(".ide-editor-wrapper") &&
           target.tagName !== "INPUT" &&
-          target.tagName !== "TEXTAREA"
+          target.tagName !== "TEXTAREA" &&
+          target.tagName !== "IFRAME" &&
+          !target.closest("iframe")
         ) {
           return true;
         }

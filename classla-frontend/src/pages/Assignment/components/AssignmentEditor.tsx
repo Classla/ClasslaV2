@@ -78,12 +78,16 @@ import {
   ArrowLeft,
   ArrowRight,
   ChevronDown,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 
 interface AssignmentEditorProps {
   assignment: Assignment;
   onAssignmentUpdated: (assignment: Assignment) => void;
   isReadOnly?: boolean;
+  isPreviewMode?: boolean;
+  onTogglePreview?: () => void;
 }
 
 interface SlashCommandItem {
@@ -464,6 +468,8 @@ const AssignmentEditor: React.FC<AssignmentEditorProps> = ({
   assignment,
   onAssignmentUpdated,
   isReadOnly = false,
+  isPreviewMode = false,
+  onTogglePreview,
 }) => {
   const { toast } = useToast();
   const { shouldOptimize } = useAssignmentOptimization(
@@ -1346,18 +1352,46 @@ const AssignmentEditor: React.FC<AssignmentEditorProps> = ({
 
   return (
     <div className="h-full flex flex-col bg-white relative">
-      {/* Save status and performance info - floating */}
+      {/* Save status, preview toggle, and performance info - floating */}
       {!isReadOnly && (
         <div className="absolute top-4 right-4 z-10 space-y-2">
-          <div className="bg-white/90 backdrop-blur-sm rounded-lg px-3 py-1 text-sm text-gray-500 shadow-sm border">
-            {isSaving ? (
-              <div className="flex items-center">
-                <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-purple-600 mr-2"></div>
-                Saving...
-              </div>
-            ) : (
-              <span>Saved</span>
+          <div className="flex items-center gap-2">
+            {/* Student Preview Button */}
+            {onTogglePreview && (
+              <button
+                onClick={onTogglePreview}
+                className={`flex items-center gap-1.5 rounded-lg px-3 py-1 text-sm font-medium shadow-sm border transition-colors ${
+                  isPreviewMode
+                    ? "bg-amber-500 text-white border-amber-500 hover:bg-amber-600"
+                    : "bg-white/90 backdrop-blur-sm text-gray-600 hover:bg-gray-100 hover:text-gray-900"
+                }`}
+                title={isPreviewMode ? "Exit student preview" : "Preview as student"}
+              >
+                {isPreviewMode ? (
+                  <>
+                    <EyeOff className="w-3.5 h-3.5" />
+                    <span>Exit Preview</span>
+                  </>
+                ) : (
+                  <>
+                    <Eye className="w-3.5 h-3.5" />
+                    <span>Student Preview</span>
+                  </>
+                )}
+              </button>
             )}
+
+            {/* Saved Indicator */}
+            <div className="bg-white/90 backdrop-blur-sm rounded-lg px-3 py-1 text-sm text-gray-500 shadow-sm border">
+              {isSaving ? (
+                <div className="flex items-center">
+                  <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-purple-600 mr-2"></div>
+                  Saving...
+                </div>
+              ) : (
+                <span>Saved</span>
+              )}
+            </div>
           </div>
 
           {/* Performance optimization notice */}

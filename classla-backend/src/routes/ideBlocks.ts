@@ -59,7 +59,7 @@ const getAWSCredentials = () => {
 router.post(
   "/start-container",
   asyncHandler(async (req: Request, res: Response) => {
-    const { s3Bucket, s3Region, userId } = req.body;
+    const { s3Bucket, s3BucketId, s3Region, userId } = req.body;
 
     if (!s3Bucket || typeof s3Bucket !== "string") {
       return res.status(400).json({
@@ -93,6 +93,7 @@ router.post(
       
       const requestBody: any = {
         s3Bucket,
+        s3BucketId, // Pass bucketId if provided
         s3Region,
         userId,
       };
@@ -116,12 +117,30 @@ router.post(
       clearTimeout(timeoutId);
 
       // Parse response body - handle both success and error responses
+      // First get the raw text, then parse it as JSON (so we can log it on error)
+      let responseText: string;
+      try {
+        responseText = await response.text();
+      } catch (readError) {
+        console.error("Failed to read IDE orchestration service response body:", readError);
+        return res.status(503).json({
+          error: {
+            code: "SERVICE_UNAVAILABLE",
+            message: "IDE orchestration service returned unreadable response",
+            details: readError instanceof Error ? readError.message : String(readError),
+          },
+        });
+      }
+      
       let data: ContainerResponse;
       try {
-        data = (await response.json()) as ContainerResponse;
+        data = JSON.parse(responseText) as ContainerResponse;
       } catch (parseError) {
-        // If JSON parsing fails, create a basic error response
+        // If JSON parsing fails, log the raw response
         console.error("Failed to parse IDE orchestration service response:", parseError);
+        console.error("Raw response (first 500 chars):", responseText.substring(0, 500));
+        console.error("Response status:", response.status);
+        console.error("Response headers:", Object.fromEntries(response.headers.entries()));
         return res.status(503).json({
           error: {
             code: "SERVICE_UNAVAILABLE",

@@ -20,6 +20,7 @@ import {
   useSensors,
   DragEndEvent,
   DragOverlay,
+  useDroppable,
 } from "@dnd-kit/core";
 import {
   arrayMove,
@@ -72,16 +73,29 @@ const SortableItem: React.FC<SortableItemProps> = ({
     <div
       ref={setNodeRef}
       style={style}
+      {...attributes}
+      {...listeners}
       className={`flex items-center gap-2 p-3 rounded border ${bgColor} ${
         isDragging ? "shadow-lg" : ""
       } ${isMatched ? "cursor-default" : "cursor-grab active:cursor-grabbing"}`}
     >
       {!isMatched && (
-        <div {...attributes} {...listeners}>
-          <GripVertical className="w-4 h-4 text-gray-400" />
-        </div>
+        <GripVertical className="w-4 h-4 text-gray-400 flex-shrink-0" />
       )}
       <span className="flex-1 text-sm">{item.text}</span>
+    </div>
+  );
+};
+
+// Droppable zone component
+const DroppableZone: React.FC<{ id: string; children: React.ReactNode }> = ({ id, children }) => {
+  const { setNodeRef, isOver } = useDroppable({ id });
+  return (
+    <div
+      ref={setNodeRef}
+      className={isOver ? "ring-2 ring-blue-400 rounded" : ""}
+    >
+      {children}
     </div>
   );
 };
@@ -113,6 +127,17 @@ const DragDropMatchingViewer: React.FC<DragDropMatchingViewerProps> = memo(
         coordinateGetter: sortableKeyboardCoordinates,
       })
     );
+
+    // Load initial state from editor storage
+    useEffect(() => {
+      const getBlockAnswerState = (editor?.storage as any)?.getBlockAnswerState;
+      if (getBlockAnswerState && rawDragDropMatchingData.id) {
+        const blockState = getBlockAnswerState(rawDragDropMatchingData.id);
+        if (blockState && blockState.matches) {
+          setMatches(blockState.matches);
+        }
+      }
+    }, [editor, rawDragDropMatchingData.id]);
 
     // Auto-save answer state when it changes
     useEffect(() => {
@@ -175,6 +200,12 @@ const DragDropMatchingViewer: React.FC<DragDropMatchingViewerProps> = memo(
             setMatches({ ...matches, [itemId]: overId });
             setIsAnswerChanged(true);
           }
+        } else if (overId === "source-area") {
+          // Dropping back to source - remove from matches
+          const newMatches = { ...matches };
+          delete newMatches[itemId];
+          setMatches(newMatches);
+          setIsAnswerChanged(true);
         }
       },
       [matches, rawDragDropMatchingData]
@@ -210,25 +241,27 @@ const DragDropMatchingViewer: React.FC<DragDropMatchingViewerProps> = memo(
                 <div className="text-xs font-medium text-gray-700 mb-2">
                   Source Items
                 </div>
-                <SortableContext
-                  items={unmatchedItems.map((item) => item.id)}
-                  strategy={undefined}
-                >
-                  <div className="space-y-2 min-h-[200px] p-2 bg-gray-50 rounded border border-dashed border-gray-300">
-                    {unmatchedItems.map((item) => (
-                      <SortableItem
-                        key={item.id}
-                        item={item}
-                        isMatched={false}
-                      />
-                    ))}
-                    {unmatchedItems.length === 0 && (
-                      <div className="text-xs text-gray-400 text-center py-4">
-                        All items matched
-                      </div>
-                    )}
-                  </div>
-                </SortableContext>
+                <DroppableZone id="source-area">
+                  <SortableContext
+                    items={unmatchedItems.map((item) => item.id)}
+                    strategy={undefined}
+                  >
+                    <div className="space-y-2 min-h-[200px] p-2 bg-gray-50 rounded border border-dashed border-gray-300">
+                      {unmatchedItems.map((item) => (
+                        <SortableItem
+                          key={item.id}
+                          item={item}
+                          isMatched={false}
+                        />
+                      ))}
+                      {unmatchedItems.length === 0 && (
+                        <div className="text-xs text-gray-400 text-center py-4">
+                          All items matched
+                        </div>
+                      )}
+                    </div>
+                  </SortableContext>
+                </DroppableZone>
               </div>
 
               {/* Target Zones Column */}
@@ -242,34 +275,34 @@ const DragDropMatchingViewer: React.FC<DragDropMatchingViewerProps> = memo(
                       (item) => matches[item.id] === zone.id
                     );
                     return (
-                      <div
-                        key={zone.id}
-                        id={zone.id}
-                        className={`p-3 rounded border-2 border-dashed ${
-                          matchedItems.length > 0
-                            ? "bg-purple-50 border-purple-200"
-                            : "bg-gray-50 border-gray-300"
-                        }`}
-                      >
-                        <div className="text-sm font-medium text-gray-900 mb-2">
-                          {zone.label}
+                      <DroppableZone key={zone.id} id={zone.id}>
+                        <div
+                          className={`p-3 rounded border-2 border-dashed ${
+                            matchedItems.length > 0
+                              ? "bg-purple-50 border-purple-200"
+                              : "bg-gray-50 border-gray-300"
+                          }`}
+                        >
+                          <div className="text-sm font-medium text-gray-900 mb-2">
+                            {zone.label}
+                          </div>
+                          <div className="space-y-1">
+                            {matchedItems.map((item) => (
+                              <div
+                                key={item.id}
+                                className="p-2 rounded text-xs bg-white border border-gray-300"
+                              >
+                                {item.text}
+                              </div>
+                            ))}
+                            {matchedItems.length === 0 && (
+                              <div className="text-xs text-gray-400 text-center py-2">
+                                Drop items here
+                              </div>
+                            )}
+                          </div>
                         </div>
-                        <div className="space-y-1">
-                          {matchedItems.map((item) => (
-                            <div
-                              key={item.id}
-                              className="p-2 rounded text-xs bg-white border border-gray-300"
-                            >
-                              {item.text}
-                            </div>
-                          ))}
-                          {matchedItems.length === 0 && (
-                            <div className="text-xs text-gray-400 text-center py-2">
-                              Drop items here
-                            </div>
-                          )}
-                        </div>
-                      </div>
+                      </DroppableZone>
                     );
                   })}
                 </div>

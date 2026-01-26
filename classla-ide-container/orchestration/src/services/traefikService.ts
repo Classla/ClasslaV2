@@ -98,6 +98,16 @@ export class TraefikService {
     // Add iframe-friendly headers middleware to allow embedding from any origin
     labels[`traefik.http.routers.web-${containerId}.middlewares`] = `web-${containerId}-strip,container-iframe-headers@file`;
 
+    // terminal service (port 8080, nginx routes to ttyd on 7681)
+    labels[`traefik.http.routers.terminal-${containerId}.rule`] = buildRule(`/terminal/${containerId}`);
+    labels[`traefik.http.routers.terminal-${containerId}.entrypoints`] = entrypoints;
+    labels[`traefik.http.routers.terminal-${containerId}.priority`] = String(priority);
+    labels[`traefik.http.routers.terminal-${containerId}.service`] = `terminal-${containerId}`;
+    labels[`traefik.http.services.terminal-${containerId}.loadbalancer.server.port`] = "8080";
+    labels[`traefik.http.middlewares.terminal-${containerId}-strip.stripprefix.prefixes`] = `/terminal/${containerId}`;
+    // Add iframe-friendly headers middleware to allow embedding from any origin
+    labels[`traefik.http.routers.terminal-${containerId}.middlewares`] = `terminal-${containerId}-strip,container-iframe-headers@file`;
+
     // Store domain and container ID
     labels["ide.domain"] = domain;
     labels["ide.container.id"] = containerId;
@@ -109,6 +119,8 @@ export class TraefikService {
       labels[`traefik.http.routers.code-${containerId}.tls.certresolver`] =
         "letsencrypt";
       labels[`traefik.http.routers.web-${containerId}.tls.certresolver`] =
+        "letsencrypt";
+      labels[`traefik.http.routers.terminal-${containerId}.tls.certresolver`] =
         "letsencrypt";
     }
 
@@ -151,6 +163,7 @@ export class TraefikService {
     vnc: string;
     codeServer: string;
     webServer: string;
+    terminal: string;
   } {
     // Determine if we're using IP address or localhost
     const isLocal = domain === "localhost" || domain.endsWith(".localhost");
@@ -164,6 +177,7 @@ export class TraefikService {
       vnc: `${protocol}://${domain}/vnc/${containerId}`,
       codeServer: `${protocol}://${domain}/code/${containerId}`,
       webServer: `${protocol}://${domain}/web/${containerId}`,
+      terminal: `${protocol}://${domain}/terminal/${containerId}`,
     };
   }
 

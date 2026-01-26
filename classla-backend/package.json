@@ -25,11 +25,14 @@
   "dependencies": {
     "@aws-sdk/client-bedrock-runtime": "^3.913.0",
     "@aws-sdk/client-s3": "^3.913.0",
+    "@aws-sdk/s3-request-presigner": "^3.913.0",
     "@supabase/supabase-js": "^2.38.0",
     "@workos-inc/node": "^7.70.0",
+    "bcrypt": "^6.0.0",
     "connect-redis": "^9.0.0",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
+    "diff-match-patch": "^1.0.5",
     "dotenv": "^16.3.1",
     "express": "^4.18.2",
     "express-session": "^1.18.2",
@@ -37,9 +40,12 @@
     "jsonwebtoken": "^9.0.2",
     "redis": "^5.8.2",
     "socket.io": "^4.8.1",
-    "uuid": "^9.0.1"
+    "uuid": "^9.0.1",
+    "y-websocket": "^2.0.4",
+    "yjs": "^13.6.10"
   },
   "devDependencies": {
+    "@types/bcrypt": "^6.0.0",
     "@types/connect-redis": "^0.0.23",
     "@types/cookie-parser": "^1.4.10",
     "@types/cors": "^2.8.17",

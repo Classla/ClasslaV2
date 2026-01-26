@@ -16,14 +16,19 @@ import { FaGoogle, FaEye, FaEyeSlash } from "react-icons/fa";
 import { MdEmail, MdLock } from "react-icons/md";
 
 const SignInPage = () => {
-  const [email, setEmail] = useState("");
+  const [identifier, setIdentifier] = useState(""); // Can be email or username
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
 
-  const { user, signInWithPassword, signInWithGoogle } = useAuth();
+  const { user, signInWithPassword, signInManagedStudent, signInWithGoogle } = useAuth();
+
+  // Check if the identifier looks like an email address
+  const isEmail = (input: string): boolean => {
+    return input.includes('@') && input.includes('.');
+  };
   const location = useLocation();
 
   // Get the intended destination from location state
@@ -40,10 +45,16 @@ const SignInPage = () => {
     setError("");
 
     try {
-      await signInWithPassword(email, password);
+      if (isEmail(identifier)) {
+        // Regular user login with email
+        await signInWithPassword(identifier, password);
+      } else {
+        // Managed student login with username
+        await signInManagedStudent(identifier, password);
+      }
     } catch (error: any) {
       setError(
-        error?.message || "Failed to sign in. Please check your credentials."
+        error?.message || error?.error || "Failed to sign in. Please check your credentials."
       );
       setLoading(false);
     }
@@ -93,22 +104,22 @@ const SignInPage = () => {
             <form onSubmit={handlePasswordSignIn} className="space-y-4">
               <div className="space-y-2">
                 <label
-                  htmlFor="email"
+                  htmlFor="identifier"
                   className="text-sm font-medium text-gray-700"
                 >
-                  Email address
+                  Email or Username
                 </label>
                 <div className="relative">
                   {/* @ts-expect-error - react-icons type issue */}
                   <MdEmail className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
                   <Input
-                    type="email"
-                    id="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
+                    type="text"
+                    id="identifier"
+                    value={identifier}
+                    onChange={(e) => setIdentifier(e.target.value)}
                     required
                     disabled={loading || googleLoading}
-                    placeholder="Enter your email"
+                    placeholder="Enter your email or username"
                     className="pl-10"
                   />
                 </div>
@@ -147,7 +158,7 @@ const SignInPage = () => {
 
               <Button
                 type="submit"
-                disabled={loading || googleLoading || !email || !password}
+                disabled={loading || googleLoading || !identifier || !password}
                 className="w-full h-11 text-base font-medium"
               >
                 {loading ? (

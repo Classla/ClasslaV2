@@ -35,6 +35,10 @@ interface Config {
 
   // Pre-warmed Queue
   preWarmedQueueSize: number;
+
+  // Backend API
+  backendApiUrl?: string;
+  containerServiceToken?: string;
 }
 
 function getEnvVar(key: string, defaultValue?: string): string {
@@ -104,6 +108,10 @@ const config: Config = {
 
   // Pre-warmed Queue
   preWarmedQueueSize: getEnvVarNumber("PRE_WARMED_QUEUE_SIZE", 10),
+
+  // Backend API
+  backendApiUrl: getEnvVarOptional("BACKEND_API_URL"),
+  containerServiceToken: getEnvVarOptional("CONTAINER_SERVICE_TOKEN"),
 };
 
 export { config };

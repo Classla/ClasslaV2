@@ -5,12 +5,13 @@ import { logger } from '../utils/logger';
 // User session data interface
 export interface UserSessionData {
   userId: string;
-  workosUserId: string;
+  workosUserId?: string; // Optional for managed students
   email: string;
   firstName?: string;
   lastName?: string;
   profilePictureUrl?: string;
   isAuthenticated: boolean;
+  isManagedStudent: boolean; // True for managed student accounts
   loginTime: Date;
   lastActivity: Date;
 }
@@ -74,6 +75,7 @@ export class SessionManagementService {
         lastName: user.lastName,
         profilePictureUrl: user.profilePictureUrl,
         isAuthenticated: true,
+        isManagedStudent: false, // Regular WorkOS users are not managed students
         loginTime: now,
         lastActivity: now,
       };
@@ -136,6 +138,97 @@ export class SessionManagementService {
 
       throw new SessionManagementError(
         'Failed to create session',
+        'SESSION_CREATION_ERROR',
+        500
+      );
+    }
+  }
+
+  /**
+   * Create a new session for a managed student
+   * @param req Express request object
+   * @param user Managed student user data
+   * @param config Optional session configuration override
+   */
+  async createManagedStudentSession(
+    req: Request,
+    user: {
+      id: string;
+      email: string;
+      firstName?: string;
+      lastName?: string;
+    },
+    config?: Partial<SessionConfig>
+  ): Promise<void> {
+    try {
+      const sessionConfig = { ...this.defaultConfig, ...config };
+      const now = new Date();
+
+      // Create session data for managed student
+      const sessionData: UserSessionData = {
+        userId: user.id,
+        // No workosUserId for managed students
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        isAuthenticated: true,
+        isManagedStudent: true, // This is a managed student
+        loginTime: now,
+        lastActivity: now,
+      };
+
+      // Store session data
+      (req.session as any).user = sessionData;
+
+      // Configure session cookie - use values from SESSION_CONFIG
+      if (req.session.cookie) {
+        const { SESSION_CONFIG } = require('../config/session');
+
+        req.session.cookie.maxAge = SESSION_CONFIG.cookie.maxAge;
+        req.session.cookie.secure = SESSION_CONFIG.cookie.secure;
+        req.session.cookie.httpOnly = SESSION_CONFIG.cookie.httpOnly;
+        req.session.cookie.sameSite = SESSION_CONFIG.cookie.sameSite;
+        req.session.cookie.domain = SESSION_CONFIG.cookie.domain;
+
+        logger.debug("Managed student session cookie configured", {
+          domain: req.session.cookie.domain,
+          sameSite: req.session.cookie.sameSite,
+          secure: req.session.cookie.secure,
+          maxAge: req.session.cookie.maxAge,
+        });
+      }
+
+      // Force session save
+      await new Promise<void>((resolve, reject) => {
+        req.session.save((err) => {
+          if (err) {
+            logger.error('Failed to save managed student session', {
+              error: err.message,
+              sessionId: req.sessionID,
+              hasUser: !!(req.session as any).user,
+            });
+            reject(new SessionManagementError(
+              'Failed to save session',
+              'SESSION_SAVE_ERROR',
+              500
+            ));
+          } else {
+            logger.info('Managed student session saved successfully', {
+              sessionId: req.sessionID,
+              hasUser: !!(req.session as any).user,
+              userEmail: (req.session as any).user?.email,
+            });
+            resolve();
+          }
+        });
+      });
+    } catch (error) {
+      if (error instanceof SessionManagementError) {
+        throw error;
+      }
+
+      throw new SessionManagementError(
+        'Failed to create managed student session',
         'SESSION_CREATION_ERROR',
         500
       );

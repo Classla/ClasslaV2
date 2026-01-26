@@ -4,6 +4,9 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import App from "./App";
 import "./index.css";
 
+// Initialize Buffer polyfill (needed for Y.js)
+import "./lib/buffer-polyfill";
+
 import * as Sentry from "@sentry/react";
 
 Sentry.init({
