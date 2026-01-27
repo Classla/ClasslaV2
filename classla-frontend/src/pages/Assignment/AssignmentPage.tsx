@@ -22,6 +22,7 @@ import { Allotment } from "allotment";
 import "allotment/dist/style.css";
 import { calculateAssignmentPoints } from "../../utils/assignmentPoints";
 import { useIDEPanel } from "../../contexts/IDEPanelContext";
+import { AssignmentProvider } from "../../contexts/AssignmentContext";
 import MonacoIDE from "../../components/Blocks/IDE/MonacoIDE";
 
 interface AssignmentPageProps {
@@ -478,7 +479,7 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
                                 <button className="text-white hover:text-purple-100 text-sm flex items-center space-x-1">
                                   <span>
                                     Published to{" "}
-                                    {assignment.published_to?.length || 0} students
+                                    {Object.entries(assignment.publish_times || {}).filter(([_, time]) => new Date(time) <= new Date()).length} students
                                   </span>
                                 </button>
                               }
@@ -576,7 +577,7 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
             <div className="flex-1 mx-6">
               <Card className="h-full p-0 overflow-hidden">
                 {assignment && (
-                  <>
+                  <AssignmentProvider courseId={assignment.course_id} assignmentId={assignment.id}>
                     {canEdit ? (
                       selectedGradingStudent ? (
                         <AssignmentViewer
@@ -693,7 +694,7 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
                         </div>
                       </div>
                     )}
-                  </>
+                  </AssignmentProvider>
                 )}
               </Card>
             </div>

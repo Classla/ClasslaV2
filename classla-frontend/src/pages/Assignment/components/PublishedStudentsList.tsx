@@ -28,13 +28,22 @@ const PublishedStudentsList: React.FC<PublishedStudentsListProps> = ({
 
   useEffect(() => {
     fetchPublishedStudents();
-  }, [assignment.published_to]);
+  }, [assignment.publish_times]);
 
   const fetchPublishedStudents = async () => {
     try {
       setLoading(true);
 
-      if (!assignment.published_to || assignment.published_to.length === 0) {
+      const publishTimes = assignment.publish_times || {};
+      const now = new Date();
+      // Get user IDs who are currently published (publish time has passed)
+      const publishedUserIds = new Set(
+        Object.entries(publishTimes)
+          .filter(([_, time]) => new Date(time) <= now)
+          .map(([userId]) => userId)
+      );
+
+      if (publishedUserIds.size === 0) {
         setPublishedStudents([]);
         return;
       }
@@ -44,9 +53,6 @@ const PublishedStudentsList: React.FC<PublishedStudentsListProps> = ({
         assignment.course_id
       );
       const enrollmentsData = enrollmentsResponse.data.data;
-
-      // Filter to only published students
-      const publishedUserIds = new Set(assignment.published_to);
       const publishedEnrollments = enrollmentsData
         .filter(
           (item: any) =>

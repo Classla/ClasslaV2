@@ -1,17 +1,20 @@
 /**
- * Utility functions for calculating assignment points from MCQ blocks and rubrics
+ * Utility functions for calculating assignment points from MCQ blocks, IDE blocks, and rubrics
  */
 
 import { RubricSchema } from "../types";
 
-interface MCQBlockNode {
+interface ContentBlockNode {
   type: string;
   attrs?: {
     mcqData?: {
       points?: number;
     };
+    ideData?: {
+      points?: number;
+    };
   };
-  content?: MCQBlockNode[];
+  content?: ContentBlockNode[];
 }
 
 /**
@@ -35,9 +38,10 @@ export function calculateRubricPoints(
 }
 
 /**
- * Calculate total points for an assignment by summing points from all MCQ blocks
+ * Calculate total points for an assignment by summing points from all MCQ and IDE blocks
  * @param content - The assignment content as a JSON string
- * @returns Total points from all MCQ blocks, or 0 if content is invalid
+ * @param rubricSchema - Optional rubric schema to include rubric points
+ * @returns Total points from all MCQ blocks, IDE blocks, and rubric items, or 0 if content is invalid
  */
 export function calculateAssignmentPoints(
   content: string,
@@ -45,16 +49,22 @@ export function calculateAssignmentPoints(
 ): number {
   try {
     // Parse the assignment content JSON
-    const parsedContent: MCQBlockNode = JSON.parse(content);
+    const parsedContent: ContentBlockNode = JSON.parse(content);
     let totalPoints = 0;
 
     /**
-     * Recursively traverse the document tree to find MCQ blocks
+     * Recursively traverse the document tree to find MCQ and IDE blocks
      */
-    function traverse(node: MCQBlockNode): void {
+    function traverse(node: ContentBlockNode): void {
       // Check if this is an MCQ block with point data
       if (node.type === "mcqBlock" && node.attrs?.mcqData) {
         const points = node.attrs.mcqData.points || 0;
+        totalPoints += points;
+      }
+
+      // Check if this is an IDE block with point data
+      if (node.type === "ideBlock" && node.attrs?.ideData) {
+        const points = node.attrs.ideData.points || 0;
         totalPoints += points;
       }
 

@@ -86,9 +86,8 @@ export interface Assignment {
   course_id: string;
   settings: AssignmentSettings;
   content: string; // tiptap editor content, stores all blocks, questions, and autograder data.
-  published_to: string[]; // Array of user IDs for immediate publishing
+  publish_times: Record<string, string>; // user_id to ISO date string. Past = immediately visible, Future = scheduled
   due_dates_map: Record<string, Date>; // user_id to Date
-  scheduled_publish_map?: Record<string, string>; // user_id to ISO date string for scheduled publishing
   module_path: string[]; // e.g., ["unit 1", "module 1"] for "unit 1/module 1"
   is_lockdown: boolean;
   lockdown_time_map: Record<string, number>; // user_id to number in seconds

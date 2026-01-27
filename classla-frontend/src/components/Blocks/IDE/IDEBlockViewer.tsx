@@ -8,28 +8,18 @@ import React, {
 import { NodeViewWrapper } from "@tiptap/react";
 import { IDEBlockData } from "../../extensions/IDEBlock";
 import {
-  Play,
-  Monitor,
   Loader2,
-  AlertCircle,
   Code2,
-  ExternalLink,
-  PanelLeft,
+  RotateCcw,
 } from "lucide-react";
+import MonacoIDE from "./MonacoIDE";
 import { Button } from "../../ui/button";
-import { Input } from "../../ui/input";
-import { Label } from "../../ui/label";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "../../ui/tabs";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "../../ui/dropdown-menu";
 import { useToast } from "../../../hooks/use-toast";
 import { apiClient } from "../../../lib/api";
 import { useAuth } from "../../../contexts/AuthContext";
 import { useIDEPanel } from "../../../contexts/IDEPanelContext";
+import { useAssignmentContext } from "../../../contexts/AssignmentContext";
 
 interface IDEBlockViewerProps {
   node: any;
@@ -43,6 +33,7 @@ interface ContainerInfo {
     codeServer: string;
     vnc: string;
     webServer: string;
+    terminal?: string;
   };
 }
 
@@ -57,6 +48,7 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
     const { toast } = useToast();
     const { user } = useAuth();
     const { openSidePanel, openFullscreen } = useIDEPanel();
+    const { courseId, assignmentId } = useAssignmentContext();
 
     const [activeTab, setActiveTab] = useState<TabType>("code");
     const [container, setContainer] = useState<ContainerInfo | null>(null);
@@ -68,8 +60,63 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
     const [pollingInterval, setPollingInterval] = useState<NodeJS.Timeout | null>(
       null
     );
+    // Track student's cloned bucket ID (persisted in localStorage)
+    const [studentBucketId, setStudentBucketId] = useState<string | null>(null);
 
     const pollingAttemptsRef = useRef(0);
+
+    // Load student's cloned bucket on mount - query database for existing bucket
+    useEffect(() => {
+      if (!assignmentId || !user?.id) return;
+
+      const loadStudentBucket = async () => {
+        try {
+          console.log("[IDE Student] Querying for student bucket:", {
+            assignmentId,
+            userId: user.id,
+            templateBucketId: ideData.template.s3_bucket_id
+          });
+
+          // Query database for student's bucket for this assignment
+          const bucketsResponse = await apiClient.listS3Buckets({
+            user_id: user.id,
+            assignment_id: assignmentId,
+          });
+
+          const buckets = bucketsResponse.data;
+
+          // Find the first non-template, non-deleted bucket for this student and assignment
+          const studentBucket = buckets?.find(
+            (b: any) =>
+              !b.is_template &&
+              !b.deleted_at &&
+              b.user_id === user.id &&
+              b.assignment_id === assignmentId
+          );
+
+          if (studentBucket) {
+            console.log("[IDE Student] Found existing student bucket:", studentBucket.id);
+            setStudentBucketId(studentBucket.id);
+
+            // Also save to localStorage for faster subsequent loads
+            const storageKey = `student_bucket_${assignmentId}_${user.id}`;
+            localStorage.setItem(storageKey, studentBucket.id);
+          } else {
+            console.log("[IDE Student] No existing bucket found, student will need to clone");
+            setStudentBucketId(null);
+
+            // Clear localStorage if it has a stale value
+            const storageKey = `student_bucket_${assignmentId}_${user.id}`;
+            localStorage.removeItem(storageKey);
+          }
+        } catch (error) {
+          console.error("Failed to load student bucket:", error);
+          setStudentBucketId(null);
+        }
+      };
+
+      loadStudentBucket();
+    }, [assignmentId, user?.id, ideData.template.s3_bucket_id]);
 
     // Cleanup polling interval on unmount
     useEffect(() => {
@@ -77,6 +124,11 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
         if (pollingInterval) clearInterval(pollingInterval);
       };
     }, [pollingInterval]);
+
+    // Clear container (keeps S3 bucket)
+    const clearContainer = useCallback(() => {
+      setContainer(null);
+    }, []);
 
     // Check container status
     const checkContainerStatus = useCallback(
@@ -159,29 +211,36 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
       setIsStarting(true);
 
       try {
-        // For student view, always clone from template bucket
-        // Students should not use the template bucket directly
-        const templateBucketId = ideData.template.s3_bucket_id;
+        // For student view, use existing cloned bucket or create/clone new one
+        let bucketId: string | null = studentBucketId;
         let bucketName: string;
         let bucketRegion: string;
 
-        if (!templateBucketId) {
-          // No template bucket exists, create a new empty bucket
-          const bucketResponse = await apiClient.createS3Bucket({
-            user_id: user.id,
-            region: "us-east-1",
-          });
+        // If we don't have a cloned bucket yet, create or clone one
+        if (!bucketId) {
+          const templateBucketId = ideData.template.s3_bucket_id;
 
-          if (!bucketResponse?.data) {
-            throw new Error("Failed to create S3 bucket");
-          }
+          if (!templateBucketId) {
+            // No template bucket exists, create a new empty bucket
+            const bucketResponse = await apiClient.createS3Bucket({
+              user_id: user.id,
+              course_id: courseId || undefined,
+              assignment_id: assignmentId || undefined,
+              region: "us-east-1",
+            });
 
-          bucketName = bucketResponse.data.bucket_name;
-          bucketRegion = bucketResponse.data.region;
-        } else {
-          // Clone from template bucket
-          try {
+            if (!bucketResponse?.data) {
+              throw new Error("Failed to create S3 bucket");
+            }
+
+            bucketId = bucketResponse.data.id;
+            bucketName = bucketResponse.data.bucket_name;
+            bucketRegion = bucketResponse.data.region;
+          } else {
+            // Clone from template bucket
             const cloneResponse = await apiClient.cloneS3Bucket(templateBucketId, {
+              course_id: courseId || undefined,
+              assignment_id: assignmentId || undefined,
               region: "us-east-1",
             });
 
@@ -189,28 +248,63 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
               throw new Error("Failed to clone S3 bucket");
             }
 
+            bucketId = cloneResponse.data.id;
             bucketName = cloneResponse.data.bucket_name;
             bucketRegion = cloneResponse.data.region;
-          } catch (cloneError: any) {
-            // If clone fails (e.g., user not enrolled), show error
-            throw new Error(
-              cloneError.response?.data?.error || "Failed to clone template. You may not be enrolled in this course."
-            );
+
+            console.log("[IDE Student] Cloned template bucket:", {
+              templateBucketId,
+              clonedBucketId: bucketId,
+              bucketName,
+              userId: user.id,
+              assignmentId,
+              courseId
+            });
           }
+
+          // Save the cloned bucket ID to state and localStorage
+          setStudentBucketId(bucketId);
+          if (assignmentId && user.id && bucketId) {
+            const storageKey = `student_bucket_${assignmentId}_${user.id}`;
+            localStorage.setItem(storageKey, bucketId);
+            console.log("[IDE Student] Saved bucket to localStorage:", storageKey, bucketId);
+          }
+        } else {
+          // Get existing bucket info
+          const bucketResponse = await apiClient.getS3Bucket(bucketId);
+          bucketName = bucketResponse.data.bucket_name;
+          bucketRegion = bucketResponse.data.region || "us-east-1";
         }
 
         // Start container
-        // Note: bucketId not available in viewer (student view), will need to be looked up by backend
         const containerResponse = await apiClient.startIDEContainer({
           s3Bucket: bucketName,
+          s3BucketId: bucketId ?? undefined,
           s3Region: bucketRegion,
           userId: user.id,
         });
 
-        const containerId = containerResponse.data.id;
+        const containerData = containerResponse.data;
+        const containerId = containerData.id;
 
-        // Start polling for container readiness
-        pollContainerUntilReady(containerId);
+        // If container is pre-warmed and ready, show immediately
+        const isPreWarmed = containerData.isPreWarmed || (containerData.urls?.codeServer && containerData.status === "running");
+
+        if (isPreWarmed) {
+          setContainer({
+            id: containerId,
+            status: "running",
+            urls: {
+              ...containerData.urls,
+              terminal: containerData.urls.terminal || `${IDE_API_BASE_URL}/terminal/${containerId}`,
+              vnc: containerData.urls.vnc || `${IDE_API_BASE_URL}/vnc/${containerId}/`,
+            },
+          });
+          setIsStarting(false);
+        } else {
+          // Start polling for container readiness
+          pollContainerUntilReady(containerId);
+        }
       } catch (error: any) {
         console.error("Failed to start container:", error);
         setIsStarting(false);
@@ -221,7 +315,7 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
           variant: "destructive",
         });
       }
-    }, [user, ideData, pollContainerUntilReady, toast]);
+    }, [user, ideData, studentBucketId, assignmentId, courseId, pollContainerUntilReady, toast]);
 
     // Initialize container on mount
     useEffect(() => {
@@ -302,6 +396,149 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
       setShowDesktop((prev) => !prev);
     }, []);
 
+    // Handle refresh instance
+    const handleRefreshInstance = useCallback(async () => {
+      if (!container) return;
+
+      try {
+        toast({
+          title: "Syncing workspace",
+          description: "Saving changes to S3 before refreshing...",
+          variant: "default",
+        });
+
+        const syncResponse = await fetch(
+          `${IDE_API_BASE_URL}/web/${container.id}/sync`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+          }
+        );
+
+        const syncData = await syncResponse.json();
+
+        if (!syncResponse.ok) {
+          console.error("Sync before refresh failed:", syncData);
+          toast({
+            title: "Sync failed",
+            description: syncData.error || "Failed to sync workspace to S3. Refresh cancelled.",
+            variant: "destructive",
+          });
+          return;
+        }
+
+        // Wait for S3 eventual consistency
+        await new Promise(resolve => setTimeout(resolve, 2000));
+
+        toast({
+          title: "Workspace synced",
+          description: `Changes saved to S3 (${syncData.files_synced || 0} files). Refreshing container...`,
+          variant: "default",
+        });
+      } catch (error: any) {
+        console.error("Failed to sync before refresh:", error);
+        toast({
+          title: "Sync error",
+          description: "Failed to sync workspace. Refresh cancelled to prevent data loss.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // Clear the current container
+      clearContainer();
+
+      // Start a new container with the existing S3 bucket
+      await startContainer();
+    }, [container, clearContainer, startContainer, toast]);
+
+    // Handle reset to template - delete current bucket and clone fresh from template
+    const handleResetToTemplate = useCallback(async () => {
+      if (!user?.id || !assignmentId) {
+        toast({
+          title: "Authentication required",
+          description: "Please sign in to reset workspace.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // Confirm reset
+      if (!window.confirm("Are you sure you want to reset your workspace to the template? This will delete all your changes and cannot be undone.")) {
+        return;
+      }
+
+      try {
+        // Clear container first
+        clearContainer();
+
+        // Delete old bucket if it exists
+        if (studentBucketId) {
+          try {
+            await apiClient.softDeleteS3Bucket(studentBucketId);
+            console.log("[IDE Student] Deleted old bucket:", studentBucketId);
+          } catch (error) {
+            console.warn("[IDE Student] Failed to delete old bucket:", error);
+            // Continue anyway - might already be deleted
+          }
+        }
+
+        // Clear state and localStorage
+        setStudentBucketId(null);
+        const storageKey = `student_bucket_${assignmentId}_${user.id}`;
+        localStorage.removeItem(storageKey);
+
+        toast({
+          title: "Workspace reset",
+          description: "Cloning fresh copy from template...",
+          variant: "default",
+        });
+
+        // Clone fresh from template
+        const templateBucketId = ideData.template.s3_bucket_id;
+        if (!templateBucketId) {
+          throw new Error("No template bucket to clone from");
+        }
+
+        const cloneResponse = await apiClient.cloneS3Bucket(templateBucketId, {
+          course_id: courseId || undefined,
+          assignment_id: assignmentId || undefined,
+          region: "us-east-1",
+        });
+
+        if (!cloneResponse?.data) {
+          throw new Error("Failed to clone template bucket");
+        }
+
+        const newBucketId = cloneResponse.data.id;
+        console.log("[IDE Student] Cloned fresh bucket:", {
+          templateBucketId,
+          newBucketId,
+          userId: user.id,
+          assignmentId
+        });
+
+        // Save new bucket ID
+        setStudentBucketId(newBucketId);
+        localStorage.setItem(storageKey, newBucketId);
+
+        toast({
+          title: "Workspace reset complete",
+          description: "Your workspace has been reset to the template.",
+          variant: "default",
+        });
+      } catch (error: any) {
+        console.error("[IDE Student] Failed to reset workspace:", error);
+        toast({
+          title: "Failed to reset workspace",
+          description: error.message || "An error occurred while resetting your workspace.",
+          variant: "destructive",
+        });
+      }
+    }, [studentBucketId, assignmentId, courseId, user, ideData, clearContainer, toast]);
+
     // Handle tab change
     const handleTabChange = useCallback((value: string) => {
       setActiveTab(value as TabType);
@@ -331,6 +568,19 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
               </div>
             </div>
             <div className="flex items-center gap-2">
+              {/* Reset to Template button (only show if student has a bucket) */}
+              {studentBucketId && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleResetToTemplate}
+                  className="text-orange-600 hover:text-orange-700 hover:bg-orange-50 border-orange-200"
+                  title="Reset workspace to template (deletes all changes)"
+                >
+                  <RotateCcw className="w-4 h-4 mr-2" />
+                  Reset to Template
+                </Button>
+              )}
             </div>
           </div>
 
@@ -346,70 +596,49 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
             {/* Code Tab */}
             <TabsContent value="code" className="mt-4">
               <div className="space-y-4">
-                {/* Header with Run button and filename input */}
-                <div className="flex items-center justify-end gap-2">
-                  <div className="flex items-center gap-2">
-                    <Label htmlFor="default-run-file" className="text-xs text-gray-600 whitespace-nowrap">
-                      Run File:
-                    </Label>
-                    <Input
-                      id="default-run-file"
-                      type="text"
-                      placeholder="main.py"
-                      value={runFilename}
-                      onChange={(e) => setRunFilename(e.target.value)}
-                      className="w-32 text-sm"
-                      disabled={!container || isStarting}
-                    />
-                  </div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleRun}
-                    disabled={!container || isStarting}
-                  >
-                    <Play className="w-4 h-4 mr-2" />
-                    Run
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => openSidePanel({
-                      ideData,
-                      container,
-                      bucketId: ideData.template.s3_bucket_id,
-                      isStarting,
-                      showDesktop,
-                      runFilename,
-                      ideApiBaseUrl: IDE_API_BASE_URL,
-                    })}
-                    className="text-purple-600 hover:text-purple-700 hover:bg-purple-50 w-8 h-8 p-0"
-                    title="Open in Side Panel"
-                  >
-                    <PanelLeft className="w-4 h-4" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => openFullscreen({
-                      ideData,
-                      container,
-                      bucketId: ideData.template.s3_bucket_id,
-                      isStarting,
-                      showDesktop,
-                      runFilename,
-                      ideApiBaseUrl: IDE_API_BASE_URL,
-                    })}
-                    className="text-blue-600 hover:text-blue-700 hover:bg-blue-50 w-8 h-8 p-0"
-                    title="Open in New Tab"
-                  >
-                    <ExternalLink className="w-4 h-4" />
-                  </Button>
-                </div>
-
                 {/* Container area */}
                 <div className="border border-gray-200 rounded-lg overflow-hidden bg-gray-50">
-                  {!container && !isStarting && (
+                  {/* Show MonacoIDE if student has a cloned bucket */}
+                  {studentBucketId ? (
+                    <div className="h-[600px]">
+                      <MonacoIDE
+                        bucketId={studentBucketId}
+                        containerId={container?.id || null}
+                        containerTerminalUrl={container?.urls?.terminal || (container ? `${IDE_API_BASE_URL}/terminal/${container.id}` : undefined)}
+                        containerVncUrl={container?.urls?.vnc}
+                        containerWebServerUrl={container?.urls?.webServer}
+                        ideApiBaseUrl={IDE_API_BASE_URL}
+                        onRun={container ? handleRun : startContainer}
+                        runFilename={runFilename}
+                        onFilenameChange={setRunFilename}
+                        isStarting={isStarting}
+                        onRefreshInstance={container ? handleRefreshInstance : undefined}
+                        onToggleDesktop={handleToggleDesktop}
+                        showDesktop={showDesktop}
+                        onContainerKilled={clearContainer}
+                        showPanelButtons={true}
+                        onOpenSidePanel={() => openSidePanel({
+                          ideData,
+                          container,
+                          bucketId: studentBucketId,
+                          isStarting,
+                          showDesktop,
+                          runFilename,
+                          ideApiBaseUrl: IDE_API_BASE_URL,
+                        })}
+                        onOpenFullscreen={() => openFullscreen({
+                          ideData,
+                          container,
+                          bucketId: studentBucketId,
+                          isStarting,
+                          showDesktop,
+                          runFilename,
+                          ideApiBaseUrl: IDE_API_BASE_URL,
+                        })}
+                      />
+                    </div>
+                  ) : (
+                    /* Show start button if no bucket exists yet */
                     <div className="flex flex-col items-center justify-center h-96">
                       <Code2 className="w-16 h-16 text-gray-400 mb-4" />
                       <p className="text-gray-600 font-medium mb-2">
@@ -421,52 +650,17 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
                       <Button
                         onClick={startContainer}
                         className="bg-purple-600 hover:bg-purple-700 text-white"
+                        disabled={isStarting}
                       >
-                        Start Virtual Codespace
+                        {isStarting ? (
+                          <>
+                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                            Starting...
+                          </>
+                        ) : (
+                          "Start Virtual Codespace"
+                        )}
                       </Button>
-                    </div>
-                  )}
-
-                  {isStarting && (
-                    <div className="flex flex-col items-center justify-center h-96">
-                      <Loader2 className="w-8 h-8 text-purple-600 animate-spin mb-4" />
-                      <p className="text-gray-600 font-medium">
-                        Starting container...
-                      </p>
-                      <p className="text-sm text-gray-500 mt-1">
-                        This may take a few moments
-                      </p>
-                    </div>
-                  )}
-
-                  {container && !isStarting && (
-                    <div className="space-y-0">
-                      {/* Code Server iframe */}
-                      <div
-                        className="relative"
-                        style={{ height: showDesktop ? "400px" : "600px" }}
-                      >
-                        <iframe
-                          src={`${IDE_API_BASE_URL}/code/${container.id}/`}
-                          className="w-full h-full border-0"
-                          title="Code Server"
-                          allow="clipboard-read; clipboard-write"
-                        />
-                      </div>
-
-                      {/* VNC iframe (shown when desktop view is enabled) */}
-                      {showDesktop && (
-                        <div
-                          className="relative border-t border-gray-300"
-                          style={{ height: "400px" }}
-                        >
-                          <iframe
-                            src={`${IDE_API_BASE_URL}/vnc/${container.id}/`}
-                            className="w-full h-full border-0"
-                            title="Desktop View"
-                          />
-                        </div>
-                      )}
                     </div>
                   )}
                 </div>
@@ -502,24 +696,6 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
             )}
           </Tabs>
 
-          {/* Footer */}
-          {container && (
-            <div className="mt-4 pt-3 border-t border-gray-200 flex items-center justify-start">
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="outline" size="sm">
-                    <Monitor className="w-4 h-4 mr-2" />
-                    View Desktop
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent>
-                  <DropdownMenuItem onClick={handleToggleDesktop}>
-                    {showDesktop ? "Hide" : "Show"} Desktop View
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-          )}
         </div>
       </NodeViewWrapper>
     );

@@ -339,9 +339,8 @@ export const apiClient = {
     course_id: string;
     settings?: any;
     content?: string;
-    published_to?: string[];
+    publish_times?: Record<string, string>;
     due_dates_map?: Record<string, string>;
-    scheduled_publish_map?: Record<string, string>;
     module_path?: string[];
     is_lockdown?: boolean;
     lockdown_time_map?: Record<string, number>;
@@ -353,9 +352,8 @@ export const apiClient = {
       name?: string;
       settings?: any;
       content?: string;
-      published_to?: string[];
+      publish_times?: Record<string, string>;
       due_dates_map?: Record<string, string>;
-      scheduled_publish_map?: Record<string, string>;
       module_path?: string[];
       is_lockdown?: boolean;
       lockdown_time_map?: Record<string, number>;
@@ -489,6 +487,13 @@ export const apiClient = {
     }
     return api.get(`/ide-blocks/container/${containerId}`, { headers });
   },
+  listS3Buckets: (params?: {
+    user_id?: string;
+    course_id?: string;
+    assignment_id?: string;
+    status?: string;
+    include_deleted?: boolean;
+  }) => api.get("/s3buckets", { params }),
   getS3Bucket: (bucketId: string) => api.get(`/s3buckets/${bucketId}`),
   createS3Bucket: (data: {
     user_id: string;

@@ -183,12 +183,74 @@ const io = initializeWebSocket(server, sessionMiddleware);
 setupAIWebSocket(io);
 
 // Set up Y.js WebSocket namespace (replaces old file sync WebSocket)
-const { setupYjsWebSocket } = require("./services/yjsProviderService");
+const { setupYjsWebSocket, saveAllDocumentsToS3 } = require("./services/yjsProviderService");
 setupYjsWebSocket(io);
 
 // Old file sync WebSocket (deprecated - kept for backward compatibility during migration)
 // const { setupFileSyncWebSocket } = require("./services/fileSyncService");
 // setupFileSyncWebSocket(io);
+
+// Graceful shutdown - CRITICAL: Save all Y.js documents to S3 before exiting
+// This prevents data loss when the server restarts
+let isShuttingDown = false;
+
+async function gracefulShutdown(signal: string) {
+  if (isShuttingDown) {
+    logger.info(`[Shutdown] Already shutting down, ignoring ${signal}`);
+    return;
+  }
+  isShuttingDown = true;
+
+  logger.info(`[Shutdown] Received ${signal}, starting graceful shutdown...`);
+
+  try {
+    // CRITICAL: Save all Y.js documents to S3 before shutting down
+    // This prevents data loss from pending debounced saves
+    logger.info('[Shutdown] Saving all Y.js documents to S3...');
+    await saveAllDocumentsToS3();
+    logger.info('[Shutdown] ✅ All Y.js documents saved successfully');
+  } catch (error) {
+    logger.error('[Shutdown] ❌ Failed to save Y.js documents:', error);
+  }
+
+  // Close HTTP server (stop accepting new connections)
+  server.close((err) => {
+    if (err) {
+      logger.error('[Shutdown] Error closing HTTP server:', err);
+      process.exit(1);
+    }
+    logger.info('[Shutdown] HTTP server closed');
+    process.exit(0);
+  });
+
+  // Force exit after 10 seconds if graceful shutdown takes too long
+  setTimeout(() => {
+    logger.error('[Shutdown] Forced exit after timeout');
+    process.exit(1);
+  }, 10000);
+}
+
+// Handle shutdown signals
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+
+// Handle uncaught errors - save before crashing
+process.on('uncaughtException', async (error) => {
+  logger.error('[Fatal] Uncaught exception:', error);
+  try {
+    await saveAllDocumentsToS3();
+    logger.info('[Fatal] Emergency save completed');
+  } catch (saveError) {
+    logger.error('[Fatal] Emergency save failed:', saveError);
+  }
+  process.exit(1);
+});
+
+process.on('unhandledRejection', async (reason, promise) => {
+  logger.error('[Fatal] Unhandled rejection:', { reason, promise });
+  // Don't exit on unhandled rejection - just log it
+  // The process will continue running
+});
 
 // Wait for Redis connection before starting server (in production)
 waitForRedisConnection()

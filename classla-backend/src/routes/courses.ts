@@ -1356,13 +1356,10 @@ router.get(
             return true;
           }
 
-          // Otherwise, check if published to course or student's section
-          const publishedTo = assignment.published_to || [];
-          return (
-            publishedTo.includes(courseId) ||
-            (enrollment.section_id &&
-              publishedTo.includes(enrollment.section_id))
-          );
+          // Otherwise, check if published to this student (publish time has passed)
+          const publishTimes = assignment.publish_times || {};
+          const userPublishTime = publishTimes[userId];
+          return userPublishTime && new Date(userPublishTime) <= new Date();
         }
       );
 

@@ -277,7 +277,8 @@ else
   # Local mode configuration
   echo "🔧 Configuring for LOCAL mode..."
   echo ""
-  export DOMAIN=${DOMAIN:-localhost}
+  # Force DOMAIN to localhost in local mode (override any .env settings)
+  export DOMAIN="localhost"
   export NODE_ENV="local"
   export TRAEFIK_INSECURE="true"
   # Traefik dashboard at port 8080 in local mode
@@ -342,34 +343,36 @@ echo ""
 echo "🚀 Deploying services..."
 cd "$SCRIPT_DIR/orchestration"
 
-# For production mode, we need to add HTTPS redirect flags to docker-compose.yml
-# Since Docker Compose doesn't support conditional command flags, we'll use a temporary file
+# Get absolute path to orchestration directory for bind mounts
+# Docker Swarm requires absolute paths for bind mounts
+ORCHESTRATION_DIR=$(pwd)
+
+# Create a temporary compose file for both modes
+# This ensures bind mount paths are absolute (required for Docker Swarm)
+TEMP_COMPOSE=$(mktemp)
+cp docker-compose.yml "$TEMP_COMPOSE"
+
+# Convert relative path to absolute path for traefik-dynamic.yml
+# Docker Swarm requires absolute paths for bind mounts
+# Match only the source path (before the colon) to avoid replacing the target path
+sed -i.bak "s|\\./traefik-dynamic.yml:|${ORCHESTRATION_DIR}/traefik-dynamic.yml:|g" "$TEMP_COMPOSE"
+
+# For production mode, add HTTPS redirect flags
 if [ "$PRODUCTION" = "true" ]; then
-  # Create a temporary compose file with HTTPS redirect enabled
-  TEMP_COMPOSE=$(mktemp)
-  # Get absolute path to orchestration directory for bind mounts
-  ORCHESTRATION_DIR=$(pwd)
-  # Copy the base compose file
-  cp docker-compose.yml "$TEMP_COMPOSE"
-  # Convert relative path to absolute path for traefik-dynamic.yml
-  # Docker Swarm requires absolute paths for bind mounts
-  # Match only the source path (before the colon) to avoid replacing the target path
-  sed -i.bak "s|\\./traefik-dynamic.yml:|${ORCHESTRATION_DIR}/traefik-dynamic.yml:|g" "$TEMP_COMPOSE"
   # Add HTTPS redirect flags after the web entrypoint line
   sed -i.bak '/--entrypoints.web.address=:80/a\
       - "--entrypoints.web.http.redirections.entryPoint.to=websecure"\
       - "--entrypoints.web.http.redirections.entryPoint.scheme=https"
 ' "$TEMP_COMPOSE"
-  rm -f "$TEMP_COMPOSE.bak"
-  COMPOSE_FILE="$TEMP_COMPOSE"
-else
-  COMPOSE_FILE="docker-compose.yml"
 fi
+
+rm -f "$TEMP_COMPOSE.bak"
+COMPOSE_FILE="$TEMP_COMPOSE"
 
 docker stack deploy -c "$COMPOSE_FILE" ide-local
 
-# Clean up temporary file if created
-if [ "$PRODUCTION" = "true" ] && [ -n "$TEMP_COMPOSE" ]; then
+# Clean up temporary file
+if [ -n "$TEMP_COMPOSE" ]; then
   rm -f "$TEMP_COMPOSE"
 fi
 

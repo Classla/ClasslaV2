@@ -291,7 +291,7 @@ const CourseLayoutInner: React.FC<CourseLayoutProps> = ({ children }) => {
                                 module_path: [],
                                 settings: {},
                                 content: "",
-                                published_to: [],
+                                publish_times: {},
                                 due_dates_map: {},
                                 is_lockdown: false,
                                 lockdown_time_map: {},

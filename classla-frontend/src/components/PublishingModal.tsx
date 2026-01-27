@@ -98,9 +98,17 @@ const PublishingModal: React.FC<PublishingModalProps> = ({
       }
       // Determine initial mode based on existing data
       if (assignment) {
-        const hasScheduled = Object.keys(assignment.scheduled_publish_map || {}).length > 0;
-        const hasImmediate = (assignment.published_to || []).length > 0;
-        if (hasScheduled && !hasImmediate) {
+        const publishTimes = assignment.publish_times || {};
+        const now = new Date();
+        // Check if there are any future (scheduled) publish times
+        const hasFutureScheduled = Object.values(publishTimes).some(
+          (time) => new Date(time) > now
+        );
+        // Check if there are any past (immediate) publish times
+        const hasImmediate = Object.values(publishTimes).some(
+          (time) => new Date(time) <= now
+        );
+        if (hasFutureScheduled && !hasImmediate) {
           setPublishMode("scheduled");
         } else {
           setPublishMode("immediate");
@@ -193,8 +201,15 @@ const PublishingModal: React.FC<PublishingModalProps> = ({
     assignment: Assignment,
     sectionsWithEnrollments: SectionWithEnrollments[]
   ) => {
-    // Initialize immediate publishing selection
-    const publishedUserIds = new Set(assignment.published_to || []);
+    const now = new Date();
+    const publishTimes = assignment.publish_times || {};
+
+    // Users with past timestamps are "immediately published"
+    const publishedUserIds = new Set(
+      Object.entries(publishTimes)
+        .filter(([_, time]) => new Date(time) <= now)
+        .map(([userId]) => userId)
+    );
     const newSelectedItems = new Set<string>();
 
     publishedUserIds.forEach((userId) => {
@@ -227,19 +242,20 @@ const PublishingModal: React.FC<PublishingModalProps> = ({
 
     setSelectedItems(newSelectedItems);
 
-    // Initialize scheduled publishing times
-    const scheduledPublishMap = assignment.scheduled_publish_map || {};
+    // Initialize scheduled publishing times (users with future timestamps)
     const studentTimes: Record<string, string> = {};
-    Object.entries(scheduledPublishMap).forEach(([userId, time]) => {
-      studentTimes[userId] = formatDateForInput(time);
+    Object.entries(publishTimes).forEach(([userId, time]) => {
+      if (new Date(time) > now) {
+        studentTimes[userId] = formatDateForInput(time);
+      }
     });
     setStudentPublishTimes(studentTimes);
 
     // Check for course-wide scheduled time
-    const allTimes = Object.values(scheduledPublishMap);
-    const uniqueTimes = [...new Set(allTimes)];
-    if (uniqueTimes.length === 1 && allTimes.length > 0) {
-      setCoursePublishTime(formatDateForInput(uniqueTimes[0]));
+    const allScheduledTimes = Object.values(studentTimes);
+    const uniqueTimes = [...new Set(allScheduledTimes)];
+    if (uniqueTimes.length === 1 && allScheduledTimes.length > 0) {
+      setCoursePublishTime(uniqueTimes[0]);
     }
   };
 
@@ -430,10 +446,11 @@ const PublishingModal: React.FC<PublishingModalProps> = ({
     try {
       setLoading(true);
 
-      const updateData: { published_to?: string[]; scheduled_publish_map?: Record<string, string> } = {};
+      const publishTimesMap: Record<string, string> = {};
+      const nowISO = new Date().toISOString();
 
       if (publishMode === "immediate") {
-        // Build published_to array
+        // Build publish_times with current timestamp for immediate publishing
         const userIds = new Set<string>();
         selectedItems.forEach((itemId) => {
           if (itemId === effectiveCourseId) {
@@ -453,23 +470,22 @@ const PublishingModal: React.FC<PublishingModalProps> = ({
             }
           }
         });
-        updateData.published_to = Array.from(userIds);
-        updateData.scheduled_publish_map = {}; // Clear scheduled when using immediate
+        // Set current time for all selected users (immediate publishing)
+        userIds.forEach((userId) => {
+          publishTimesMap[userId] = nowISO;
+        });
       } else {
-        // Build scheduled_publish_map
-        const scheduledPublishMap: Record<string, string> = {};
+        // Build publish_times from scheduled times
         Object.entries(studentPublishTimes).forEach(([userId, time]) => {
           if (time) {
-            scheduledPublishMap[userId] = new Date(time).toISOString();
+            publishTimesMap[userId] = new Date(time).toISOString();
           }
         });
-        updateData.scheduled_publish_map = scheduledPublishMap;
-        // Don't modify published_to when scheduling - keep existing immediate publishes
       }
 
       const updatedAssignment = await apiClient.updateAssignment(
         assignment.id,
-        updateData
+        { publish_times: publishTimesMap }
       );
 
       onAssignmentUpdated?.(updatedAssignment.data);
@@ -504,7 +520,8 @@ const PublishingModal: React.FC<PublishingModalProps> = ({
     try {
       setLoading(true);
 
-      const updateData: { published_to?: string[]; scheduled_publish_map?: Record<string, string> } = {};
+      const publishTimesMap: Record<string, string> = {};
+      const nowISO = new Date().toISOString();
 
       if (publishMode === "immediate") {
         const userIds = new Set<string>();
@@ -526,17 +543,19 @@ const PublishingModal: React.FC<PublishingModalProps> = ({
             }
           }
         });
-        updateData.published_to = Array.from(userIds);
-        updateData.scheduled_publish_map = {};
+        // Set current time for all selected users (immediate publishing)
+        userIds.forEach((userId) => {
+          publishTimesMap[userId] = nowISO;
+        });
       } else {
-        const scheduledPublishMap: Record<string, string> = {};
         Object.entries(studentPublishTimes).forEach(([userId, time]) => {
           if (time) {
-            scheduledPublishMap[userId] = new Date(time).toISOString();
+            publishTimesMap[userId] = new Date(time).toISOString();
           }
         });
-        updateData.scheduled_publish_map = scheduledPublishMap;
       }
+
+      const updateData = { publish_times: publishTimesMap };
 
       // Update each selected assignment
       const updatePromises = Array.from(selectedAssignments).map((assignmentId) =>
@@ -582,8 +601,7 @@ const PublishingModal: React.FC<PublishingModalProps> = ({
 
       const updatePromises = assignmentsToUpdate.map((assignmentId) =>
         apiClient.updateAssignment(assignmentId, {
-          published_to: [],
-          scheduled_publish_map: {},
+          publish_times: {},
         })
       );
 
@@ -613,8 +631,12 @@ const PublishingModal: React.FC<PublishingModalProps> = ({
   };
 
   const getAssignmentPublishStatus = (assignment: Assignment): string => {
-    const publishedCount = assignment.published_to?.length || 0;
-    const scheduledCount = Object.keys(assignment.scheduled_publish_map || {}).length;
+    const now = new Date();
+    const publishTimes = assignment.publish_times || {};
+    const entries = Object.entries(publishTimes);
+
+    const publishedCount = entries.filter(([_, time]) => new Date(time) <= now).length;
+    const scheduledCount = entries.filter(([_, time]) => new Date(time) > now).length;
 
     if (publishedCount > 0 && scheduledCount > 0) {
       return `${publishedCount} published, ${scheduledCount} scheduled`;

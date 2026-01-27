@@ -465,7 +465,7 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
     }
   }, [bucketId, toast, getAllFilePaths]);
 
-  // Load file content from S3 via backend API (for initial load, Y.js handles sync)
+  // Load file content - Y.js is the source of truth, server handles S3 loading
   const loadFile = useCallback(
     async (filePath: string, forceReload: boolean = false) => {
       if (!bucketId) return;
@@ -474,60 +474,41 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
       setLoadingFiles((prev) => new Set(prev).add(filePath));
 
       try {
-        // CRITICAL: Subscribe to Y.js document FIRST to ensure we get updates
+        // CRITICAL: Subscribe to Y.js document and let the SERVER handle loading from S3
+        // The server will send document-state which contains the latest content
+        // DO NOT load from S3 on the client - this causes race conditions where
+        // old S3 content overwrites newer Y.js state
         yjsProvider.subscribeToDocument(bucketId, filePath);
-        
+
         // Get or create Y.js document
-        const { doc, ytext } = yjsProvider.getDocument(bucketId, filePath);
+        const { ytext } = yjsProvider.getDocument(bucketId, filePath);
+
+        // Check if Y.js already has content (might have been loaded from a previous subscription)
         const yjsContent = ytext.toString();
-        
+
         console.log(`[MonacoIDE] Loading file ${filePath}`, {
           yjsContentLength: yjsContent.length,
           forceReload,
           docId: `${bucketId}:${filePath}`
         });
-        
-        // If Y.js document is empty or we're forcing reload, load from S3
-        if (!yjsContent || forceReload) {
-          try {
-        const response = await apiClient.getS3File(bucketId, filePath);
-        const content = response.data.content || "";
-            
-            console.log(`[MonacoIDE] Loaded from S3: ${filePath}`, {
-              contentLength: content.length,
-              yjsContentLength: yjsContent.length
-            });
-            
-            // Update Y.js document with content from S3 (this will sync to other tabs)
-            if (content && yjsContent !== content) {
-              // Use transaction to update atomically
-              doc.transact(() => {
-              ytext.delete(0, ytext.length);
-              ytext.insert(0, content);
-              }, "s3-load");
-              console.log(`[MonacoIDE] Updated Y.js from S3: ${filePath}`);
-            }
-            
-            // Update local state
-        setFileContent((prev) => ({ ...prev, [filePath]: content }));
-      } catch (error: any) {
-            // File might not exist yet, that's okay
-            if (error.statusCode !== 404) {
-              console.error(`[MonacoIDE] Failed to load file ${filePath}:`, error);
-            }
-            // Set empty content for new files
-          setFileContent((prev) => ({ ...prev, [filePath]: "" }));
-          }
-        } else {
-          // Use Y.js content (it's the source of truth)
-          console.log(`[MonacoIDE] Using Y.js content: ${filePath}`, {
+
+        // If Y.js has content, use it immediately
+        // If empty, the server will send document-state which will trigger the ytext observer
+        if (yjsContent) {
+          console.log(`[MonacoIDE] Using existing Y.js content: ${filePath}`, {
             contentLength: yjsContent.length
           });
           setFileContent((prev) => ({ ...prev, [filePath]: yjsContent }));
+        } else {
+          // Y.js is empty - this is normal on first load
+          // The server will send document-state shortly which will populate the content
+          // For now, set empty content (will be updated when document-state arrives)
+          console.log(`[MonacoIDE] Y.js empty, waiting for server document-state: ${filePath}`);
+          setFileContent((prev) => ({ ...prev, [filePath]: "" }));
         }
       } catch (error: any) {
         console.error(`[MonacoIDE] Failed to load file ${filePath}:`, error);
-          setFileContent((prev) => ({ ...prev, [filePath]: "" }));
+        setFileContent((prev) => ({ ...prev, [filePath]: "" }));
       } finally {
         // Clear loading state
         setLoadingFiles((prev) => {
@@ -537,7 +518,7 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
         });
       }
     },
-    [bucketId, toast]
+    [bucketId]
   );
 
   // Save file to S3 (Y.js handles real-time sync, this is for explicit saves)
@@ -608,13 +589,14 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
         yjsProvider.subscribeToDocument(bucketId, path);
         const { ytext } = yjsProvider.getDocument(bucketId, path);
         const yjsContent = ytext.toString();
-        
+
         // If Y.js has content, use it (it's the source of truth)
         if (yjsContent) {
           setFileContent((prev) => ({ ...prev, [path]: yjsContent }));
         } else {
-          // If Y.js is empty, load from S3 as fallback
-      loadFile(path, true);
+          // If Y.js is empty, subscribe and wait for server to send document-state
+          // Server handles loading from S3 - client should NOT load from S3 directly
+          loadFile(path, false);
         }
       }
     },

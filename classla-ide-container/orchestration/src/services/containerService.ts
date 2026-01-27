@@ -562,6 +562,20 @@ export class ContainerService {
         );
       }
       
+      // CRITICAL: Warn if bucketId is missing - Y.js sync will NOT work without it
+      if (!s3Config.bucketId) {
+        console.error(
+          `[ContainerService] ⚠️ WARNING: bucketId is missing for container ${containerId}! Y.js file sync will NOT work.`
+        );
+        console.error(
+          `[ContainerService] s3Config received:`, JSON.stringify(s3Config, null, 2)
+        );
+      } else {
+        console.log(
+          `[ContainerService] Assigning S3 bucket with bucketId: ${s3Config.bucketId}`
+        );
+      }
+
       // Call the /assign-s3-bucket endpoint (even if health check failed)
       const response = await fetch(`${webServerUrl}/assign-s3-bucket`, {
         method: "POST",

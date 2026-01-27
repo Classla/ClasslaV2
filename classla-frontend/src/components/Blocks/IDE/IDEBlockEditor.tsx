@@ -37,6 +37,7 @@ import { useToast } from "../../../hooks/use-toast";
 import { apiClient } from "../../../lib/api";
 import { useAuth } from "../../../contexts/AuthContext";
 import { useIDEPanel } from "../../../contexts/IDEPanelContext";
+import { useAssignmentContext } from "../../../contexts/AssignmentContext";
 
 interface IDEBlockEditorProps {
   node: any;
@@ -67,6 +68,7 @@ const IDEBlockEditor: React.FC<IDEBlockEditorProps> = memo(
     const { toast } = useToast();
     const { user } = useAuth();
     const { openSidePanel, openFullscreen } = useIDEPanel();
+    const { courseId, assignmentId } = useAssignmentContext();
 
     // Admin toggle for local vs production IDE API
     const [useLocalIDE, setUseLocalIDE] = useState(false);
@@ -299,6 +301,8 @@ const IDEBlockEditor: React.FC<IDEBlockEditorProps> = memo(
                 console.warn("Failed to clone template bucket, creating new bucket:", cloneError);
                 const bucketResponse = await apiClient.createS3Bucket({
                   user_id: user.id,
+                  course_id: courseId || undefined,
+                  assignment_id: assignmentId || undefined,
                   region: "us-east-1",
                 });
 
@@ -316,6 +320,8 @@ const IDEBlockEditor: React.FC<IDEBlockEditorProps> = memo(
               const isTemplate = tab === "template";
               const bucketResponse = await apiClient.createS3Bucket({
                 user_id: user.id,
+                course_id: courseId || undefined,
+                assignment_id: assignmentId || undefined,
                 region: "us-east-1",
                 is_template: isTemplate,
               });
@@ -408,6 +414,8 @@ const IDEBlockEditor: React.FC<IDEBlockEditorProps> = memo(
                 console.warn("Failed to clone template bucket, creating new bucket:", cloneError);
                 const bucketResponse = await apiClient.createS3Bucket({
                   user_id: user.id,
+                  course_id: courseId || undefined,
+                  assignment_id: assignmentId || undefined,
                   region: "us-east-1",
                 });
 
@@ -425,6 +433,8 @@ const IDEBlockEditor: React.FC<IDEBlockEditorProps> = memo(
               const isTemplate = tab === "template";
               const bucketResponse = await apiClient.createS3Bucket({
                 user_id: user.id,
+                course_id: courseId || undefined,
+                assignment_id: assignmentId || undefined,
                 region: "us-east-1",
                 is_template: isTemplate,
               });

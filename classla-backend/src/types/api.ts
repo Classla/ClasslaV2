@@ -97,7 +97,7 @@ export interface CreateAssignmentRequest {
   course_id: string;
   settings?: Record<string, any>;
   content: string;
-  published_to?: string[];
+  publish_times?: Record<string, string>;
   due_dates_map?: Record<string, Date>;
   module_path?: string[];
   is_lockdown?: boolean;
@@ -108,7 +108,7 @@ export interface UpdateAssignmentRequest {
   name?: string;
   settings?: Record<string, any>;
   content?: string;
-  published_to?: string[];
+  publish_times?: Record<string, string>;
   due_dates_map?: Record<string, Date>;
   module_path?: string[];
   is_lockdown?: boolean;
@@ -126,7 +126,7 @@ export interface StudentAssignmentResponse {
   course_id: string;
   settings: Record<string, any>;
   content: string; // Filtered content without autograder data
-  published_to: string[];
+  publish_times: Record<string, string>;
   due_dates_map: Record<string, Date>;
   module_path: string[];
   is_lockdown: boolean;

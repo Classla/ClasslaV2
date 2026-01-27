@@ -594,14 +594,25 @@ router.get(
           throw new AuthenticationError("Valid session is required");
         }
         
-        const { data: userData } = await supabase
-          .from("users")
-          .select("id")
-          .eq("workos_user_id", sessionData.workosUserId)
-          .single();
-        
-        if (userData) {
-          userId = userData.id;
+        // Handle both WorkOS users and managed students
+        if (sessionData.isManagedStudent) {
+          // For managed students, use userId directly from session
+          userId = sessionData.userId;
+        } else {
+          // For WorkOS users, look up by workos_user_id
+          const { data: userData } = await supabase
+            .from("users")
+            .select("id")
+            .eq("workos_user_id", sessionData.workosUserId)
+            .single();
+
+          if (userData) {
+            userId = userData.id;
+          }
+        }
+
+        if (!userId) {
+          throw new AuthenticationError("User not found");
         }
       } catch (error) {
         return res.status(401).json({ error: "Valid session is required" });
@@ -1029,14 +1040,25 @@ router.delete(
           throw new AuthenticationError("Valid session is required");
         }
         
-        const { data: userData } = await supabase
-          .from("users")
-          .select("id")
-          .eq("workos_user_id", sessionData.workosUserId)
-          .single();
-        
-        if (userData) {
-          userId = userData.id;
+        // Handle both WorkOS users and managed students
+        if (sessionData.isManagedStudent) {
+          // For managed students, use userId directly from session
+          userId = sessionData.userId;
+        } else {
+          // For WorkOS users, look up by workos_user_id
+          const { data: userData } = await supabase
+            .from("users")
+            .select("id")
+            .eq("workos_user_id", sessionData.workosUserId)
+            .single();
+
+          if (userData) {
+            userId = userData.id;
+          }
+        }
+
+        if (!userId) {
+          throw new AuthenticationError("User not found");
         }
       } catch (error) {
         return res.status(401).json({ error: "Valid session is required" });
@@ -1389,14 +1411,25 @@ router.post(
           throw new AuthenticationError("Valid session is required");
         }
         
-        const { data: userData } = await supabase
-          .from("users")
-          .select("id")
-          .eq("workos_user_id", sessionData.workosUserId)
-          .single();
-        
-        if (userData) {
-          userId = userData.id;
+        // Handle both WorkOS users and managed students
+        if (sessionData.isManagedStudent) {
+          // For managed students, use userId directly from session
+          userId = sessionData.userId;
+        } else {
+          // For WorkOS users, look up by workos_user_id
+          const { data: userData } = await supabase
+            .from("users")
+            .select("id")
+            .eq("workos_user_id", sessionData.workosUserId)
+            .single();
+
+          if (userData) {
+            userId = userData.id;
+          }
+        }
+
+        if (!userId) {
+          throw new AuthenticationError("User not found");
         }
       } catch (error) {
         return res.status(401).json({ error: "Valid session is required" });

@@ -337,23 +337,13 @@ router.get(
       let filteredAssignments = assignments;
 
       if (userRole === UserRole.STUDENT || userRole === UserRole.AUDIT) {
-        // Filter to only published assignments (immediate or scheduled)
+        // Filter to only published assignments (publish time has passed)
         const now = new Date();
         filteredAssignments = assignments.filter((assignment) => {
-          // Check if user is in published_to (immediate publishing)
-          if (assignment.published_to && assignment.published_to.includes(userId)) {
-            return true;
-          }
-
-          // Check if user has a scheduled publish date that has passed
-          const scheduledPublishMap = assignment.scheduled_publish_map || {};
-          const scheduledTime = scheduledPublishMap[userId];
-          if (scheduledTime && new Date(scheduledTime) <= now) {
-            return true;
-          }
-
-          // Not published to this user
-          return false;
+          // Check if user has a publish time that has passed
+          const publishTimes = assignment.publish_times || {};
+          const publishTime = publishTimes[userId];
+          return publishTime && new Date(publishTime) <= now;
         });
 
         // Filter content for students
@@ -587,7 +577,7 @@ router.post(
         course_id,
         settings,
         content,
-        published_to,
+        publish_times,
         due_dates_map,
         module_path,
         is_lockdown,
@@ -685,40 +675,6 @@ router.post(
         }
       }
 
-      // Validate published_to sections exist if provided
-      // For templates, skip section validation (templates don't have sections)
-      if (
-        published_to &&
-        Array.isArray(published_to) &&
-        published_to.length > 0 &&
-        !access.isTemplate
-      ) {
-        const { data: sections, error: sectionsError } = await supabase
-          .from("sections")
-          .select("id, course_id")
-          .in("id", published_to);
-
-        if (sectionsError) {
-          throw sectionsError;
-        }
-
-        // Check if all sections belong to the same course
-        const invalidSections = sections?.filter(
-          (section) => section.course_id !== course_id
-        );
-        if (invalidSections && invalidSections.length > 0) {
-          res.status(400).json({
-            error: {
-              code: "INVALID_SECTIONS",
-              message: "All published sections must belong to the same course",
-              timestamp: new Date().toISOString(),
-              path: req.path,
-            },
-          });
-          return;
-        }
-      }
-
       // Create the assignment with default settings
       const defaultSettings = {
         showResponsesAfterSubmission: true, // Default to showing responses
@@ -732,7 +688,7 @@ router.post(
         name,
         settings: defaultSettings,
         content: content || "",
-        published_to: published_to || [],
+        publish_times: publish_times || {},
         due_dates_map: due_dates_map || {},
         module_path: module_path || [],
         is_lockdown: is_lockdown || false,
@@ -788,9 +744,8 @@ router.put(
         name,
         settings,
         content,
-        published_to,
+        publish_times,
         due_dates_map,
-        scheduled_publish_map,
         module_path,
         is_lockdown,
         lockdown_time_map,
@@ -889,49 +844,14 @@ router.put(
         }
       }
 
-      // Validate published_to sections exist if provided
-      if (
-        published_to &&
-        Array.isArray(published_to) &&
-        published_to.length > 0
-      ) {
-        const { data: sections, error: sectionsError } = await supabase
-          .from("sections")
-          .select("id, course_id")
-          .in("id", published_to);
-
-        if (sectionsError) {
-          throw sectionsError;
-        }
-
-        // Check if all sections belong to the same course/template
-        // For templates, skip section validation (templates don't have sections)
-        const context = getAssignmentContext(existingAssignment);
-        const invalidSections = context.isTemplate
-          ? []
-          : sections?.filter((section) => section.course_id !== context.id) || [];
-        if (invalidSections && invalidSections.length > 0) {
-          res.status(400).json({
-            error: {
-              code: "INVALID_SECTIONS",
-              message: "All published sections must belong to the same course",
-              timestamp: new Date().toISOString(),
-              path: req.path,
-            },
-          });
-          return;
-        }
-      }
-
       // Prepare update data
       const updateData: Partial<Assignment> = {};
 
       if (name !== undefined) updateData.name = name;
       if (settings !== undefined) updateData.settings = settings;
       if (content !== undefined) updateData.content = content;
-      if (published_to !== undefined) updateData.published_to = published_to;
+      if (publish_times !== undefined) updateData.publish_times = publish_times;
       if (due_dates_map !== undefined) updateData.due_dates_map = due_dates_map;
-      if (scheduled_publish_map !== undefined) (updateData as any).scheduled_publish_map = scheduled_publish_map;
       if (module_path !== undefined) updateData.module_path = module_path;
       if (is_lockdown !== undefined) updateData.is_lockdown = is_lockdown;
       if (lockdown_time_map !== undefined)
@@ -1621,7 +1541,7 @@ router.post(
         name: `${existingAssignment.name} (Copy)`,
         settings: existingAssignment.settings || {},
         content: existingAssignment.content || "",
-        published_to: [], // Don't copy published_to
+        publish_times: {}, // Don't copy publish_times
         due_dates_map: {}, // Don't copy due dates
         module_path: existingAssignment.module_path || [],
         is_lockdown: existingAssignment.is_lockdown || false,
@@ -1799,7 +1719,7 @@ router.post(
         name: existingAssignment.name,
         settings: existingAssignment.settings || {},
         content: existingAssignment.content || "",
-        published_to: [], // Don't copy published_to
+        publish_times: {}, // Don't copy publish_times
         due_dates_map: {}, // Don't copy due dates
         module_path: existingAssignment.module_path || [],
         is_lockdown: existingAssignment.is_lockdown || false,

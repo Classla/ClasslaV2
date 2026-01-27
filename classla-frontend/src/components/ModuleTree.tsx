@@ -324,7 +324,7 @@ const ModuleTree: React.FC<ModuleTreeProps> = ({ courseId, course, userRole, isI
         module_path: modulePath,
         settings: {},
         content: "",
-        published_to: [],
+        publish_times: {},
         due_dates_map: {},
         is_lockdown: false,
         lockdown_time_map: {},
@@ -745,7 +745,7 @@ const ModuleTree: React.FC<ModuleTreeProps> = ({ courseId, course, userRole, isI
           <div className="w-4 h-4" /> // Empty space for alignment
         ) : isFolder ? (
           <FolderIcon className="w-4 h-4 text-gray-500" />
-        ) : assignment && assignment.published_to.length > 0 ? (
+        ) : assignment && Object.keys(assignment.publish_times || {}).length > 0 ? (
           <div title="Published Assignment">
             <FileText className="w-4 h-4 text-gray-500" />
           </div>

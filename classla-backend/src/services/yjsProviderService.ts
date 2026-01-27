@@ -33,10 +33,22 @@ export async function getOrCreateDocument(
   bucketInfo: { bucket_name: string; region: string }
 ): Promise<Y.Doc> {
   const docId = getDocumentId(bucketId, filePath);
-  
+
   if (documents.has(docId)) {
-    return documents.get(docId)!;
+    const doc = documents.get(docId)!;
+    const ytext = doc.getText("content");
+    const currentContent = ytext.toString();
+    logger.info(`[Yjs] 📎 Returning CACHED document for ${docId}`, {
+      contentLength: currentContent.length,
+      contentPreview: currentContent.substring(0, 100)
+    });
+    return doc;
   }
+
+  logger.info(`[Yjs] 🆕 Creating NEW document for ${docId}`, {
+    bucket: bucketInfo.bucket_name,
+    region: bucketInfo.region
+  });
 
   // Create new document
   const doc = new Y.Doc();
@@ -48,20 +60,26 @@ export async function getOrCreateDocument(
     const existingState = await loadYjsDocumentFromS3(bucketInfo, filePath);
     if (existingState) {
       Y.applyUpdate(doc, existingState);
-      logger.info(`Loaded Y.js document from S3: ${docId}`);
+      const ytext = doc.getText("content");
+      const loadedContent = ytext.toString();
+      logger.info(`[Yjs] ✅ Loaded Y.js document from S3: ${docId}`, {
+        stateSize: existingState.length,
+        contentLength: loadedContent.length,
+        contentPreview: loadedContent.substring(0, 100)
+      });
     } else {
-      logger.info(`Created new Y.js document: ${docId}`);
+      logger.info(`[Yjs] ⚠️ No existing state in S3, created new empty document: ${docId}`);
     }
   } catch (error: any) {
-    logger.error(`Failed to load Y.js document from S3 for ${docId}:`, error);
+    logger.error(`[Yjs] ❌ Failed to load Y.js document from S3 for ${docId}:`, error);
     // Continue with empty document
   }
 
   // Set up periodic snapshot saves with improved reliability
   let updateCount = 0;
   let lastSaveTime = Date.now();
-  const SAVE_DEBOUNCE_MS = 1000; // Reduced to 1s for even faster saves to reduce race conditions
-  const FORCE_SAVE_INTERVAL_MS = 10000; // Force save every 10 seconds regardless of updates
+  const SAVE_DEBOUNCE_MS = 500; // Reduced to 500ms for faster saves (was 1s)
+  const FORCE_SAVE_INTERVAL_MS = 5000; // Force save every 5 seconds (was 10s) regardless of updates
   
   // Force save interval to ensure data is never lost
   const forceSaveInterval = setInterval(async () => {
@@ -86,37 +104,57 @@ export async function getOrCreateDocument(
     }
   }, FORCE_SAVE_INTERVAL_MS);
   
-  doc.on("update", () => {
+  doc.on("update", (update: Uint8Array, origin: any) => {
     updateCount++;
     lastSaveTime = Date.now();
-    
-    // Debounce saves (reduced to 2 seconds for faster persistence)
+
+    // Log update reception with origin tracking
+    const ytext = doc.getText("content");
+    const contentLength = ytext.toString().length;
+    logger.info(`[Yjs] 📝 Update received for ${docId}`, {
+      origin: origin || 'unknown',
+      updateCount,
+      contentLength,
+      contentPreview: ytext.toString().substring(0, 50)
+    });
+
+    // Debounce saves (1 second for faster persistence)
     if (saveTimeouts.has(docId)) {
       clearTimeout(saveTimeouts.get(docId)!);
+      logger.debug(`[Yjs] ⏳ Cleared previous save timeout for ${docId}`);
     }
 
     const timeout = setTimeout(async () => {
       try {
         const shouldSaveSnapshot = updateCount >= 50 || documentsNeedingSnapshot.has(docId);
+        const currentContent = doc.getText("content").toString();
+        logger.info(`[Yjs] 💾 Starting S3 save for ${docId}`, {
+          contentLength: currentContent.length,
+          shouldSaveSnapshot,
+          updateCount,
+          contentPreview: currentContent.substring(0, 50)
+        });
+
         await saveYjsDocumentToS3(bucketInfo, filePath, doc, shouldSaveSnapshot);
         lastSaveTime = Date.now();
         if (shouldSaveSnapshot) {
           documentsNeedingSnapshot.delete(docId);
           updateCount = 0;
         }
-        logger.debug(`[Yjs] Debounced save completed for ${docId}`, {
+        logger.info(`[Yjs] ✅ S3 save completed for ${docId}`, {
           updateCount,
-          savedSnapshot: shouldSaveSnapshot
+          savedSnapshot: shouldSaveSnapshot,
+          contentLength: currentContent.length
         });
       } catch (error: any) {
-        logger.error(`Failed to save Y.js document to S3 for ${docId}:`, error);
+        logger.error(`[Yjs] ❌ Failed to save Y.js document to S3 for ${docId}:`, error);
         // Retry after a short delay
         setTimeout(async () => {
           try {
             await saveYjsDocumentToS3(bucketInfo, filePath, doc, true);
-            logger.info(`[Yjs] Retry save succeeded for ${docId}`);
+            logger.info(`[Yjs] 🔄 Retry save succeeded for ${docId}`);
           } catch (retryError: any) {
-            logger.error(`[Yjs] Retry save failed for ${docId}:`, retryError);
+            logger.error(`[Yjs] ❌ Retry save failed for ${docId}:`, retryError);
           }
         }, 1000);
       }
@@ -322,16 +360,37 @@ export function setupYjsWebSocket(io: SocketIOServer): void {
         return next(new Error("Invalid or expired session"));
       }
 
-      // Get user info
-      const { data: userData, error: userError } = await supabase
-        .from("users")
-        .select("id, email, is_admin, workos_user_id")
-        .eq("workos_user_id", sessionData.workosUserId)
-        .single();
+      // Get user info - handle both WorkOS users and managed students
+      let userData;
+      let userError;
+
+      if (sessionData.isManagedStudent) {
+        // For managed students, look up by user ID directly
+        const result = await supabase
+          .from("users")
+          .select("id, email, is_admin, is_managed")
+          .eq("id", sessionData.userId)
+          .eq("is_managed", true)
+          .single();
+
+        userData = result.data;
+        userError = result.error;
+      } else {
+        // For WorkOS users, look up by workos_user_id
+        const result = await supabase
+          .from("users")
+          .select("id, email, is_admin, workos_user_id")
+          .eq("workos_user_id", sessionData.workosUserId)
+          .single();
+
+        userData = result.data;
+        userError = result.error;
+      }
 
       if (userError || !userData) {
         logger.warn("Y.js WebSocket connection rejected: User not found", {
           socketId: socket.id,
+          isManagedStudent: sessionData.isManagedStudent,
         });
         return next(new Error("User not found"));
       }
@@ -364,7 +423,17 @@ export function setupYjsWebSocket(io: SocketIOServer): void {
     // Handle document subscription
     socket.on("subscribe-document", async (data: { bucketId: string; filePath: string }) => {
       const { bucketId, filePath } = data;
-      
+
+      const isContainer = socket.userId === "container";
+
+      logger.info(`[Yjs Server] 📥 subscribe-document request received`, {
+        bucketId,
+        filePath,
+        socketId: socket.id,
+        userId: socket.userId,
+        isContainer
+      });
+
       if (!bucketId || !filePath) {
         socket.emit("error", { message: "bucketId and filePath are required" });
         return;
@@ -380,13 +449,14 @@ export function setupYjsWebSocket(io: SocketIOServer): void {
           .single();
 
         if (bucketError || !bucket) {
+          logger.warn(`[Yjs Server] ❌ Bucket not found for subscription`, { bucketId, filePath, socketId: socket.id });
           socket.emit("error", { message: "Bucket not found" });
           return;
         }
 
         // Check if user has access (owner or enrolled in course)
         // Containers (userId === "container") have access to all buckets
-        if (socket.userId !== "container" && bucket.user_id !== socket.userId) {
+        if (!isContainer && bucket.user_id !== socket.userId) {
           // Check if user is enrolled in the course
           if (bucket.course_id) {
             const { data: enrollment } = await supabase
@@ -397,10 +467,12 @@ export function setupYjsWebSocket(io: SocketIOServer): void {
               .single();
 
             if (!enrollment) {
+              logger.warn(`[Yjs Server] ❌ Access denied for subscription`, { bucketId, filePath, socketId: socket.id, userId: socket.userId });
               socket.emit("error", { message: "Access denied" });
               return;
             }
           } else {
+            logger.warn(`[Yjs Server] ❌ Access denied for subscription (no course)`, { bucketId, filePath, socketId: socket.id, userId: socket.userId });
             socket.emit("error", { message: "Access denied" });
             return;
           }
@@ -424,13 +496,24 @@ export function setupYjsWebSocket(io: SocketIOServer): void {
         // Get room info for logging
         const room = yjsNamespace.adapter.rooms.get(docId);
         const roomSize = room ? room.size : 0;
-        
-        logger.info(`[Yjs Server] 🔔 Client subscribed to document ${docId}`, {
-          socketId: socket.id,
-          userId: socket.userId,
-          roomSize,
-          currentClients: room ? Array.from(room) : []
-        });
+        const clientList = room ? Array.from(room) : [];
+
+        // Log with clear indication if this is a container subscription
+        if (isContainer) {
+          logger.info(`[Yjs Server] 🐳 CONTAINER subscribed to document ${docId}`, {
+            socketId: socket.id,
+            roomSize,
+            currentClients: clientList,
+            filePath
+          });
+        } else {
+          logger.info(`[Yjs Server] 🔔 Client subscribed to document ${docId}`, {
+            socketId: socket.id,
+            userId: socket.userId,
+            roomSize,
+            currentClients: clientList
+          });
+        }
 
         // Send initial document state
         const ytext = doc.getText("content");
@@ -444,6 +527,7 @@ export function setupYjsWebSocket(io: SocketIOServer): void {
 
         logger.info(`[Yjs Server] ✅ Sent initial document state for ${docId}`, {
           socketId: socket.id,
+          isContainer,
           contentLength: currentContent.length,
           contentPreview: currentContent.substring(0, 50)
         });
@@ -481,27 +565,59 @@ export function setupYjsWebSocket(io: SocketIOServer): void {
     socket.on("yjs-update", async (data: { bucketId: string; filePath: string; update: string }) => {
       const { bucketId, filePath, update } = data;
       const docId = getDocumentId(bucketId, filePath);
-      
-      logger.info(`[Yjs Server] 📥 Received yjs-update from socket ${socket.id}`, {
+      const isContainer = socket.userId === "container";
+
+      // Get room info to see who will receive this update
+      const room = yjsNamespace.adapter.rooms.get(docId);
+      const roomSize = room ? room.size : 0;
+      const clientsInRoom = room ? Array.from(room) : [];
+
+      logger.info(`[Yjs Server] 📥 Received yjs-update from ${isContainer ? "CONTAINER" : "client"} ${socket.id}`, {
         docId,
         updateSize: update.length,
         socketId: socket.id,
-        userId: socket.userId
+        userId: socket.userId,
+        isContainer,
+        roomSize,
+        clientsInRoom,
+        willBroadcastTo: clientsInRoom.filter(id => id !== socket.id)
       });
-      
-      const doc = documents.get(docId);
-      if (!doc) {
-        logger.error(`[Yjs Server] ❌ Document not found: ${docId}`);
-        socket.emit("error", { message: "Document not found" });
-        return;
-      }
 
-      // Get bucket info for this document
-      const bucketInfo = documentBuckets.get(docId);
-      if (!bucketInfo) {
-        logger.error(`[Yjs Server] ❌ Bucket info not found for document: ${docId}`);
-        socket.emit("error", { message: "Bucket info not found" });
-        return;
+      let doc = documents.get(docId);
+      let bucketInfo = documentBuckets.get(docId);
+
+      // CRITICAL FIX: If document doesn't exist, create it on-demand
+      // This handles race conditions where yjs-update arrives before subscribe-document
+      if (!doc || !bucketInfo) {
+        logger.warn(`[Yjs Server] ⚠️ Document not found for yjs-update, creating on-demand: ${docId}`);
+
+        // Look up bucket info from database
+        const { data: bucket, error: bucketError } = await supabase
+          .from("s3_buckets")
+          .select("*")
+          .eq("id", bucketId)
+          .is("deleted_at", null)
+          .single();
+
+        if (bucketError || !bucket) {
+          logger.error(`[Yjs Server] ❌ Bucket not found for on-demand document creation: ${bucketId}`);
+          socket.emit("error", { message: "Bucket not found" });
+          return;
+        }
+
+        // Create document on-demand
+        bucketInfo = {
+          bucket_name: bucket.bucket_name,
+          region: bucket.region || "us-east-1",
+        };
+
+        doc = await getOrCreateDocument(bucketId, filePath, bucketInfo);
+
+        // Join the room for this document
+        socket.join(docId);
+        socket.join(`bucket:${bucketId}`);
+
+        logger.info(`[Yjs Server] ✅ Created document on-demand for yjs-update: ${docId}`);
       }
 
       try {
@@ -531,14 +647,23 @@ export function setupYjsWebSocket(io: SocketIOServer): void {
           isContainer: socket.userId === "container"
         });
         
-        // CRITICAL: For new files from container, save immediately to S3 (no debounce)
-        // This ensures the file appears in S3 file listings quickly
-        if (isNewFile && socket.userId === "container") {
+        // CRITICAL: For new files OR significant updates from container, save immediately to S3 (no debounce)
+        // This ensures:
+        // 1. New files appear in S3 file listings quickly
+        // 2. Container's authoritative content is persisted immediately (e.g., after backend restart)
+        const isContainerUpdate = socket.userId === "container";
+        const isSignificantUpdate = wasEmpty && afterContent.length > 0; // Was empty, now has content
+
+        if (isContainerUpdate && (isNewFile || isSignificantUpdate)) {
           try {
             await saveYjsDocumentToS3(bucketInfo, filePath, doc, false);
-            logger.info(`[Yjs Server] ⚡ Immediate save for new file from container: ${filePath}`);
+            logger.info(`[Yjs Server] ⚡ Immediate save for container update: ${filePath}`, {
+              isNewFile,
+              isSignificantUpdate,
+              contentLength: afterContent.length
+            });
           } catch (error: any) {
-            logger.error(`[Yjs Server] Failed to immediately save new file ${filePath}:`, error);
+            logger.error(`[Yjs Server] Failed to immediately save container update ${filePath}:`, error);
             // Don't throw - let the normal debounced save handle it
           }
         }

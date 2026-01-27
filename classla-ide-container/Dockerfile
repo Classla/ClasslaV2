@@ -659,9 +659,13 @@ RUN echo '#!/usr/bin/env python3' > /usr/local/bin/run-server.py && \
     echo '        ' >> /usr/local/bin/run-server.py && \
     echo '        # Write S3 assignment config' >> /usr/local/bin/run-server.py && \
     echo '        import json' >> /usr/local/bin/run-server.py && \
+    echo '        bucket_id = data.get("bucketId")' >> /usr/local/bin/run-server.py && \
+    echo '        if not bucket_id:' >> /usr/local/bin/run-server.py && \
+    echo '            print(f"WARNING: bucketId is missing or empty in S3 assignment request! Y.js sync will NOT work.")' >> /usr/local/bin/run-server.py && \
+    echo '            print(f"Request data keys: {list(data.keys())}")' >> /usr/local/bin/run-server.py && \
     echo '        assignment = {' >> /usr/local/bin/run-server.py && \
     echo '            "bucket": bucket,' >> /usr/local/bin/run-server.py && \
-        echo '            "bucketId": data.get("bucketId"),' >> /usr/local/bin/run-server.py && \
+        echo '            "bucketId": bucket_id,' >> /usr/local/bin/run-server.py && \
     echo '            "region": data.get("region", "us-east-1"),' >> /usr/local/bin/run-server.py && \
     echo '            "accessKeyId": data.get("accessKeyId"),' >> /usr/local/bin/run-server.py && \
     echo '            "secretAccessKey": data.get("secretAccessKey")' >> /usr/local/bin/run-server.py && \
@@ -669,6 +673,7 @@ RUN echo '#!/usr/bin/env python3' > /usr/local/bin/run-server.py && \
     echo '        ' >> /usr/local/bin/run-server.py && \
     echo '        with open(S3_ASSIGNMENT_FILE, "w") as f:' >> /usr/local/bin/run-server.py && \
     echo '            json.dump(assignment, f)' >> /usr/local/bin/run-server.py && \
+    echo '        print(f"S3 assignment file written: {assignment}")' >> /usr/local/bin/run-server.py && \
     echo '        # Touch the file to set its modification time (for inactivity monitor grace period)' >> /usr/local/bin/run-server.py && \
     echo '        os.utime(S3_ASSIGNMENT_FILE, None)' >> /usr/local/bin/run-server.py && \
     echo '        ' >> /usr/local/bin/run-server.py && \
@@ -676,12 +681,14 @@ RUN echo '#!/usr/bin/env python3' > /usr/local/bin/run-server.py && \
     echo '        # The Y.js sync service will pull files from Y.js/S3 to workspace automatically' >> /usr/local/bin/run-server.py && \
     echo '        # Clearing the workspace would cause Y.js to sync empty content back to the IDE' >> /usr/local/bin/run-server.py && \
     echo '        bucket_name = assignment.get("bucket", "")' >> /usr/local/bin/run-server.py && \
-    echo '        print(f"Y.js will handle syncing files from S3/Y.js to workspace for bucket: {bucket_name}")' >> /usr/local/bin/run-server.py && \
+    echo '        print(f"Y.js will handle syncing files from S3/Y.js to workspace for bucket: {bucket_name} (ID: {bucket_id})")' >> /usr/local/bin/run-server.py && \
     echo '        ' >> /usr/local/bin/run-server.py && \
     echo '        return jsonify({' >> /usr/local/bin/run-server.py && \
     echo '            "status": "success",' >> /usr/local/bin/run-server.py && \
     echo '            "message": f"S3 bucket {bucket} assigned successfully",' >> /usr/local/bin/run-server.py && \
-    echo '            "bucket": bucket' >> /usr/local/bin/run-server.py && \
+    echo '            "bucket": bucket,' >> /usr/local/bin/run-server.py && \
+    echo '            "bucketId": bucket_id,' >> /usr/local/bin/run-server.py && \
+    echo '            "warning": "bucketId is missing - Y.js sync will not work" if not bucket_id else None' >> /usr/local/bin/run-server.py && \
     echo '        }), 200' >> /usr/local/bin/run-server.py && \
     echo '    except Exception as e:' >> /usr/local/bin/run-server.py && \
     echo '        return jsonify({"error": str(e)}), 500' >> /usr/local/bin/run-server.py && \
@@ -1514,13 +1521,19 @@ RUN echo '#!/bin/bash' > /usr/local/bin/entrypoint.sh && \
         echo '                AWS_SECRET_ACCESS_KEY_VAL=$(python3 -c "import json; f=open(\"$S3_ASSIGNMENT_FILE\"); d=json.load(f); print(d.get(\"secretAccessKey\", \"\") or \"\")" 2>/dev/null || echo "")' >> /usr/local/bin/entrypoint.sh && \
         echo '                if [ -n "$S3_BUCKET_VAL" ]; then' >> /usr/local/bin/entrypoint.sh && \
         echo '                    # OLD S3 SYNC LOOPS REMOVED - Y.js now handles all syncing' >> /usr/local/bin/entrypoint.sh && \
-        echo '                    SYNC_STARTED=true' >> /usr/local/bin/entrypoint.sh && \
                     echo '                    # Start Y.js container sync service (this handles all file syncing)' >> /usr/local/bin/entrypoint.sh && \
-                    echo '                    S3_BUCKET_ID_VAL=$(python3 -c "import json; f=open(\"$S3_ASSIGNMENT_FILE\"); d=json.load(f); print(d.get(\"bucketId\", \"\") or \"\")" 2>/dev/null || echo "")' >> /usr/local/bin/entrypoint.sh && \
+                    echo '                    S3_BUCKET_ID_VAL=$(python3 -c "import json; f=open(\"$S3_ASSIGNMENT_FILE\"); d=json.load(f); v=d.get(\"bucketId\"); print(v if v else \"\")" 2>/dev/null || echo "")' >> /usr/local/bin/entrypoint.sh && \
+                    echo '                    echo "DEBUG: S3_BUCKET_ID_VAL=$S3_BUCKET_ID_VAL"' >> /usr/local/bin/entrypoint.sh && \
                     echo '                    if [ -n "$S3_BUCKET_ID_VAL" ]; then' >> /usr/local/bin/entrypoint.sh && \
+                    echo '                        echo "Starting Y.js container sync with bucket ID: $S3_BUCKET_ID_VAL"' >> /usr/local/bin/entrypoint.sh && \
                     echo '                        su user -c "NODE_PATH=/usr/lib/node_modules BACKEND_API_URL=${BACKEND_API_URL:-http://localhost:8000/api} S3_BUCKET_ID=$S3_BUCKET_ID_VAL CONTAINER_ID=${CONTAINER_ID:-} CONTAINER_SERVICE_TOKEN=${CONTAINER_SERVICE_TOKEN:-} WORKSPACE_PATH=/workspace /usr/local/bin/yjs-container-sync.js" &' >> /usr/local/bin/entrypoint.sh && \
+                    echo '                        SYNC_STARTED=true' >> /usr/local/bin/entrypoint.sh && \
+                    echo '                        echo "Y.js container sync started with bucket: $S3_BUCKET_VAL (ID: $S3_BUCKET_ID_VAL)"' >> /usr/local/bin/entrypoint.sh && \
+                    echo '                    else' >> /usr/local/bin/entrypoint.sh && \
+                    echo '                        echo "ERROR: S3_BUCKET_ID is empty or null in assignment file - Y.js sync NOT started"' >> /usr/local/bin/entrypoint.sh && \
+                    echo '                        echo "DEBUG: Assignment file contents:"' >> /usr/local/bin/entrypoint.sh && \
+                    echo '                        cat "$S3_ASSIGNMENT_FILE" 2>/dev/null || echo "Could not read file"' >> /usr/local/bin/entrypoint.sh && \
                     echo '                    fi' >> /usr/local/bin/entrypoint.sh && \
-                    echo '                    echo "Y.js container sync started with bucket: $S3_BUCKET_VAL"' >> /usr/local/bin/entrypoint.sh && \
         echo '                else' >> /usr/local/bin/entrypoint.sh && \
         echo '                    echo "ERROR: Failed to read S3 bucket from assignment file"' >> /usr/local/bin/entrypoint.sh && \
         echo '                fi' >> /usr/local/bin/entrypoint.sh && \

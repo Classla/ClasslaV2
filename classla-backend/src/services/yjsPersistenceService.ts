@@ -81,7 +81,10 @@ async function loadFileContentFromS3(
 /**
  * Load Y.js document state from S3
  * Returns the document state as a Uint8Array, or null if not found
- * If no Y.js state exists, tries to load the actual file and convert it to Y.js state
+ *
+ * IMPORTANT: Raw file content is the source of truth!
+ * If YJS state differs from raw file, we prefer the raw file content.
+ * This prevents stale YJS state files from overriding user edits.
  */
 export async function loadYjsDocumentFromS3(
   bucketInfo: BucketInfo,
@@ -91,7 +94,34 @@ export async function loadYjsDocumentFromS3(
   const snapshotKey = getSnapshotKey(filePath);
   const updatesKey = getUpdatesKey(filePath);
 
+  logger.info(`[YjsPersistence] 📥 Loading Y.js document from S3 for ${filePath}`, {
+    bucket: bucketInfo.bucket_name,
+    region: bucketInfo.region,
+    snapshotKey,
+    updatesKey
+  });
+
   try {
+    // CRITICAL: First load the raw file content as the source of truth
+    let rawFileContent: string | null = null;
+    try {
+      rawFileContent = await loadFileContentFromS3(bucketInfo, filePath);
+      if (rawFileContent !== null) {
+        logger.info(`[YjsPersistence] 📄 Loaded raw file as source of truth for ${filePath}`, {
+          contentLength: rawFileContent.length,
+          contentPreview: rawFileContent.substring(0, 100)
+        });
+      }
+    } catch (fileError: any) {
+      if (fileError.name !== "NoSuchKey") {
+        logger.warn(`Failed to load raw file content for ${filePath}:`, fileError);
+      }
+    }
+
+    // Try to load YJS state (snapshot + updates)
+    let yjsContent: string | null = null;
+    let yjsState: Uint8Array | null = null;
+
     // Try to load snapshot first (faster)
     try {
       const snapshotCommand = new GetObjectCommand({
@@ -99,8 +129,9 @@ export async function loadYjsDocumentFromS3(
         Key: snapshotKey,
       });
 
+      logger.info(`[YjsPersistence] 🔍 Trying to load snapshot: ${snapshotKey}`);
       const snapshotResponse = await s3Client.send(snapshotCommand);
-      
+
       if (snapshotResponse.Body) {
         const stream = snapshotResponse.Body as Readable;
         const chunks: Buffer[] = [];
@@ -113,8 +144,12 @@ export async function loadYjsDocumentFromS3(
 
         const snapshotBuffer = Buffer.concat(chunks);
         const snapshotState = new Uint8Array(snapshotBuffer);
+        logger.info(`[YjsPersistence] ✅ Loaded snapshot for ${filePath}`, { size: snapshotState.length });
 
         // Try to load updates after snapshot
+        let mergedDoc = new Y.Doc();
+        Y.applyUpdate(mergedDoc, snapshotState);
+
         try {
           const updatesCommand = new GetObjectCommand({
             Bucket: bucketInfo.bucket_name,
@@ -122,7 +157,7 @@ export async function loadYjsDocumentFromS3(
           });
 
           const updatesResponse = await s3Client.send(updatesCommand);
-          
+
           if (updatesResponse.Body) {
             const updatesStream = updatesResponse.Body as Readable;
             const updateChunks: Buffer[] = [];
@@ -135,24 +170,27 @@ export async function loadYjsDocumentFromS3(
 
             const updatesBuffer = Buffer.concat(updateChunks);
             const updatesState = new Uint8Array(updatesBuffer);
-
-            // Merge snapshot + updates
-            const doc = new Y.Doc();
-            Y.applyUpdate(doc, snapshotState);
-            Y.applyUpdate(doc, updatesState);
-            return Y.encodeStateAsUpdate(doc);
+            Y.applyUpdate(mergedDoc, updatesState);
+            logger.info(`[YjsPersistence] ✅ Applied updates to snapshot for ${filePath}`, {
+              updatesSize: updatesState.length
+            });
           }
         } catch (updatesError: any) {
-          // Updates not found, just use snapshot
           if (updatesError.name !== "NoSuchKey") {
             logger.warn(`Failed to load Y.js updates for ${filePath}:`, updatesError);
           }
         }
 
-        return snapshotState;
+        yjsContent = mergedDoc.getText("content").toString();
+        yjsState = Y.encodeStateAsUpdate(mergedDoc);
+        logger.info(`[YjsPersistence] 📊 YJS state content for ${filePath}`, {
+          contentLength: yjsContent.length,
+          contentPreview: yjsContent.substring(0, 100)
+        });
       }
     } catch (snapshotError: any) {
       if (snapshotError.name === "NoSuchKey") {
+        logger.info(`[YjsPersistence] ⚠️ No snapshot found for ${filePath}, trying updates only`);
         // Snapshot not found, try updates only
         try {
           const updatesCommand = new GetObjectCommand({
@@ -161,7 +199,7 @@ export async function loadYjsDocumentFromS3(
           });
 
           const updatesResponse = await s3Client.send(updatesCommand);
-          
+
           if (updatesResponse.Body) {
             const stream = updatesResponse.Body as Readable;
             const chunks: Buffer[] = [];
@@ -173,55 +211,85 @@ export async function loadYjsDocumentFromS3(
             });
 
             const updatesBuffer = Buffer.concat(chunks);
-            return new Uint8Array(updatesBuffer);
+            const updatesState = new Uint8Array(updatesBuffer);
+            const doc = new Y.Doc();
+            Y.applyUpdate(doc, updatesState);
+            yjsContent = doc.getText("content").toString();
+            yjsState = updatesState;
+            logger.info(`[YjsPersistence] ✅ Loaded updates only for ${filePath}`, {
+              size: updatesState.length,
+              contentLength: yjsContent.length,
+              contentPreview: yjsContent.substring(0, 100)
+            });
           }
         } catch (updatesError: any) {
-          if (updatesError.name === "NoSuchKey") {
-            // No Y.js document state found - try loading actual file from S3
-            try {
-              const fileContent = await loadFileContentFromS3(bucketInfo, filePath);
-              if (fileContent !== null) {
-                // Convert file content to Y.js document state
-                const doc = new Y.Doc();
-                const ytext = doc.getText("content");
-                ytext.insert(0, fileContent);
-                return Y.encodeStateAsUpdate(doc);
-              }
-            } catch (fileError: any) {
-              // File doesn't exist, that's okay - return null for new file
-              if (fileError.name !== "NoSuchKey") {
-                logger.warn(`Failed to load file content for ${filePath}:`, fileError);
-              }
-            }
-            return null;
+          if (updatesError.name !== "NoSuchKey") {
+            throw updatesError;
           }
-          throw updatesError;
+          logger.info(`[YjsPersistence] ⚠️ No updates found for ${filePath}`);
         }
       } else {
         throw snapshotError;
       }
     }
 
-    // No Y.js state found - try loading actual file from S3
-    try {
-      const fileContent = await loadFileContentFromS3(bucketInfo, filePath);
-      if (fileContent !== null) {
-        // Convert file content to Y.js document state
+    // CRITICAL DECISION: Prefer raw file content over YJS state if they differ
+    // This prevents stale YJS state from overriding user edits saved to raw file
+    if (rawFileContent !== null) {
+      if (yjsContent !== null && yjsContent !== rawFileContent) {
+        logger.warn(`[YjsPersistence] ⚠️ YJS state differs from raw file for ${filePath}! Preferring raw file.`, {
+          yjsContentLength: yjsContent.length,
+          rawFileContentLength: rawFileContent.length,
+          yjsPreview: yjsContent.substring(0, 50),
+          rawPreview: rawFileContent.substring(0, 50)
+        });
+        // Create fresh YJS state from raw file content
         const doc = new Y.Doc();
         const ytext = doc.getText("content");
-        ytext.insert(0, fileContent);
-        return Y.encodeStateAsUpdate(doc);
-      }
-    } catch (fileError: any) {
-      // File doesn't exist, that's okay - return null for new file
-      if (fileError.name !== "NoSuchKey") {
-        logger.warn(`Failed to load file content for ${filePath}:`, fileError);
+        ytext.insert(0, rawFileContent);
+        const state = Y.encodeStateAsUpdate(doc);
+        logger.info(`[YjsPersistence] ✅ Using raw file content as Y.js for ${filePath} (overriding stale YJS state)`, {
+          contentLength: rawFileContent.length,
+          stateSize: state.length,
+          contentPreview: rawFileContent.substring(0, 100)
+        });
+        return state;
+      } else if (yjsState !== null) {
+        // YJS state matches raw file, use YJS state (preserves CRDT history)
+        logger.info(`[YjsPersistence] ✅ YJS state matches raw file for ${filePath}, using YJS state`, {
+          contentLength: yjsContent?.length || 0,
+          stateSize: yjsState.length,
+          contentPreview: yjsContent?.substring(0, 100) || ''
+        });
+        return yjsState;
+      } else {
+        // No YJS state, create from raw file
+        const doc = new Y.Doc();
+        const ytext = doc.getText("content");
+        ytext.insert(0, rawFileContent);
+        const state = Y.encodeStateAsUpdate(doc);
+        logger.info(`[YjsPersistence] ✅ No YJS state found, created from raw file for ${filePath}`, {
+          contentLength: rawFileContent.length,
+          stateSize: state.length,
+          contentPreview: rawFileContent.substring(0, 100)
+        });
+        return state;
       }
     }
 
+    // No raw file content - use YJS state if available
+    if (yjsState !== null) {
+      logger.info(`[YjsPersistence] ✅ No raw file, using YJS state for ${filePath}`, {
+        contentLength: yjsContent?.length || 0,
+        stateSize: yjsState.length
+      });
+      return yjsState;
+    }
+
+    logger.info(`[YjsPersistence] ⚠️ No content found for ${filePath}, returning null (new file)`);
     return null;
   } catch (error: any) {
-    logger.error(`Failed to load Y.js document from S3 for ${filePath}:`, error);
+    logger.error(`[YjsPersistence] ❌ Failed to load Y.js document from S3 for ${filePath}:`, error);
     throw error;
   }
 }
@@ -239,10 +307,22 @@ export async function saveYjsDocumentToS3(
   const s3Client = getS3ClientForBucket(bucketInfo.region);
   const state = Y.encodeStateAsUpdate(doc);
 
+  logger.info(`[YjsPersistence] 🚀 Starting S3 save for ${filePath}`, {
+    bucket: bucketInfo.bucket_name,
+    region: bucketInfo.region,
+    saveSnapshot,
+    stateSize: state.length
+  });
+
   try {
     // Extract text content from Y.js document
     const ytext = doc.getText("content");
     const fileContent = ytext.toString();
+
+    logger.info(`[YjsPersistence] 📄 Extracted content for ${filePath}`, {
+      contentLength: fileContent.length,
+      contentPreview: fileContent.substring(0, 100) + (fileContent.length > 100 ? '...' : '')
+    });
 
     // Save actual file content to S3 (for compatibility and normal file access)
     const extension = filePath.split(".").pop()?.toLowerCase();
@@ -267,7 +347,18 @@ export async function saveYjsDocumentToS3(
       ContentType: contentType,
     });
 
-    await s3Client.send(fileCommand);
+    logger.info(`[YjsPersistence] 📤 Uploading file content to S3: ${bucketInfo.bucket_name}/${filePath}`, {
+      contentLength: fileContent.length,
+      bodyLength: Buffer.from(fileContent, "utf-8").length
+    });
+    const uploadResult = await s3Client.send(fileCommand);
+    logger.info(`[YjsPersistence] ✅ File content uploaded: ${filePath}`, {
+      etag: uploadResult.ETag,
+      versionId: uploadResult.VersionId,
+      bucket: bucketInfo.bucket_name,
+      key: filePath,
+      uploadedSize: Buffer.from(fileContent, "utf-8").length
+    });
 
     // Always save Y.js updates
     const updatesKey = getUpdatesKey(filePath);
@@ -278,7 +369,9 @@ export async function saveYjsDocumentToS3(
       ContentType: "application/octet-stream",
     });
 
+    logger.info(`[YjsPersistence] 📤 Uploading Y.js updates to S3: ${updatesKey}`);
     await s3Client.send(updatesCommand);
+    logger.info(`[YjsPersistence] ✅ Y.js updates uploaded: ${updatesKey}`);
 
     // Optionally save snapshot (for faster loading)
     if (saveSnapshot) {
@@ -290,12 +383,24 @@ export async function saveYjsDocumentToS3(
         ContentType: "application/octet-stream",
       });
 
+      logger.info(`[YjsPersistence] 📤 Uploading Y.js snapshot to S3: ${snapshotKey}`);
       await s3Client.send(snapshotCommand);
+      logger.info(`[YjsPersistence] ✅ Y.js snapshot uploaded: ${snapshotKey}`);
     }
 
-    logger.debug(`Saved Y.js document state and file content to S3 for ${filePath}`);
+    logger.info(`[YjsPersistence] ✅✅ All S3 uploads completed for ${filePath}`, {
+      fileKey: filePath,
+      updatesKey,
+      snapshotSaved: saveSnapshot
+    });
   } catch (error: any) {
-    logger.error(`Failed to save Y.js document to S3 for ${filePath}:`, error);
+    logger.error(`[YjsPersistence] ❌ Failed to save Y.js document to S3 for ${filePath}:`, {
+      error: error.message,
+      code: error.code,
+      name: error.name,
+      bucket: bucketInfo.bucket_name,
+      region: bucketInfo.region
+    });
     throw error;
   }
 }

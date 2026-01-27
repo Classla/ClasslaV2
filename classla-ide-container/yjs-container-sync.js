@@ -50,10 +50,17 @@ class YjsContainerSync {
   }
 
   async start() {
-    console.log("[YjsContainerSync] Starting Y.js container sync service...");
-    console.log(`[YjsContainerSync] Workspace: ${WORKSPACE_PATH}`);
-    console.log(`[YjsContainerSync] Backend: ${BACKEND_API_URL}`);
-    console.log(`[YjsContainerSync] Bucket: ${BUCKET_ID}`);
+    console.log("[YjsContainerSync] 🚀 Starting Y.js container sync service...");
+    console.log(`[YjsContainerSync] 📁 Workspace: ${WORKSPACE_PATH}`);
+    console.log(`[YjsContainerSync] 🌐 Backend: ${BACKEND_API_URL}`);
+    console.log(`[YjsContainerSync] 🪣 Bucket ID: "${BUCKET_ID}" (length: ${BUCKET_ID?.length || 0})`);
+    console.log(`[YjsContainerSync] 🔐 Service Token: ${process.env.CONTAINER_SERVICE_TOKEN ? `${process.env.CONTAINER_SERVICE_TOKEN.substring(0, 8)}... (${process.env.CONTAINER_SERVICE_TOKEN.length} chars)` : "NOT SET"}`);
+    console.log(`[YjsContainerSync] 📦 Container ID: ${CONTAINER_ID || "NOT SET"}`);
+
+    if (!BUCKET_ID || BUCKET_ID.length === 0) {
+      console.error("[YjsContainerSync] ❌ CRITICAL: Bucket ID is empty or undefined! YJS sync will not work.");
+      return;
+    }
 
     // Connect to Y.js WebSocket
     await this.connect();
@@ -62,6 +69,21 @@ class YjsContainerSync {
     await this.startFileWatcher();
 
     console.log("[YjsContainerSync] Service started successfully");
+
+    // Log status every 60 seconds to confirm service is still running
+    setInterval(() => {
+      console.log(`[YjsContainerSync] 💓 Status: connected=${this.isConnected}, socketId=${this.socket?.id}, documents=${this.documents.size}, pendingWrites=${this.pendingFileWrites.size}`);
+    }, 60000);
+
+    // CRITICAL: Periodically re-subscribe to all files every 30 seconds
+    // This catches files that might have been missed during initial subscription
+    // or if socket.io room membership was lost
+    setInterval(() => {
+      if (this.isConnected) {
+        console.log(`[YjsContainerSync] 🔄 Periodic re-subscription check...`);
+        this.subscribeToAllFiles();
+      }
+    }, 30000);
   }
 
   async connect() {
@@ -113,7 +135,11 @@ class YjsContainerSync {
 
     this.socket.on("connect", () => {
       this.isConnected = true;
-      console.log("[YjsContainerSync] Connected to Y.js server");
+      console.log("[YjsContainerSync] ✅ Connected to Y.js server", {
+        socketId: this.socket.id,
+        bucketId: BUCKET_ID,
+        backendUrl: baseUrl
+      });
 
       // Subscribe to all files in workspace
       this.subscribeToAllFiles();
@@ -125,16 +151,40 @@ class YjsContainerSync {
     });
 
     this.socket.on("connect_error", (error) => {
-      console.error("[YjsContainerSync] Connection error:", error);
+      console.error("[YjsContainerSync] ❌ Connection error:", error.message, {
+        type: error.type,
+        description: error.description,
+        context: error.context
+      });
+    });
+
+    // Log when transport changes (useful for debugging connection issues)
+    this.socket.io.on("open", () => {
+      console.log(`[YjsContainerSync] 🔌 Socket.IO transport opened`);
+    });
+
+    this.socket.io.on("ping", () => {
+      console.log(`[YjsContainerSync] 💓 Ping`);
     });
 
     // Handle document state (initial load)
     this.socket.on("document-state", (data) => {
+      console.log(`[YjsContainerSync] 📥 Received document-state for ${data?.filePath}`, {
+        stateLength: data?.state?.length,
+        bucketId: data?.bucketId
+      });
       this.handleDocumentState(data);
     });
 
     // Handle Y.js updates from server
     this.socket.on("yjs-update", (data) => {
+      console.log(`[YjsContainerSync] 🔔 RAW yjs-update event received:`, {
+        filePath: data?.filePath,
+        bucketId: data?.bucketId,
+        updateLength: data?.update?.length,
+        expectedBucketId: BUCKET_ID,
+        bucketMatch: data?.bucketId === BUCKET_ID
+      });
       this.handleYjsUpdate(data);
     });
 
@@ -145,55 +195,80 @@ class YjsContainerSync {
   }
 
   async subscribeToAllFiles() {
-    if (!this.isConnected || !this.socket) return;
+    if (!this.isConnected || !this.socket) {
+      console.log(`[YjsContainerSync] ⚠️ subscribeToAllFiles called but not connected`);
+      return;
+    }
 
     try {
       // First, get list of files from S3 via backend API
       // This ensures we subscribe to files that exist in S3/IDE but not yet in workspace
+      console.log(`[YjsContainerSync] 📋 Fetching file list from backend...`);
       const fileList = await this.getFileListFromBackend();
       const filesFromBackend = new Set(fileList);
-      
+
+      console.log(`[YjsContainerSync] 📋 Backend returned ${filesFromBackend.size} files:`, Array.from(filesFromBackend));
+
       // Also list files that already exist in workspace
       const workspaceFiles = await this.listFilesRecursive(WORKSPACE_PATH);
       const workspaceFilePaths = new Set(
         workspaceFiles.map(f => path.relative(WORKSPACE_PATH, f))
       );
-      
+
+      console.log(`[YjsContainerSync] 📋 Workspace has ${workspaceFilePaths.size} files:`, Array.from(workspaceFilePaths));
+
       // Combine both sets - subscribe to all files from backend and workspace
       const allFiles = new Set([...filesFromBackend, ...workspaceFilePaths]);
-      
-      console.log(`[YjsContainerSync] Found ${filesFromBackend.size} files from backend, ${workspaceFilePaths.size} files in workspace`);
+
+      console.log(`[YjsContainerSync] 📋 COMBINED ${allFiles.size} unique files to subscribe:`, Array.from(allFiles));
+
+      let subscribedCount = 0;
+      let skippedCount = 0;
 
       for (const relativePath of allFiles) {
         if (this.shouldIgnoreFile(relativePath)) {
+          skippedCount++;
           continue;
         }
 
-        // Subscribe to document - this will trigger backend to load from S3 and send to container
+        const docId = `${BUCKET_ID}:${relativePath}`;
+        console.log(`[YjsContainerSync] 🔔 Subscribing to document: ${relativePath}`);
+
+        // Get or create Y.js document FIRST (before subscribing)
+        const doc = this.getOrCreateDocument(relativePath);
+
+        // CRITICAL FIX: Sync local file to Y.js BEFORE subscribing
+        // This ensures our local content is in Y.js before server sends document-state
+        // The handleDocumentState will then compare and decide who wins
+        const fullPath = path.join(WORKSPACE_PATH, relativePath);
+        try {
+          await fs.access(fullPath);
+          // File exists in workspace - sync it to Y.js BEFORE subscribing
+          // This is important because document-state handler will compare local vs server
+          await this.syncFileToYjs(relativePath, doc);
+          console.log(`[YjsContainerSync] ✅ Pre-synced local file to Y.js before subscribing: ${relativePath}`);
+        } catch {
+          // File doesn't exist in workspace yet - that's fine
+          console.log(`[YjsContainerSync] File ${relativePath} not in workspace yet, will be created from server state`);
+        }
+
+        // NOW subscribe to document - backend will send document-state
+        // handleDocumentState will compare server content with our local content
         this.socket.emit("subscribe-document", {
           bucketId: BUCKET_ID,
           filePath: relativePath,
         });
-
-        // Get or create Y.js document
-        const doc = this.getOrCreateDocument(relativePath);
-
-        // If file exists in workspace, sync it to Y.js
-        // If file only exists in backend/S3, Y.js will sync it to workspace via document-state event
-        const fullPath = path.join(WORKSPACE_PATH, relativePath);
-        try {
-          await fs.access(fullPath);
-          // File exists in workspace, sync to Y.js
-        await this.syncFileToYjs(relativePath, doc);
-        } catch {
-          // File doesn't exist in workspace yet - it will be created when document-state is received
-          console.log(`[YjsContainerSync] File ${relativePath} not in workspace yet, waiting for Y.js sync`);
-        }
+        subscribedCount++;
       }
 
-      console.log(`[YjsContainerSync] Subscribed to ${allFiles.size} files`);
+      console.log(`[YjsContainerSync] ✅ Subscribed to ${subscribedCount} files (${skippedCount} skipped) for bucket: ${BUCKET_ID}`, {
+        files: Array.from(allFiles),
+        socketId: this.socket?.id,
+        connected: this.isConnected
+      });
     } catch (error) {
-      console.error("[YjsContainerSync] Failed to subscribe to files:", error);
+      console.error("[YjsContainerSync] ❌ Failed to subscribe to files:", error);
+      console.error("[YjsContainerSync] Error stack:", error.stack);
     }
   }
 
@@ -223,13 +298,22 @@ class YjsContainerSync {
             data += chunk;
           });
           res.on("end", () => {
+            console.log(`[YjsContainerSync] 📡 Backend file list response:`, {
+              statusCode: res.statusCode,
+              dataLength: data.length,
+              hasServiceToken: !!serviceToken,
+              url: urlString
+            });
             if (res.statusCode !== 200) {
-              console.warn(`[YjsContainerSync] Failed to get file list from backend: ${res.statusCode}`);
+              console.warn(`[YjsContainerSync] ⚠️  Failed to get file list from backend: ${res.statusCode}`, {
+                response: data.substring(0, 200)
+              });
               resolve([]);
               return;
             }
             try {
               const jsonData = JSON.parse(data);
+              console.log(`[YjsContainerSync] ✅ Got file list from backend:`, jsonData.files);
               resolve(jsonData.files || []);
             } catch (error) {
               console.error("[YjsContainerSync] Failed to parse file list response:", error);
@@ -546,7 +630,7 @@ class YjsContainerSync {
     if (action === "delete") {
       // File was explicitly deleted in IDE - delete it from filesystem immediately
       console.log(`[YjsContainerSync] 🗑️  File explicitly deleted in IDE: ${filePath}`);
-      
+
       const fullPath = path.join(WORKSPACE_PATH, filePath);
       try {
         await fs.access(fullPath);
@@ -560,7 +644,7 @@ class YjsContainerSync {
           console.error(`[YjsContainerSync] ❌ Failed to delete file ${filePath}:`, error);
         }
       }
-      
+
       // Also clear the Y.js document to ensure it stays empty
       try {
         const doc = this.getOrCreateDocument(filePath);
@@ -573,9 +657,40 @@ class YjsContainerSync {
         console.error(`[YjsContainerSync] ❌ Failed to clear Y.js for deleted file ${filePath}:`, error);
       }
     } else if (action === "create") {
-      // File was created - ensure it's synced
-      console.log(`[YjsContainerSync] 📝 File created in IDE: ${filePath}`);
-      // The file will be synced via normal Y.js updates
+      // CRITICAL: File was created in IDE - we MUST subscribe to receive YJS updates
+      // Without subscribing, we won't be in the room and won't receive content updates
+      console.log(`[YjsContainerSync] 📝 File created in IDE, subscribing to document: ${filePath}`);
+
+      if (this.socket && this.isConnected) {
+        // Subscribe to the document first
+        this.socket.emit("subscribe-document", {
+          bucketId: BUCKET_ID,
+          filePath: filePath,
+        });
+
+        // Get or create the Y.js document locally
+        const doc = this.getOrCreateDocument(filePath);
+
+        // Create the file in the workspace (empty initially, will be filled by YJS updates)
+        const fullPath = path.join(WORKSPACE_PATH, filePath);
+        try {
+          const dir = path.dirname(fullPath);
+          await fs.mkdir(dir, { recursive: true });
+          // Check if file already exists
+          try {
+            await fs.access(fullPath);
+            console.log(`[YjsContainerSync] File already exists, waiting for YJS sync: ${filePath}`);
+          } catch {
+            // File doesn't exist, create it empty
+            await fs.writeFile(fullPath, "", "utf-8");
+            console.log(`[YjsContainerSync] ✅ Created empty file, waiting for YJS sync: ${filePath}`);
+          }
+        } catch (error) {
+          console.error(`[YjsContainerSync] ❌ Failed to create file ${filePath}:`, error);
+        }
+      } else {
+        console.warn(`[YjsContainerSync] ⚠️  Cannot subscribe to new file - not connected: ${filePath}`);
+      }
     }
   }
 
@@ -660,10 +775,77 @@ class YjsContainerSync {
     try {
       const doc = this.getOrCreateDocument(filePath);
       const stateBuffer = Buffer.from(state, "base64");
-      // Apply update with "server" origin to prevent echo back to server
+
+      // CRITICAL FIX: Before applying server state, check if local file has content
+      // If local file exists with content and server state is empty, LOCAL WINS
+      // This prevents stale/empty server state from overwriting container's files
+      const fullPath = path.join(WORKSPACE_PATH, filePath);
+      let localContent = null;
+      let localFileExists = false;
+
+      try {
+        localContent = await fs.readFile(fullPath, "utf-8");
+        localFileExists = true;
+      } catch (error) {
+        if (error.code !== "ENOENT") {
+          console.error(`[YjsContainerSync] ❌ Error reading local file ${filePath}:`, error);
+        }
+        // File doesn't exist locally - that's fine, server state will create it
+      }
+
+      // Apply server state to Y.js document to see what content it has
+      const tempDoc = new Y.Doc();
+      Y.applyUpdate(tempDoc, new Uint8Array(stateBuffer), "server");
+      const serverContent = tempDoc.getText("content").toString();
+
+      console.log(`[YjsContainerSync] 📥 Received document-state for ${filePath}`, {
+        serverContentLength: serverContent.length,
+        localContentLength: localContent?.length || 0,
+        localFileExists,
+        serverPreview: serverContent.substring(0, 50),
+        localPreview: localContent?.substring(0, 50) || "(no local file)"
+      });
+
+      // CRITICAL DECISION: Who wins?
+      // 1. If server has content and local doesn't exist -> SERVER WINS (create file)
+      // 2. If server is empty and local has content -> LOCAL WINS (sync to server)
+      // 3. If both have content and differ -> SERVER WINS (trust S3 as source of truth)
+      // 4. If both empty -> No action needed
+
+      if (localFileExists && localContent && localContent.length > 0 && serverContent.length === 0) {
+        // LOCAL WINS - server is empty but we have local content
+        // This handles the case where server hasn't synced yet or backend restarted
+        console.log(`[YjsContainerSync] 🏆 LOCAL WINS: Server state is empty but local file has content: ${filePath}`);
+        console.log(`[YjsContainerSync] 📤 Syncing local content TO server for ${filePath}`);
+
+        // Update Y.js with local content (this will trigger update to server)
+        const ytext = doc.getText("content");
+        doc.transact(() => {
+          ytext.delete(0, ytext.length);
+          ytext.insert(0, localContent);
+        }, "local-file-sync");
+
+        console.log(`[YjsContainerSync] ✅ Synced local file content to Y.js (will propagate to server): ${filePath}`);
+        return; // Don't write server state to file
+      }
+
+      // SERVER WINS - apply server state to our document
       Y.applyUpdate(doc, new Uint8Array(stateBuffer), "server");
 
-      await this.syncYjsToFile(filePath, doc);
+      // Cancel any pending file change timeout for this file
+      if (this.fileChangeTimeouts.has(filePath)) {
+        clearTimeout(this.fileChangeTimeouts.get(filePath));
+        this.fileChangeTimeouts.delete(filePath);
+        console.log(`[YjsContainerSync] 🔄 Cancelled pending file change for ${filePath} - server state takes precedence`);
+      }
+
+      // Write server state to file (only if server has content or file doesn't exist)
+      if (serverContent.length > 0 || !localFileExists) {
+        await this.syncYjsToFile(filePath, doc, true);
+        console.log(`[YjsContainerSync] 🏆 SERVER WINS: Applied server state to file: ${filePath}`);
+      } else {
+        console.log(`[YjsContainerSync] ⏭️  Skipping file write - both server and local are empty: ${filePath}`);
+      }
     } catch (error) {
       console.error(`[YjsContainerSync] ❌ Failed to handle document state for ${filePath}:`, error);
     }
@@ -741,7 +923,20 @@ class YjsContainerSync {
       clearTimeout(this.pendingFileWrites.get(filePath));
     }
 
-    // Schedule a new write after 2.5 seconds of inactivity
+    // SMART BATCHING: Use shorter delay for significant changes, longer for keystrokes
+    // This balances responsiveness (for running code) with debouncing (for typing)
+    const ytext = doc.getText("content");
+    const content = ytext.toString();
+    const lastUpdateTime = this.lastRemoteUpdateTime.get(filePath) || 0;
+    const timeSinceLastUpdate = Date.now() - lastUpdateTime;
+
+    // If >2 seconds since last update, this is likely a significant change (not rapid typing)
+    // Use short delay for immediate feedback
+    // Otherwise use longer delay to batch keystrokes
+    const isLikelySignificantChange = timeSinceLastUpdate > 2000 || content.length > 1000;
+    const debounceMs = isLikelySignificantChange ? 300 : 800;
+
+    // Schedule a new write after debounce period
     const timeout = setTimeout(async () => {
       try {
         console.log(`[YjsContainerSync] 💾 Writing batched update to filesystem: ${filePath}`);
@@ -751,10 +946,10 @@ class YjsContainerSync {
       } catch (error) {
         console.error(`[YjsContainerSync] ❌ Failed to write batched update for ${filePath}:`, error);
       }
-    }, 2500); // 2.5 seconds debounce
+    }, debounceMs);
 
     this.pendingFileWrites.set(filePath, timeout);
-    console.log(`[YjsContainerSync] ⏰ Scheduled batched write for ${filePath} (2.5s debounce)`);
+    console.log(`[YjsContainerSync] ⏰ Scheduled batched write for ${filePath} (${debounceMs}ms debounce, significant=${isLikelySignificantChange})`);
   }
 
   getOrCreateDocument(filePath) {
