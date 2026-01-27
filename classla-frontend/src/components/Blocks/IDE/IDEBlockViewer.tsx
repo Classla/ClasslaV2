@@ -11,8 +11,10 @@ import {
   Loader2,
   Code2,
   RotateCcw,
+  PlayCircle,
 } from "lucide-react";
 import MonacoIDE from "./MonacoIDE";
+import AutograderTestResultsModal from "./AutograderTestResultsModal";
 import { Button } from "../../ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "../../ui/tabs";
 import { useToast } from "../../../hooks/use-toast";
@@ -62,6 +64,13 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
     );
     // Track student's cloned bucket ID (persisted in localStorage)
     const [studentBucketId, setStudentBucketId] = useState<string | null>(null);
+
+    // Test results state for autograder
+    const [isRunningTests, setIsRunningTests] = useState(false);
+    const [testResultsModalOpen, setTestResultsModalOpen] = useState(false);
+    const [testResults, setTestResults] = useState<any[]>([]);
+    const [testTotalPoints, setTestTotalPoints] = useState(0);
+    const [testPointsEarned, setTestPointsEarned] = useState(0);
 
     const pollingAttemptsRef = useRef(0);
 
@@ -539,6 +548,95 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
       }
     }, [studentBucketId, assignmentId, courseId, user, ideData, clearContainer, toast]);
 
+    // Handle running tests against student's solution
+    const handleRunTests = useCallback(async () => {
+      if (!container) {
+        toast({
+          title: "No container",
+          description: "Please start a container first to run tests.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      const tests = ideData.autograder?.tests || [];
+      if (tests.length === 0) {
+        toast({
+          title: "No tests",
+          description: "No test cases have been configured for this assignment.",
+          variant: "default",
+        });
+        return;
+      }
+
+      // Filter out manual grading tests - only run executable tests
+      const executableTests = tests.filter((test) => test.type !== "manualGrading");
+      if (executableTests.length === 0) {
+        toast({
+          title: "No executable tests",
+          description: "All tests require manual grading.",
+          variant: "default",
+        });
+        return;
+      }
+
+      setIsRunningTests(true);
+
+      try {
+        toast({
+          title: "Running tests",
+          description: "Executing test cases against your solution...",
+          variant: "default",
+        });
+
+        const response = await fetch(
+          `${IDE_API_BASE_URL}/web/${container.id}/run-tests`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              tests: executableTests,
+            }),
+          }
+        );
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.error || "Failed to run tests");
+        }
+
+        // Store results and show modal
+        setTestResults(data.results || []);
+        setTestTotalPoints(data.totalPoints || 0);
+        setTestPointsEarned(data.pointsEarned || 0);
+        setTestResultsModalOpen(true);
+
+        // Also show toast notification
+        const passedCount = data.results.filter((r: any) => r.passed).length;
+        const totalCount = data.results.length;
+        const pointsEarned = data.pointsEarned || 0;
+        const totalPoints = data.totalPoints || 0;
+
+        toast({
+          title: `Tests completed: ${passedCount}/${totalCount} passed`,
+          description: `Points: ${pointsEarned}/${totalPoints}`,
+          variant: passedCount === totalCount ? "default" : "destructive",
+        });
+      } catch (error: any) {
+        console.error("Failed to run tests:", error);
+        toast({
+          title: "Failed to run tests",
+          description: error.message || "An error occurred while running tests.",
+          variant: "destructive",
+        });
+      } finally {
+        setIsRunningTests(false);
+      }
+    }, [container, ideData.autograder?.tests, toast]);
+
     // Handle tab change
     const handleTabChange = useCallback((value: string) => {
       setActiveTab(value as TabType);
@@ -681,17 +779,53 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
                     <Button
                       className="bg-purple-600 hover:bg-purple-700 text-white"
                       size="sm"
-                      disabled={true}
+                      disabled={!container || isRunningTests}
+                      onClick={handleRunTests}
                     >
-                      Run Tests
+                      {isRunningTests ? (
+                        <>
+                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                          Running...
+                        </>
+                      ) : (
+                        <>
+                          <PlayCircle className="w-4 h-4 mr-2" />
+                          Run Tests
+                        </>
+                      )}
                     </Button>
                   </div>
                   <div className="border border-gray-200 rounded-lg p-4 bg-gray-50">
-                    <p className="text-sm text-gray-600 text-center py-8">
-                      Test execution will be available soon. You can run tests here to check your solution.
-                    </p>
+                    {!container ? (
+                      <div className="text-center py-8">
+                        <Code2 className="w-12 h-12 text-gray-400 mx-auto mb-3" />
+                        <p className="text-sm text-gray-600 mb-2">
+                          Start a container to run tests
+                        </p>
+                        <p className="text-xs text-gray-500">
+                          Go to the Code tab and start your virtual codespace first
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="text-center py-8">
+                        <PlayCircle className="w-12 h-12 text-purple-400 mx-auto mb-3" />
+                        <p className="text-sm text-gray-600 mb-2">
+                          Ready to run tests
+                        </p>
+                        <p className="text-xs text-gray-500">
+                          Click "Run Tests" to check your solution against {(ideData.autograder?.tests || []).filter(t => t.type !== "manualGrading").length} test case(s)
+                        </p>
+                      </div>
+                    )}
                   </div>
                 </div>
+                <AutograderTestResultsModal
+                  open={testResultsModalOpen}
+                  onOpenChange={setTestResultsModalOpen}
+                  results={testResults}
+                  totalPoints={testTotalPoints}
+                  pointsEarned={testPointsEarned}
+                />
               </TabsContent>
             )}
           </Tabs>
