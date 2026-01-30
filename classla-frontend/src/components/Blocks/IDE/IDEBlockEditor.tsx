@@ -6,7 +6,7 @@ import React, {
   useRef,
 } from "react";
 import { NodeViewWrapper } from "@tiptap/react";
-import { IDEBlockData, TestCase } from "../../extensions/IDEBlock";
+import { IDEBlockData, TestCase, IDELanguage } from "../../extensions/IDEBlock";
 import {
   Trash2,
   Play,
@@ -26,6 +26,13 @@ import { Button } from "../../ui/button";
 import { Input } from "../../ui/input";
 import { Label } from "../../ui/label";
 import { Checkbox } from "../../ui/checkbox";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../../ui/select";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "../../ui/tabs";
 import {
   DropdownMenu,
@@ -59,6 +66,19 @@ interface ContainerInfo {
 const PRODUCTION_IDE_API_BASE_URL =
   import.meta.env.VITE_IDE_API_BASE_URL || "https://ide.classla.org";
 const LOCAL_IDE_API_BASE_URL = "http://localhost";
+
+// Hello World starter templates
+const PYTHON_HELLO_WORLD = `# Hello World in Python
+print("Hello, World!")
+`;
+
+const JAVA_HELLO_WORLD = `// Hello World in Java
+public class Main {
+    public static void main(String[] args) {
+        System.out.println("Hello, World!");
+    }
+}
+`;
 
 type TabType = "template" | "modelSolution" | "autoGrading";
 
@@ -333,6 +353,20 @@ const IDEBlockEditor: React.FC<IDEBlockEditorProps> = memo(
               bucketId = bucketResponse.data.id;
               bucketName = bucketResponse.data.bucket_name;
               bucketRegion = bucketResponse.data.region;
+
+              // Seed initial file for new template buckets
+              if (isTemplate && bucketId) {
+                const language = ideData.settings?.language || "python";
+                const starterFile = language === "java" ? "Main.java" : "main.py";
+                const starterContent = language === "java" ? JAVA_HELLO_WORLD : PYTHON_HELLO_WORLD;
+                try {
+                  await apiClient.createS3File(bucketId, starterFile, starterContent);
+                  console.log(`[IDE] Seeded ${starterFile} for ${language} template`);
+                } catch (seedError) {
+                  console.warn("Failed to seed initial file:", seedError);
+                  // Continue anyway - bucket is created, just no starter file
+                }
+              }
             }
 
             // Update block data with bucket ID
@@ -446,6 +480,20 @@ const IDEBlockEditor: React.FC<IDEBlockEditorProps> = memo(
               bucketId = bucketResponse.data.id;
               bucketName = bucketResponse.data.bucket_name;
               bucketRegion = bucketResponse.data.region;
+
+              // Seed initial file for new template buckets
+              if (isTemplate && bucketId) {
+                const language = ideData.settings?.language || "python";
+                const starterFile = language === "java" ? "Main.java" : "main.py";
+                const starterContent = language === "java" ? JAVA_HELLO_WORLD : PYTHON_HELLO_WORLD;
+                try {
+                  await apiClient.createS3File(bucketId, starterFile, starterContent);
+                  console.log(`[IDE] Seeded ${starterFile} for ${language} template`);
+                } catch (seedError) {
+                  console.warn("Failed to seed initial file:", seedError);
+                  // Continue anyway - bucket is created, just no starter file
+                }
+              }
             }
 
             // Update block data with bucket ID
@@ -1130,6 +1178,24 @@ const IDEBlockEditor: React.FC<IDEBlockEditorProps> = memo(
                 onRefreshInstance={containers.template ? () => handleRefreshInstance("template") : undefined}
                 onOpenSidePanel={openSidePanel}
                 onOpenFullscreen={openFullscreen}
+                onLanguageChange={(language: IDELanguage) => {
+                  const newRunFile = language === "java" ? "Main.java" : "main.py";
+                  updateAttributes({
+                    ideData: {
+                      ...ideData,
+                      settings: {
+                        ...ideData.settings,
+                        language,
+                        default_run_file: newRunFile,
+                      },
+                    },
+                  });
+                  setRunFilename({
+                    template: newRunFile,
+                    modelSolution: newRunFile,
+                    autoGrading: newRunFile,
+                  });
+                }}
               />
             </TabsContent>
 
@@ -1217,6 +1283,24 @@ const IDEBlockEditor: React.FC<IDEBlockEditorProps> = memo(
                 onRefreshInstance={containers.modelSolution ? () => handleRefreshInstance("modelSolution") : undefined}
                 onOpenSidePanel={openSidePanel}
                 onOpenFullscreen={openFullscreen}
+                onLanguageChange={(language: IDELanguage) => {
+                  const newRunFile = language === "java" ? "Main.java" : "main.py";
+                  updateAttributes({
+                    ideData: {
+                      ...ideData,
+                      settings: {
+                        ...ideData.settings,
+                        language,
+                        default_run_file: newRunFile,
+                      },
+                    },
+                  });
+                  setRunFilename({
+                    template: newRunFile,
+                    modelSolution: newRunFile,
+                    autoGrading: newRunFile,
+                  });
+                }}
               />
             </TabsContent>
 
@@ -1298,6 +1382,41 @@ const IDEBlockEditor: React.FC<IDEBlockEditorProps> = memo(
                   className="w-20"
                 />
               )}
+              <Label htmlFor="language" className="text-sm text-gray-700 ml-4">
+                Language:
+              </Label>
+              <Select
+                value={ideData.settings?.language || ""}
+                onValueChange={(value: string) => {
+                  if (value === "python" || value === "java") {
+                    const newRunFile = value === "java" ? "Main.java" : "main.py";
+                    updateAttributes({
+                      ideData: {
+                        ...ideData,
+                        settings: {
+                          ...ideData.settings,
+                          language: value,
+                          default_run_file: newRunFile,
+                        },
+                      },
+                    });
+                    // Also update the local run filename state for all tabs
+                    setRunFilename({
+                      template: newRunFile,
+                      modelSolution: newRunFile,
+                      autoGrading: newRunFile,
+                    });
+                  }
+                }}
+              >
+                <SelectTrigger className={`w-28 ${!ideData.settings?.language ? "text-gray-400" : ""}`}>
+                  <SelectValue placeholder="Select..." />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="python">Python</SelectItem>
+                  <SelectItem value="java">Java</SelectItem>
+                </SelectContent>
+              </Select>
               {containers[activeTab] && (
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
@@ -1346,6 +1465,7 @@ interface IDETabContentProps {
   onRefreshInstance?: () => void;
   onOpenSidePanel: (state: any) => void;
   onOpenFullscreen: (state: any) => void;
+  onLanguageChange: (language: IDELanguage) => void;
 }
 
 const IDETabContent: React.FC<IDETabContentProps> = memo(
@@ -1371,6 +1491,7 @@ const IDETabContent: React.FC<IDETabContentProps> = memo(
     onRefreshInstance,
     onOpenSidePanel,
     onOpenFullscreen,
+    onLanguageChange,
   }) => {
 
 
@@ -1467,7 +1588,7 @@ const IDETabContent: React.FC<IDETabContentProps> = memo(
             </div>
           )}
 
-          {/* Show start button only if no bucketId and no container */}
+          {/* Show language selection and start button only if no bucketId and no container */}
           {!bucketId && !container && !isStarting && (
             <div className="flex flex-col items-center justify-center h-96">
               <Code2 className="w-16 h-16 text-gray-400 mb-4" />
@@ -1475,14 +1596,37 @@ const IDETabContent: React.FC<IDETabContentProps> = memo(
                 Start Virtual Codespace
               </p>
               <p className="text-sm text-gray-500 mb-4">
-                Launch a containerized development environment
+                {ideData.settings?.language
+                  ? "Launch a containerized development environment"
+                  : "Select a programming language to get started"}
               </p>
-              <Button
-                onClick={onStart}
-                className="bg-purple-600 hover:bg-purple-700 text-white"
-              >
-                Start Virtual Codespace
-              </Button>
+              {!ideData.settings?.language ? (
+                <div className="flex gap-3">
+                  <Button
+                    onClick={() => onLanguageChange("python")}
+                    variant="outline"
+                    className="flex flex-col items-center gap-2 h-auto py-4 px-6 hover:border-purple-500 hover:bg-purple-50"
+                  >
+                    <span className="text-2xl">🐍</span>
+                    <span className="font-medium">Python</span>
+                  </Button>
+                  <Button
+                    onClick={() => onLanguageChange("java")}
+                    variant="outline"
+                    className="flex flex-col items-center gap-2 h-auto py-4 px-6 hover:border-purple-500 hover:bg-purple-50"
+                  >
+                    <span className="text-2xl">☕</span>
+                    <span className="font-medium">Java</span>
+                  </Button>
+                </div>
+              ) : (
+                <Button
+                  onClick={onStart}
+                  className="bg-purple-600 hover:bg-purple-700 text-white"
+                >
+                  Start Virtual Codespace
+                </Button>
+              )}
             </div>
           )}
         </div>

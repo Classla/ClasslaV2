@@ -12,7 +12,7 @@ const GeneratingBlockView: React.FC<GeneratingBlockViewProps> = memo(({ node }) 
 
   const getBlockTypeName = (type: string) => {
     switch (type) {
-      case "mcqBlock": return "MCQ";
+      // Standard TipTap blocks
       case "paragraph": return "Paragraph";
       case "heading": return "Heading";
       case "codeBlock": return "Code Block";
@@ -20,6 +20,20 @@ const GeneratingBlockView: React.FC<GeneratingBlockViewProps> = memo(({ node }) 
       case "orderedList": return "Ordered List";
       case "blockquote": return "Blockquote";
       case "horizontalRule": return "Divider";
+      // Graded blocks
+      case "mcqBlock": return "Multiple Choice Question";
+      case "fillInTheBlankBlock": return "Fill-in-the-Blank";
+      case "shortAnswerBlock": return "Short Answer";
+      case "ideBlock": return "Code Editor";
+      case "parsonsProblemBlock": return "Parsons Problem";
+      case "dragDropMatchingBlock": return "Drag & Drop Matching";
+      case "clickableAreaBlock": return "Code Selection";
+      // Content blocks
+      case "pollBlock": return "Poll";
+      case "tabbedContentBlock": return "Tabbed Content";
+      case "revealContentBlock": return "Reveal Content";
+      case "discussionBlock": return "Discussion";
+      case "embedBlock": return "Embed";
       default: return type;
     }
   };

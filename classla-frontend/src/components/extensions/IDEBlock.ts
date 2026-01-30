@@ -9,8 +9,11 @@ export interface IDEBlockTabData {
   last_container_id: string | null;
 }
 
+export type IDELanguage = "python" | "java";
+
 export interface IDEBlockSettings {
   default_run_file: string;
+  language?: IDELanguage; // Optional - must be selected before starting
 }
 
 // Test case types
@@ -76,6 +79,7 @@ const defaultIDEBlockData: IDEBlockData = {
   points: 1,
   settings: {
     default_run_file: "main.py",
+    // language is intentionally not set - user must select before starting
   },
   autograder: {
     tests: [],
@@ -112,6 +116,12 @@ export const validateIDEBlockData = (
       typeof data.settings.default_run_file !== "string"
     ) {
       errors.push("IDE block settings.default_run_file must be a string");
+    }
+    if (
+      data.settings.language !== undefined &&
+      !["python", "java"].includes(data.settings.language)
+    ) {
+      errors.push("IDE block settings.language must be 'python' or 'java'");
     }
   }
 
@@ -237,7 +247,11 @@ export const sanitizeIDEBlockData = (data: any): IDEBlockData => {
       default_run_file:
         data.settings?.default_run_file && typeof data.settings.default_run_file === "string"
           ? data.settings.default_run_file
-          : "main.py",
+          : data.settings?.language === "java" ? "Main.java" : "main.py",
+      // language is optional - only set if valid, otherwise undefined (user must select)
+      ...(data.settings?.language && ["python", "java"].includes(data.settings.language)
+        ? { language: data.settings.language }
+        : {}),
     },
     autograder: data.autograder && typeof data.autograder === "object" && Array.isArray(data.autograder.tests)
       ? {

@@ -1,7 +1,38 @@
 import express, { Request, Response } from "express";
 import { asyncHandler } from "../middleware/errorHandler";
+import { supabase, authenticateToken } from "../middleware/auth";
+import { getCoursePermissions, getUserCourseRole } from "../middleware/authorization";
+import { UserRole } from "../types/enums";
 
 const router = express.Router();
+
+// Types for IDE test run results
+interface TestResult {
+  name: string;
+  type: string;
+  points: number;
+  passed: boolean;
+  output?: string;
+  expected?: string;
+  actual?: string;
+  error?: string;
+}
+
+interface IDETestRun {
+  id: string;
+  assignment_id: string;
+  student_id: string;
+  block_id: string;
+  course_id?: string;
+  submission_id?: string;
+  results: TestResult[];
+  total_points: number;
+  points_earned: number;
+  tests_passed: number;
+  tests_total: number;
+  container_id?: string;
+  created_at: string;
+}
 
 // Types for IDE API responses
 interface ContainerResponse {
@@ -360,6 +391,290 @@ router.get(
         },
       });
     }
+  })
+);
+
+/**
+ * POST /api/ide-blocks/test-runs
+ * Save a new IDE test run result
+ */
+router.post(
+  "/test-runs",
+  authenticateToken,
+  asyncHandler(async (req: Request, res: Response) => {
+    const { id: userId } = req.user!;
+    const {
+      assignment_id,
+      block_id,
+      course_id,
+      submission_id,
+      results,
+      total_points,
+      points_earned,
+      tests_passed,
+      tests_total,
+      container_id,
+    } = req.body;
+
+    // Validate required fields
+    if (!assignment_id || typeof assignment_id !== "string") {
+      return res.status(400).json({
+        error: {
+          code: "INVALID_REQUEST",
+          message: "assignment_id is required and must be a string",
+        },
+      });
+    }
+
+    if (!block_id || typeof block_id !== "string") {
+      return res.status(400).json({
+        error: {
+          code: "INVALID_REQUEST",
+          message: "block_id is required and must be a string",
+        },
+      });
+    }
+
+    if (!Array.isArray(results)) {
+      return res.status(400).json({
+        error: {
+          code: "INVALID_REQUEST",
+          message: "results must be an array",
+        },
+      });
+    }
+
+    // Insert the test run
+    const { data: testRun, error: insertError } = await supabase
+      .from("ide_test_runs")
+      .insert({
+        assignment_id,
+        student_id: userId,
+        block_id,
+        course_id: course_id || null,
+        submission_id: submission_id || null,
+        results,
+        total_points: total_points || 0,
+        points_earned: points_earned || 0,
+        tests_passed: tests_passed || 0,
+        tests_total: tests_total || 0,
+        container_id: container_id || null,
+      })
+      .select()
+      .single();
+
+    if (insertError) {
+      console.error("Failed to save IDE test run:", insertError);
+      return res.status(500).json({
+        error: {
+          code: "DATABASE_ERROR",
+          message: "Failed to save test run",
+          details: insertError.message,
+        },
+      });
+    }
+
+    return res.status(201).json(testRun);
+  })
+);
+
+/**
+ * GET /api/ide-blocks/test-runs/:assignmentId/:blockId
+ * Get test run history for a student on a specific IDE block
+ */
+router.get(
+  "/test-runs/:assignmentId/:blockId",
+  authenticateToken,
+  asyncHandler(async (req: Request, res: Response) => {
+    const { id: userId, isAdmin } = req.user!;
+    const { assignmentId, blockId } = req.params;
+    const { student_id, limit = "20" } = req.query;
+
+    // Validate required fields
+    if (!assignmentId || typeof assignmentId !== "string") {
+      return res.status(400).json({
+        error: {
+          code: "INVALID_REQUEST",
+          message: "assignmentId is required",
+        },
+      });
+    }
+
+    if (!blockId || typeof blockId !== "string") {
+      return res.status(400).json({
+        error: {
+          code: "INVALID_REQUEST",
+          message: "blockId is required",
+        },
+      });
+    }
+
+    // Determine which student's runs to fetch
+    let targetStudentId = userId;
+
+    // If student_id query param is provided, check if user has permission to view
+    if (student_id && typeof student_id === "string" && student_id !== userId) {
+      // Get assignment to find course_id
+      const { data: assignment, error: assignmentError } = await supabase
+        .from("assignments")
+        .select("course_id")
+        .eq("id", assignmentId)
+        .single();
+
+      if (assignmentError || !assignment) {
+        return res.status(404).json({
+          error: {
+            code: "NOT_FOUND",
+            message: "Assignment not found",
+          },
+        });
+      }
+
+      // Check if user has permission to view other students' results
+      const userRole = await getUserCourseRole(userId, assignment.course_id);
+      const permissions = await getCoursePermissions(
+        userId,
+        assignment.course_id,
+        isAdmin
+      );
+
+      if (!isAdmin && !permissions.canGrade && !permissions.canManage) {
+        return res.status(403).json({
+          error: {
+            code: "FORBIDDEN",
+            message: "You don't have permission to view other students' test runs",
+          },
+        });
+      }
+
+      targetStudentId = student_id;
+    }
+
+    // Fetch test runs
+    const parsedLimit = Math.min(parseInt(limit as string, 10) || 20, 100);
+
+    const { data: testRuns, error: fetchError } = await supabase
+      .from("ide_test_runs")
+      .select("*")
+      .eq("assignment_id", assignmentId)
+      .eq("block_id", blockId)
+      .eq("student_id", targetStudentId)
+      .order("created_at", { ascending: false })
+      .limit(parsedLimit);
+
+    if (fetchError) {
+      console.error("Failed to fetch IDE test runs:", fetchError);
+      return res.status(500).json({
+        error: {
+          code: "DATABASE_ERROR",
+          message: "Failed to fetch test runs",
+          details: fetchError.message,
+        },
+      });
+    }
+
+    return res.json(testRuns || []);
+  })
+);
+
+/**
+ * GET /api/ide-blocks/test-runs/:assignmentId/:blockId/latest
+ * Get the most recent test run for a student on a specific IDE block
+ */
+router.get(
+  "/test-runs/:assignmentId/:blockId/latest",
+  authenticateToken,
+  asyncHandler(async (req: Request, res: Response) => {
+    const { id: userId, isAdmin } = req.user!;
+    const { assignmentId, blockId } = req.params;
+    const { student_id } = req.query;
+
+    // Validate required fields
+    if (!assignmentId || typeof assignmentId !== "string") {
+      return res.status(400).json({
+        error: {
+          code: "INVALID_REQUEST",
+          message: "assignmentId is required",
+        },
+      });
+    }
+
+    if (!blockId || typeof blockId !== "string") {
+      return res.status(400).json({
+        error: {
+          code: "INVALID_REQUEST",
+          message: "blockId is required",
+        },
+      });
+    }
+
+    // Determine which student's runs to fetch
+    let targetStudentId = userId;
+
+    // If student_id query param is provided, check if user has permission to view
+    if (student_id && typeof student_id === "string" && student_id !== userId) {
+      // Get assignment to find course_id
+      const { data: assignment, error: assignmentError } = await supabase
+        .from("assignments")
+        .select("course_id")
+        .eq("id", assignmentId)
+        .single();
+
+      if (assignmentError || !assignment) {
+        return res.status(404).json({
+          error: {
+            code: "NOT_FOUND",
+            message: "Assignment not found",
+          },
+        });
+      }
+
+      // Check if user has permission to view other students' results
+      const permissions = await getCoursePermissions(
+        userId,
+        assignment.course_id,
+        isAdmin
+      );
+
+      if (!isAdmin && !permissions.canGrade && !permissions.canManage) {
+        return res.status(403).json({
+          error: {
+            code: "FORBIDDEN",
+            message: "You don't have permission to view other students' test runs",
+          },
+        });
+      }
+
+      targetStudentId = student_id;
+    }
+
+    // Fetch latest test run
+    const { data: testRun, error: fetchError } = await supabase
+      .from("ide_test_runs")
+      .select("*")
+      .eq("assignment_id", assignmentId)
+      .eq("block_id", blockId)
+      .eq("student_id", targetStudentId)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .single();
+
+    if (fetchError) {
+      // No test run found is not an error
+      if (fetchError.code === "PGRST116") {
+        return res.json(null);
+      }
+      console.error("Failed to fetch IDE test run:", fetchError);
+      return res.status(500).json({
+        error: {
+          code: "DATABASE_ERROR",
+          message: "Failed to fetch test run",
+          details: fetchError.message,
+        },
+      });
+    }
+
+    return res.json(testRun);
   })
 );
 

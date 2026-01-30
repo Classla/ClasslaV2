@@ -71,6 +71,7 @@ BEDROCK_SECRET_ACCESS_KEY=$(echo $APP_SECRET | jq -r '.bedrock_secret_access_key
 IDE_MANAGER_ACCESS_KEY_ID=$(echo $APP_SECRET | jq -r '.ide_manager_access_key_id // .IDE_MANAGER_ACCESS_KEY_ID // empty')
 IDE_MANAGER_SECRET_ACCESS_KEY=$(echo $APP_SECRET | jq -r '.ide_manager_secret_access_key // .IDE_MANAGER_SECRET_ACCESS_KEY // empty')
 CONTAINER_SERVICE_TOKEN=$(echo $APP_SECRET | jq -r '.container_service_token // .CONTAINER_SERVICE_TOKEN // empty')
+TAVILY_API_KEY=$(echo $APP_SECRET | jq -r '.tavily_api_key // .TAVILY_API_KEY // empty')
 
 # Create directory for app
 mkdir -p /opt/classla-backend
@@ -120,6 +121,13 @@ if [ -n "$CONTAINER_SERVICE_TOKEN" ]; then
   echo "Added Container Service Token to environment file" >> /var/log/classla-backend-deployment.log
 else
   echo "WARNING: Container Service Token not provided, Y.js sync will fail" >> /var/log/classla-backend-deployment.log
+fi
+
+if [ -n "$TAVILY_API_KEY" ]; then
+  echo "TAVILY_API_KEY=$TAVILY_API_KEY" >> /opt/classla-backend/.env
+  echo "Added Tavily API Key to environment file" >> /var/log/classla-backend-deployment.log
+else
+  echo "WARNING: Tavily API Key not provided, AI web search will be disabled" >> /var/log/classla-backend-deployment.log
 fi
 
 # Log environment setup

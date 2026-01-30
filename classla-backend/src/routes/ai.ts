@@ -155,8 +155,8 @@ export function setupAIWebSocket(io: SocketIOServer): void {
       userId: socket.userId,
     });
 
-    socket.on("generate", async (data: { prompt: string; assignmentId: string; requestId?: string; taggedAssignmentIds?: string[] }) => {
-      const { prompt, assignmentId, requestId = `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`, taggedAssignmentIds = [] } = data;
+    socket.on("generate", async (data: { prompt: string; assignmentId: string; requestId?: string; taggedAssignmentIds?: string[]; images?: Array<{ base64: string; mimeType: string }> }) => {
+      const { prompt, assignmentId, requestId = `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`, taggedAssignmentIds = [], images = [] } = data;
       const userId = socket.userId;
 
       if (!userId) {
@@ -301,6 +301,11 @@ export function setupAIWebSocket(io: SocketIOServer): void {
           }
         }
 
+        // Validate and filter images
+        const validImages = (images || [])
+          .filter(img => img.base64 && img.mimeType && img.mimeType.startsWith('image/'))
+          .slice(0, 5); // Limit to 5 images
+
         logger.info("Starting AI content generation stream", {
           assignmentId,
           userId,
@@ -309,6 +314,7 @@ export function setupAIWebSocket(io: SocketIOServer): void {
           socketId: socket.id,
           taggedAssignmentsCount: taggedAssignments.length,
           taggedAssignments: taggedAssignments.map(a => ({ id: a.id, name: a.name })),
+          imagesCount: validImages.length,
         });
 
         // Start streaming generation
@@ -319,6 +325,7 @@ export function setupAIWebSocket(io: SocketIOServer): void {
             courseName: course?.name,
           },
           taggedAssignments: taggedAssignments.length > 0 ? taggedAssignments : undefined,
+          images: validImages.length > 0 ? validImages : undefined,
           socket,
           requestId,
           assignmentId,

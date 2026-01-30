@@ -12,6 +12,10 @@ import {
   Code2,
   RotateCcw,
   PlayCircle,
+  CheckCircle2,
+  XCircle,
+  Clock,
+  History,
 } from "lucide-react";
 import MonacoIDE from "./MonacoIDE";
 import AutograderTestResultsModal from "./AutograderTestResultsModal";
@@ -71,6 +75,10 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
     const [testResults, setTestResults] = useState<any[]>([]);
     const [testTotalPoints, setTestTotalPoints] = useState(0);
     const [testPointsEarned, setTestPointsEarned] = useState(0);
+
+    // Historical test runs
+    const [testRunHistory, setTestRunHistory] = useState<any[]>([]);
+    const [isLoadingHistory, setIsLoadingHistory] = useState(false);
 
     const pollingAttemptsRef = useRef(0);
 
@@ -133,6 +141,26 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
         if (pollingInterval) clearInterval(pollingInterval);
       };
     }, [pollingInterval]);
+
+    // Load test run history when component mounts or when autograder tab becomes visible
+    useEffect(() => {
+      if (!assignmentId || !ideData.id || !ideData.autograder?.allowStudentCheckAnswer) return;
+
+      const loadTestHistory = async () => {
+        setIsLoadingHistory(true);
+        try {
+          const response = await apiClient.getIDETestRuns(assignmentId, ideData.id, { limit: 10 });
+          setTestRunHistory(response.data || []);
+        } catch (error) {
+          console.error("Failed to load test run history:", error);
+          // Don't show error toast - history is optional
+        } finally {
+          setIsLoadingHistory(false);
+        }
+      };
+
+      loadTestHistory();
+    }, [assignmentId, ideData.id, ideData.autograder?.allowStudentCheckAnswer]);
 
     // Clear container (keeps S3 bucket)
     const clearContainer = useCallback(() => {
@@ -614,12 +642,36 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
         setTestPointsEarned(data.pointsEarned || 0);
         setTestResultsModalOpen(true);
 
-        // Also show toast notification
+        // Calculate stats
         const passedCount = data.results.filter((r: any) => r.passed).length;
         const totalCount = data.results.length;
         const pointsEarned = data.pointsEarned || 0;
         const totalPoints = data.totalPoints || 0;
 
+        // Save test run to database for history
+        if (assignmentId && ideData.id) {
+          try {
+            const savedRun = await apiClient.saveIDETestRun({
+              assignment_id: assignmentId,
+              block_id: ideData.id,
+              course_id: courseId || undefined,
+              results: data.results || [],
+              total_points: totalPoints,
+              points_earned: pointsEarned,
+              tests_passed: passedCount,
+              tests_total: totalCount,
+              container_id: container.id,
+            });
+
+            // Add to history at the beginning
+            setTestRunHistory((prev) => [savedRun.data, ...prev].slice(0, 10));
+          } catch (saveError) {
+            console.error("Failed to save test run:", saveError);
+            // Don't show error toast - saving history is optional
+          }
+        }
+
+        // Show toast notification
         toast({
           title: `Tests completed: ${passedCount}/${totalCount} passed`,
           description: `Points: ${pointsEarned}/${totalPoints}`,
@@ -635,7 +687,7 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
       } finally {
         setIsRunningTests(false);
       }
-    }, [container, ideData.autograder?.tests, toast]);
+    }, [container, ideData.autograder?.tests, ideData.id, assignmentId, courseId, toast]);
 
     // Handle tab change
     const handleTabChange = useCallback((value: string) => {
@@ -795,11 +847,44 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
                       )}
                     </Button>
                   </div>
+
+                  {/* Latest Result Summary */}
+                  {testRunHistory.length > 0 && (
+                    <div className={`border rounded-lg p-4 ${
+                      testRunHistory[0].tests_passed === testRunHistory[0].tests_total
+                        ? "bg-green-50 border-green-200"
+                        : "bg-yellow-50 border-yellow-200"
+                    }`}>
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          {testRunHistory[0].tests_passed === testRunHistory[0].tests_total ? (
+                            <CheckCircle2 className="w-8 h-8 text-green-600" />
+                          ) : (
+                            <XCircle className="w-8 h-8 text-yellow-600" />
+                          )}
+                          <div>
+                            <div className="font-medium text-gray-900">
+                              Latest Result: {testRunHistory[0].tests_passed}/{testRunHistory[0].tests_total} tests passed
+                            </div>
+                            <div className="text-sm text-gray-600">
+                              Points: {testRunHistory[0].points_earned}/{testRunHistory[0].total_points}
+                            </div>
+                          </div>
+                        </div>
+                        <div className="text-right text-sm text-gray-500">
+                          <Clock className="w-4 h-4 inline mr-1" />
+                          {new Date(testRunHistory[0].created_at).toLocaleString()}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Run Tests Area */}
                   <div className="border border-gray-200 rounded-lg p-4 bg-gray-50">
                     {!container ? (
-                      <div className="text-center py-8">
-                        <Code2 className="w-12 h-12 text-gray-400 mx-auto mb-3" />
-                        <p className="text-sm text-gray-600 mb-2">
+                      <div className="text-center py-6">
+                        <Code2 className="w-10 h-10 text-gray-400 mx-auto mb-2" />
+                        <p className="text-sm text-gray-600 mb-1">
                           Start a container to run tests
                         </p>
                         <p className="text-xs text-gray-500">
@@ -807,9 +892,9 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
                         </p>
                       </div>
                     ) : (
-                      <div className="text-center py-8">
-                        <PlayCircle className="w-12 h-12 text-purple-400 mx-auto mb-3" />
-                        <p className="text-sm text-gray-600 mb-2">
+                      <div className="text-center py-6">
+                        <PlayCircle className="w-10 h-10 text-purple-400 mx-auto mb-2" />
+                        <p className="text-sm text-gray-600 mb-1">
                           Ready to run tests
                         </p>
                         <p className="text-xs text-gray-500">
@@ -818,6 +903,57 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
                       </div>
                     )}
                   </div>
+
+                  {/* Test Run History */}
+                  {testRunHistory.length > 0 && (
+                    <div className="border border-gray-200 rounded-lg overflow-hidden">
+                      <div className="bg-gray-100 px-4 py-2 border-b border-gray-200 flex items-center gap-2">
+                        <History className="w-4 h-4 text-gray-600" />
+                        <span className="text-sm font-medium text-gray-700">Test Run History</span>
+                      </div>
+                      <div className="divide-y divide-gray-100">
+                        {isLoadingHistory ? (
+                          <div className="p-4 text-center">
+                            <Loader2 className="w-5 h-5 animate-spin mx-auto text-gray-400" />
+                          </div>
+                        ) : (
+                          testRunHistory.map((run, index) => (
+                            <div
+                              key={run.id}
+                              className={`p-3 flex items-center justify-between hover:bg-gray-50 cursor-pointer ${
+                                index === 0 ? "bg-purple-50" : ""
+                              }`}
+                              onClick={() => {
+                                setTestResults(run.results || []);
+                                setTestTotalPoints(run.total_points);
+                                setTestPointsEarned(run.points_earned);
+                                setTestResultsModalOpen(true);
+                              }}
+                            >
+                              <div className="flex items-center gap-3">
+                                {run.tests_passed === run.tests_total ? (
+                                  <CheckCircle2 className="w-5 h-5 text-green-600" />
+                                ) : (
+                                  <XCircle className="w-5 h-5 text-red-500" />
+                                )}
+                                <div>
+                                  <span className="text-sm font-medium">
+                                    {run.tests_passed}/{run.tests_total} passed
+                                  </span>
+                                  <span className="text-sm text-gray-500 ml-2">
+                                    ({run.points_earned}/{run.total_points} pts)
+                                  </span>
+                                </div>
+                              </div>
+                              <div className="text-xs text-gray-500">
+                                {new Date(run.created_at).toLocaleString()}
+                              </div>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
                 <AutograderTestResultsModal
                   open={testResultsModalOpen}

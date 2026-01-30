@@ -13,7 +13,7 @@ const router = Router();
 
 /**
  * GET /api/dashboard/overview
- * Return cluster overview metrics
+ * Return cluster overview metrics (uses LIVE Docker data, not stale database)
  */
 router.get(
   "/overview",
@@ -22,22 +22,27 @@ router.get(
       // Get system resources
       const resources = await resourceMonitor.getSystemResources();
 
-      // Get container counts by status
-      const runningCount = stateManager.getContainerCount("running");
-      const startingCount = stateManager.getContainerCount("starting");
-      const stoppedCount = stateManager.getContainerCount("stopped");
-      const failedCount = stateManager.getContainerCount("failed");
-      const totalCount = stateManager.getContainerCount();
+      // Get LIVE container data from Docker (not stale SQLite)
+      const liveContainers = await containerService.listContainers();
 
-      // Get all containers for additional metrics
-      const allContainers = stateManager.listContainers({});
+      // Filter out management containers (traefik, management-api)
+      const ideContainers = liveContainers.filter(
+        (c) => !c.serviceName.includes("traefik") && !c.serviceName.includes("management-api")
+      );
+
+      // Count by status from live data
+      const runningCount = ideContainers.filter((c) => c.status === "running").length;
+      const startingCount = ideContainers.filter((c) => c.status === "starting").length;
+      const stoppedCount = ideContainers.filter((c) => c.status === "stopped").length;
+      const failedCount = ideContainers.filter((c) => c.status === "failed").length;
+      const totalCount = ideContainers.length;
 
       // Calculate uptime for running containers
-      const uptimes = allContainers
-        .filter((c) => c.status === "running" && c.startedAt)
+      const uptimes = ideContainers
+        .filter((c) => c.status === "running" && c.createdAt)
         .map((c) => {
           const uptime = Math.floor(
-            (Date.now() - c.startedAt!.getTime()) / 1000
+            (Date.now() - c.createdAt.getTime()) / 1000
           );
           return uptime;
         });
@@ -389,26 +394,32 @@ router.post(
 
 /**
  * GET /api/dashboard/queue/stats
- * Return queue statistics
+ * Return queue statistics (uses LIVE Docker data for accuracy)
  */
 router.get(
   "/queue/stats",
   async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const queueStats = queueManager.getStats();
-      
-      // Get system resources to calculate containers with S3 buckets
-      const resources = await resourceMonitor.getSystemResources();
-      const totalRunning = resources.containers.running;
-      // Total = pre-warmed + with S3 + management API (1) + traefik (1)
-      const containersWithS3 = Math.max(0, totalRunning - queueStats.preWarmed - 2);
-      
+
+      // Get LIVE container data from Docker to count pre-warmed vs with S3
+      const liveContainers = await containerService.listContainers();
+
+      // Filter out management containers
+      const ideContainers = liveContainers.filter(
+        (c) => !c.serviceName.includes("traefik") && !c.serviceName.includes("management-api")
+      );
+
+      // Count containers with and without S3 buckets from live data
+      const containersWithS3 = ideContainers.filter((c) => c.s3Bucket && c.s3Bucket.length > 0).length;
+      const preWarmedCount = ideContainers.filter((c) => !c.s3Bucket || c.s3Bucket.length === 0).length;
+
       res.json({
         timestamp: new Date().toISOString(),
-        preWarmed: queueStats.preWarmed,
+        preWarmed: preWarmedCount,
         assigned: queueStats.assigned,
-        running: queueStats.running,
-        total: queueStats.total,
+        running: ideContainers.length,
+        total: ideContainers.length,
         targetSize: queueStats.targetSize,
         withS3Bucket: containersWithS3,
       });

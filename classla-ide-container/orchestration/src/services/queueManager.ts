@@ -155,6 +155,13 @@ export class QueueManager {
   }
 
   /**
+   * Get all container IDs in the queue
+   */
+  getAllContainerIds(): string[] {
+    return Array.from(this.queue.keys());
+  }
+
+  /**
    * Update container state
    */
   updateContainerState(

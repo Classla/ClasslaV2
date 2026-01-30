@@ -7,6 +7,18 @@ const getBackendApiUrl = (): string => {
   return import.meta.env.VITE_API_BASE_URL || "http://localhost:3001/api";
 };
 
+// Environment prefix for YJS document isolation (prevents local/prod conflicts)
+const YJS_ENV_PREFIX = import.meta.env.VITE_YJS_ENV_PREFIX ||
+  (import.meta.env.MODE === 'production' ? 'prod' : 'dev');
+
+/**
+ * Get document ID from bucket ID and file path
+ * Includes environment prefix to isolate local dev from production
+ */
+function getDocumentId(bucketId: string, filePath: string): string {
+  return `${YJS_ENV_PREFIX}:${bucketId}:${filePath}`;
+}
+
 /**
  * Convert base64 string to Uint8Array (browser-compatible)
  */
@@ -113,7 +125,8 @@ class YjsProvider {
 
         // Re-subscribe to all existing documents
         for (const [docId, provider] of this.providers.entries()) {
-          const [bucketId, ...filePathParts] = docId.split(":");
+          // docId format: env:bucketId:filePath
+          const [_env, bucketId, ...filePathParts] = docId.split(":");
           const filePath = filePathParts.join(":");
           console.log(`[Yjs] 🔄 Re-subscribing to ${docId} after reconnect`);
           this.subscribeToDocument(bucketId, filePath);
@@ -121,7 +134,8 @@ class YjsProvider {
 
         // Process pending subscriptions
         for (const docId of this.pendingSubscriptions) {
-          const [bucketId, ...filePathParts] = docId.split(":");
+          // docId format: env:bucketId:filePath
+          const [_env, bucketId, ...filePathParts] = docId.split(":");
           const filePath = filePathParts.join(":");
           console.log(`[Yjs] 🔔 Processing pending subscription for ${docId}`);
           this.subscribeToDocument(bucketId, filePath);
@@ -148,7 +162,7 @@ class YjsProvider {
     if (!(this.socket as any)._documentStateListenerSet) {
       this.socket.on("document-state", (data: { bucketId: string; filePath: string; state: string }) => {
       const { bucketId, filePath, state } = data;
-      const docId = `${bucketId}:${filePath}`;
+      const docId = getDocumentId(bucketId, filePath);
       console.log(`[Yjs] 📥 Received initial document-state for ${docId}`, { stateSize: state.length });
       
       // Get or create provider if it doesn't exist yet
@@ -182,7 +196,7 @@ class YjsProvider {
     if (!(this.socket as any)._yjsUpdateListenerSet) {
       this.socket.on("yjs-update", (data: { bucketId: string; filePath: string; update: string }) => {
         const { bucketId, filePath, update } = data;
-        const docId = `${bucketId}:${filePath}`;
+        const docId = getDocumentId(bucketId, filePath);
         console.log(`[Yjs] 📥 Received yjs-update for ${docId}`, { 
           updateSize: update.length,
           socketId: this.socket?.id,
@@ -248,7 +262,7 @@ class YjsProvider {
    * Get or create a Y.js document for a file
    */
   getDocument(bucketId: string, filePath: string): { doc: Y.Doc; ytext: Y.Text; awareness: Awareness } {
-    const docId = `${bucketId}:${filePath}`;
+    const docId = getDocumentId(bucketId, filePath);
     
     if (this.providers.has(docId)) {
       console.log(`[Yjs] Reusing existing document for ${docId}`);
@@ -358,7 +372,7 @@ class YjsProvider {
    * Subscribe to a document
    */
   subscribeToDocument(bucketId: string, filePath: string): void {
-    const docId = `${bucketId}:${filePath}`;
+    const docId = getDocumentId(bucketId, filePath);
     
     if (!this.socket || !this.isConnected) {
       // Will subscribe when connected
@@ -379,7 +393,7 @@ class YjsProvider {
    * Unsubscribe from a document
    */
   unsubscribeDocument(bucketId: string, filePath: string): void {
-    const docId = `${bucketId}:${filePath}`;
+    const docId = getDocumentId(bucketId, filePath);
     
     if (this.socket && this.isConnected) {
       this.socket.emit("unsubscribe-document", { bucketId, filePath });

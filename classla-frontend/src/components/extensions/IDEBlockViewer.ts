@@ -25,6 +25,7 @@ const defaultIDEBlockData: IDEBlockData = {
   points: 1,
   settings: {
     default_run_file: "main.py",
+    // language is intentionally not set - inherited from editor settings
   },
 };
 

@@ -16,6 +16,7 @@ import OrganizationPage from "./pages/Organizations/OrganizationPage";
 import TestIDE from "./pages/TestIDE";
 import IDEFullscreenPage from "./pages/IDEFullscreen/IDEFullscreenPage";
 import ManagedStudentsPage from "./pages/ManagedStudents/ManagedStudentsPage";
+import IDEDashboard from "./pages/Admin/IDEDashboard/IDEDashboard";
 import { Toaster } from "./components/ui/toaster";
 import "./App.css";
 
@@ -55,6 +56,14 @@ function App() {
               <Route path="settings" element={<UserSettings />} />
               <Route path="templates" element={<TemplatesPage />} />
               <Route path="managed-students" element={<ManagedStudentsPage />} />
+              <Route
+                path="admin/ide"
+                element={
+                  <ProtectedRoute requireAdmin>
+                    <IDEDashboard />
+                  </ProtectedRoute>
+                }
+              />
             </Route>
             <Route
               path="/course/:courseSlug/*"

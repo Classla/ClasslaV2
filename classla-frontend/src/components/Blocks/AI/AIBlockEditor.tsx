@@ -1,7 +1,7 @@
 import React, { useCallback, useState, useEffect, useRef, memo } from "react";
 import { NodeViewWrapper } from "@tiptap/react";
 import { AIBlockData } from "../../extensions/AIBlock";
-import { Sparkles, Loader2, AlertCircle, X } from "lucide-react";
+import { Sparkles, Loader2, AlertCircle, X, ImagePlus, Search } from "lucide-react";
 import { Button } from "../../ui/button";
 import { Textarea } from "../../ui/textarea";
 import { useToast } from "../../../hooks/use-toast";
@@ -29,6 +29,7 @@ const AIBlockEditor: React.FC<AIBlockEditorProps> = memo(
     const { toast } = useToast();
     const [prompt, setPrompt] = useState(aiData.prompt || "");
     const [isGenerating, setIsGenerating] = useState(false);
+    const [isSearching, setIsSearching] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const textareaRef = useRef<HTMLDivElement>(null);
     const promptSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -44,7 +45,13 @@ const AIBlockEditor: React.FC<AIBlockEditorProps> = memo(
     const [filteredAssignments, setFilteredAssignments] = useState<Assignment[]>([]);
     const [selectedMentionIndex, setSelectedMentionIndex] = useState(0);
     const [taggedAssignments, setTaggedAssignments] = useState<Map<string, Assignment>>(new Map());
-    
+
+    // Image upload state
+    const [images, setImages] = useState<Array<{ id: string; base64: string; mimeType: string; name: string }>>([]);
+    const fileInputRef = useRef<HTMLInputElement>(null);
+    const MAX_IMAGES = 5;
+    const MAX_IMAGE_SIZE = 5 * 1024 * 1024; // 5MB
+
     // WebSocket state
     const socketRef = useRef<Socket | null>(null);
     const requestIdRef = useRef<string | null>(null);
@@ -130,6 +137,92 @@ const AIBlockEditor: React.FC<AIBlockEditorProps> = memo(
       }
 
       return mentions;
+    }, []);
+
+    // Image upload handlers
+    const generateUUID = () => {
+      return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+        const r = Math.random() * 16 | 0;
+        const v = c === 'x' ? r : (r & 0x3 | 0x8);
+        return v.toString(16);
+      });
+    };
+
+    const fileToBase64 = (file: File): Promise<string> => {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.readAsDataURL(file);
+        reader.onload = () => {
+          const result = reader.result as string;
+          // Remove data:image/xxx;base64, prefix
+          const base64 = result.split(',')[1];
+          resolve(base64);
+        };
+        reader.onerror = (error) => reject(error);
+      });
+    };
+
+    const handleImageUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const files = e.target.files;
+      if (!files) return;
+
+      const remainingSlots = MAX_IMAGES - images.length;
+      if (remainingSlots <= 0) {
+        toast({
+          title: "Image limit reached",
+          description: `You can only attach up to ${MAX_IMAGES} images.`,
+          variant: "destructive",
+        });
+        return;
+      }
+
+      const filesToProcess = Array.from(files).slice(0, remainingSlots);
+      const newImages: Array<{ id: string; base64: string; mimeType: string; name: string }> = [];
+
+      for (const file of filesToProcess) {
+        if (!file.type.startsWith('image/')) {
+          toast({
+            title: "Invalid file type",
+            description: `${file.name} is not an image file.`,
+            variant: "destructive",
+          });
+          continue;
+        }
+
+        if (file.size > MAX_IMAGE_SIZE) {
+          toast({
+            title: "File too large",
+            description: `${file.name} exceeds 5MB limit.`,
+            variant: "destructive",
+          });
+          continue;
+        }
+
+        try {
+          const base64 = await fileToBase64(file);
+          newImages.push({
+            id: generateUUID(),
+            base64,
+            mimeType: file.type,
+            name: file.name,
+          });
+        } catch (err) {
+          console.error("Error converting image to base64:", err);
+        }
+      }
+
+      if (newImages.length > 0) {
+        setImages(prev => [...prev, ...newImages]);
+      }
+
+      // Reset file input
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }, [images.length, toast]);
+
+    const removeImage = useCallback((imageId: string) => {
+      setImages(prev => prev.filter(img => img.id !== imageId));
     }, []);
 
     // Helper functions - defined early to avoid hoisting issues
@@ -573,28 +666,43 @@ const AIBlockEditor: React.FC<AIBlockEditorProps> = memo(
         replacePlaceholder(data.blockIndex, data.block);
       });
 
-      // Handle generation-complete: Clean up and remove AI block
+      // Handle search events
+      socket.on("search-started", (data: { requestId: string; assignmentId: string }) => {
+        if (data.requestId !== requestIdRef.current) return;
+        if (data.assignmentId !== assignmentIdRef.current) return;
+        setIsSearching(true);
+        console.log("[AI] Web search started");
+      });
+
+      socket.on("search-complete", (data: { requestId: string; assignmentId: string; query: string; resultsCount: number; resultTitles?: string[] }) => {
+        if (data.requestId !== requestIdRef.current) return;
+        if (data.assignmentId !== assignmentIdRef.current) return;
+        setIsSearching(false);
+        console.log(`[AI] Web search completed: "${data.query}" - ${data.resultsCount} results`, data.resultTitles);
+        toast({
+          title: "Web search complete",
+          description: `Found ${data.resultsCount} results for "${data.query}"`,
+        });
+      });
+
+      // Handle generation-complete: Auto-delete the AI block
       socket.on("generation-complete", (data: { success: boolean; requestId: string; assignmentId: string }) => {
         if (data.requestId !== requestIdRef.current) return;
         if (data.assignmentId !== assignmentIdRef.current) return; // Verify assignment ID
-        
+
         // Clean up any remaining placeholders
         cleanupPlaceholders();
-        
+
         // Delete the AI block
         try {
           deleteNode();
         } catch (err) {
           console.error("Error removing AI block:", err);
         }
-        
-        toast({
-          title: "Content generated",
-          description: "AI has generated and inserted the content.",
-        });
-        
+
         // Reset state
         setIsGenerating(false);
+        setIsSearching(false);
         blocksRef.current.clear();
         nextInsertIndexRef.current = 0;
         requestIdRef.current = null;
@@ -623,6 +731,7 @@ const AIBlockEditor: React.FC<AIBlockEditorProps> = memo(
           
           // Reset state silently
           setIsGenerating(false);
+          setIsSearching(false);
           blocksRef.current.clear();
           nextInsertIndexRef.current = 0;
           requestIdRef.current = null;
@@ -632,13 +741,14 @@ const AIBlockEditor: React.FC<AIBlockEditorProps> = memo(
         
         // For other errors, show error but don't show toast
         cleanupPlaceholders();
-        
+
         setIsGenerating(false);
+        setIsSearching(false);
         setError(data.message);
-        
+
         // Don't show toast - just set error state
         // User can see the error in the UI if needed
-        
+
         blocksRef.current.clear();
         nextInsertIndexRef.current = 0;
         requestIdRef.current = null;
@@ -688,14 +798,18 @@ const AIBlockEditor: React.FC<AIBlockEditorProps> = memo(
       // Extract tagged assignment IDs
       const taggedAssignmentIds = Array.from(taggedAssignments.keys());
 
-      // Emit generate event with tagged assignments
+      // Emit generate event with tagged assignments and images
       socketRef.current.emit("generate", {
         prompt: prompt.trim(),
         assignmentId,
         requestId,
         taggedAssignmentIds,
+        images: images.map(img => ({
+          base64: img.base64,
+          mimeType: img.mimeType,
+        })),
       });
-    }, [prompt, isGenerating, editor, taggedAssignments]);
+    }, [prompt, isGenerating, editor, taggedAssignments, images]);
 
     // Handle @ mention detection
     const handleMentionDetection = useCallback((text: string, cursorPos: number) => {
@@ -928,10 +1042,21 @@ const AIBlockEditor: React.FC<AIBlockEditorProps> = memo(
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center gap-2">
-              <Loader2 className="w-4 h-4 text-blue-600 animate-spin" />
-              <span className="text-sm font-medium text-gray-700 animate-pulse">
-                Classla AI Generating...
-              </span>
+              {isSearching ? (
+                <>
+                  <Search className="w-4 h-4 text-blue-600 animate-pulse" />
+                  <span className="text-sm font-medium text-gray-700 animate-pulse">
+                    Searching the web...
+                  </span>
+                </>
+              ) : (
+                <>
+                  <Loader2 className="w-4 h-4 text-blue-600 animate-spin" />
+                  <span className="text-sm font-medium text-gray-700 animate-pulse">
+                    Classla AI Generating...
+                  </span>
+                </>
+              )}
             </div>
           </div>
         ) : (
@@ -1097,13 +1222,79 @@ const AIBlockEditor: React.FC<AIBlockEditorProps> = memo(
                       handleMentionDetection(prompt, cursorPos);
                     }, 0);
                   }}
-                  onPaste={(e) => {
+                  onPaste={async (e) => {
                     e.stopPropagation();
                     e.preventDefault();
                     const div = e.currentTarget;
                     if (!div) return;
-                    
-                    const text = e.clipboardData.getData("text/plain");
+
+                    // Extract text immediately (before any async operations)
+                    const pastedText = e.clipboardData.getData("text/plain");
+
+                    // Check for image data in clipboard
+                    const clipboardItems = e.clipboardData.items;
+                    const imageItems: DataTransferItem[] = [];
+                    const imageFiles: File[] = [];
+                    for (let i = 0; i < clipboardItems.length; i++) {
+                      if (clipboardItems[i].type.startsWith('image/')) {
+                        const file = clipboardItems[i].getAsFile();
+                        if (file) {
+                          imageItems.push(clipboardItems[i]);
+                          imageFiles.push(file);
+                        }
+                      }
+                    }
+
+                    // Handle image paste
+                    if (imageFiles.length > 0) {
+                      const remainingSlots = MAX_IMAGES - images.length;
+                      if (remainingSlots <= 0) {
+                        toast({
+                          title: "Image limit reached",
+                          description: `You can only attach up to ${MAX_IMAGES} images.`,
+                          variant: "destructive",
+                        });
+                        return;
+                      }
+
+                      const filesToProcess = imageFiles.slice(0, remainingSlots);
+                      const newImages: Array<{ id: string; base64: string; mimeType: string; name: string }> = [];
+
+                      for (const file of filesToProcess) {
+                        if (file.size > MAX_IMAGE_SIZE) {
+                          toast({
+                            title: "Image too large",
+                            description: `Pasted image exceeds 5MB limit.`,
+                            variant: "destructive",
+                          });
+                          continue;
+                        }
+
+                        try {
+                          const base64 = await fileToBase64(file);
+                          newImages.push({
+                            id: generateUUID(),
+                            base64,
+                            mimeType: file.type,
+                            name: `pasted-image-${Date.now()}.${file.type.split('/')[1] || 'png'}`,
+                          });
+                        } catch (err) {
+                          console.error("Error converting pasted image to base64:", err);
+                        }
+                      }
+
+                      if (newImages.length > 0) {
+                        setImages(prev => [...prev, ...newImages]);
+                        toast({
+                          title: "Image attached",
+                          description: `${newImages.length} image${newImages.length > 1 ? 's' : ''} pasted successfully.`,
+                        });
+                      }
+                      return;
+                    }
+
+                    // Handle text paste (use the text we extracted earlier)
+                    const text = pastedText;
                     const selection = window.getSelection();
                     if (selection && selection.rangeCount > 0) {
                       const range = selection.getRangeAt(0);
@@ -1254,6 +1445,36 @@ const AIBlockEditor: React.FC<AIBlockEditorProps> = memo(
                 })()}
               </div>
               
+              {/* Image upload section */}
+              {images.length > 0 && (
+                <div className="flex flex-wrap gap-2 mt-2">
+                  {images.map((img) => (
+                    <div
+                      key={img.id}
+                      className="relative group w-16 h-16 rounded-lg overflow-hidden border border-gray-200 bg-gray-50"
+                    >
+                      <img
+                        src={`data:${img.mimeType};base64,${img.base64}`}
+                        alt={img.name}
+                        className="w-full h-full object-cover"
+                      />
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          removeImage(img.id);
+                        }}
+                        className="absolute top-0 right-0 w-5 h-5 bg-red-500 text-white rounded-bl-lg flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                      <div className="absolute bottom-0 left-0 right-0 bg-black/50 text-white text-[8px] px-1 truncate">
+                        {img.name}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
               {/* Mention suggestions dropdown */}
               {showMentionSuggestions && filteredAssignments.length > 0 && (
                 <div
@@ -1283,9 +1504,38 @@ const AIBlockEditor: React.FC<AIBlockEditorProps> = memo(
               
               
               <div className="flex items-center justify-between">
-                <p className="text-xs text-gray-500">
-                  Press Enter to generate, Shift+Enter for new line
-                </p>
+                <div className="flex items-center gap-2">
+                  <p className="text-xs text-gray-500">
+                    Press Enter to generate
+                  </p>
+                  {/* Hidden file input */}
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    onChange={handleImageUpload}
+                    className="hidden"
+                  />
+                  {/* Image upload button */}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      fileInputRef.current?.click();
+                    }}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    disabled={images.length >= MAX_IMAGES}
+                    className="text-gray-600 hover:text-purple-600 h-7 px-2"
+                    title={images.length >= MAX_IMAGES ? `Max ${MAX_IMAGES} images` : "Attach image"}
+                  >
+                    <ImagePlus className="w-4 h-4" />
+                    {images.length > 0 && (
+                      <span className="ml-1 text-xs">{images.length}/{MAX_IMAGES}</span>
+                    )}
+                  </Button>
+                </div>
                 <Button
                   onClick={(e) => {
                     e.stopPropagation();

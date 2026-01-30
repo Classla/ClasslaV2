@@ -17,11 +17,22 @@ const saveTimeouts = new Map<string, NodeJS.Timeout>();
 // Track which documents need snapshot saves
 const documentsNeedingSnapshot = new Set<string>();
 
+// Track cleanup timeouts for documents with no connections
+const cleanupTimeouts = new Map<string, NodeJS.Timeout>();
+
+// Grace period before cleaning up a document with no connections (ms)
+const CLEANUP_GRACE_PERIOD = 30000; // 30 seconds
+
+// Environment prefix for YJS document isolation (prevents local/prod conflicts)
+const YJS_ENV_PREFIX = process.env.YJS_ENVIRONMENT_PREFIX ||
+  (process.env.NODE_ENV === 'production' ? 'prod' : 'dev');
+
 /**
  * Get document ID from bucket ID and file path
+ * Includes environment prefix to isolate local dev from production
  */
 function getDocumentId(bucketId: string, filePath: string): string {
-  return `${bucketId}:${filePath}`;
+  return `${YJS_ENV_PREFIX}:${bucketId}:${filePath}`;
 }
 
 /**
@@ -203,12 +214,13 @@ export function cleanupDocument(docId: string, skipSave: boolean = false): void 
   if (doc) {
     // Save final state before cleanup (unless skipSave is true, e.g., when file is being deleted)
     if (!skipSave) {
-    const bucketInfo = documentBuckets.get(docId);
-    if (bucketInfo) {
-      const filePath = docId.split(":").slice(1).join(":");
-      saveYjsDocumentToS3(bucketInfo, filePath, doc, true).catch((error) => {
-        logger.error(`Failed to save Y.js document during cleanup for ${docId}:`, error);
-      });
+      const bucketInfo = documentBuckets.get(docId);
+      if (bucketInfo) {
+        // docId format: env:bucketId:filePath - skip first two parts to get filePath
+        const filePath = docId.split(":").slice(2).join(":");
+        saveYjsDocumentToS3(bucketInfo, filePath, doc, true).catch((error) => {
+          logger.error(`Failed to save Y.js document during cleanup for ${docId}:`, error);
+        });
       }
     }
 
@@ -217,13 +229,60 @@ export function cleanupDocument(docId: string, skipSave: boolean = false): void 
       clearInterval((doc as any)._forceSaveInterval);
     }
 
+    // Clear any pending cleanup timeout
+    if (cleanupTimeouts.has(docId)) {
+      clearTimeout(cleanupTimeouts.get(docId)!);
+      cleanupTimeouts.delete(docId);
+    }
+
     documents.delete(docId);
     documentBuckets.delete(docId);
-    
+
     if (saveTimeouts.has(docId)) {
       clearTimeout(saveTimeouts.get(docId)!);
       saveTimeouts.delete(docId);
     }
+
+    logger.info(`[Yjs] 🧹 Cleaned up document ${docId}`);
+  }
+}
+
+/**
+ * Schedule cleanup for a document after grace period (if no clients reconnect)
+ */
+function scheduleDocumentCleanup(docId: string, io: SocketIOServer): void {
+  // Cancel any existing cleanup timeout
+  if (cleanupTimeouts.has(docId)) {
+    clearTimeout(cleanupTimeouts.get(docId)!);
+  }
+
+  const timeout = setTimeout(() => {
+    // Check again if room is still empty
+    const room = io.of("/yjs").adapter.rooms.get(docId);
+    const roomSize = room?.size || 0;
+
+    if (roomSize === 0) {
+      logger.info(`[Yjs] 🧹 No connections for ${docId} after grace period, cleaning up`);
+      cleanupDocument(docId);
+    } else {
+      logger.info(`[Yjs] 🔄 Document ${docId} has ${roomSize} connections, skipping cleanup`);
+    }
+
+    cleanupTimeouts.delete(docId);
+  }, CLEANUP_GRACE_PERIOD);
+
+  cleanupTimeouts.set(docId, timeout);
+  logger.info(`[Yjs] ⏰ Scheduled cleanup for ${docId} in ${CLEANUP_GRACE_PERIOD / 1000}s`);
+}
+
+/**
+ * Cancel scheduled cleanup (e.g., when a client reconnects)
+ */
+function cancelDocumentCleanup(docId: string): void {
+  if (cleanupTimeouts.has(docId)) {
+    clearTimeout(cleanupTimeouts.get(docId)!);
+    cleanupTimeouts.delete(docId);
+    logger.info(`[Yjs] ❌ Cancelled cleanup for ${docId} (client reconnected)`);
   }
 }
 
@@ -492,6 +551,9 @@ export function setupYjsWebSocket(io: SocketIOServer): void {
         socket.join(docId);
         // Also join bucket room for file tree change notifications
         socket.join(`bucket:${bucketId}`);
+
+        // Cancel any pending cleanup since a client is now connected
+        cancelDocumentCleanup(docId);
 
         // Get room info for logging
         const room = yjsNamespace.adapter.rooms.get(docId);
@@ -770,8 +832,18 @@ export function setupYjsWebSocket(io: SocketIOServer): void {
         reason,
       });
 
-      // Note: We don't cleanup documents on disconnect since other clients might be using them
-      // Documents are cleaned up when they're no longer referenced (garbage collection)
+      // Check each document room and schedule cleanup if empty
+      // Socket.IO removes the socket from rooms before the disconnect event fires,
+      // so we can check room sizes directly
+      for (const docId of documents.keys()) {
+        const room = yjsNamespace.adapter.rooms.get(docId);
+        const roomSize = room?.size || 0;
+
+        if (roomSize === 0) {
+          // No more clients in this room, schedule cleanup
+          scheduleDocumentCleanup(docId, io);
+        }
+      }
     });
 
     socket.on("error", (error) => {
@@ -783,12 +855,22 @@ export function setupYjsWebSocket(io: SocketIOServer): void {
     });
   });
 
-  // Periodic cleanup of unused documents (every 10 minutes)
+  // Periodic cleanup of unused documents (every 5 minutes)
   setInterval(() => {
-    // For now, we keep documents in memory
-    // In the future, we could implement LRU cache or similar
-    logger.debug(`Y.js documents in memory: ${documents.size}`);
-  }, 600000); // 10 minutes
+    logger.info(`[Yjs] 📊 Status: ${documents.size} documents in memory, ${cleanupTimeouts.size} pending cleanups`);
+
+    // Check for orphaned documents (in memory but no connected clients)
+    for (const docId of documents.keys()) {
+      const room = yjsNamespace.adapter.rooms.get(docId);
+      const roomSize = room?.size || 0;
+
+      if (roomSize === 0 && !cleanupTimeouts.has(docId)) {
+        // Orphaned document - no clients and no pending cleanup
+        logger.info(`[Yjs] 🧹 Found orphaned document ${docId}, scheduling cleanup`);
+        scheduleDocumentCleanup(docId, io);
+      }
+    }
+  }, 300000); // 5 minutes
 }
 
 /**

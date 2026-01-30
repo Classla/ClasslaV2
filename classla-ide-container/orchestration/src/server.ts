@@ -19,6 +19,7 @@ import {
   stateManager,
   queueMaintainer,
   containerCleanupService,
+  discordAlertService,
 } from "./services/serviceInstances";
 
 const app: Express = express();
@@ -131,6 +132,10 @@ console.log(`🔄 Queue maintainer started (target: ${config.preWarmedQueueSize}
 containerCleanupService.start();
 console.log(`🧹 Container cleanup service started`);
 
+// Start Discord alert service for resource monitoring
+discordAlertService.start();
+console.log(`🔔 Discord alert service started`);
+
 // Start server
 const server = app.listen(config.port, () => {
   console.log(`🚀 IDE Orchestration API running on port ${config.port}`);
@@ -146,6 +151,7 @@ process.on("SIGTERM", () => {
   queueMaintainer.stop();
   healthMonitor.stop();
   containerCleanupService.stop();
+  discordAlertService.stop();
   stateManager.close();
   stopCleanupInterval();
   server.close(() => {
@@ -159,6 +165,7 @@ process.on("SIGINT", () => {
   queueMaintainer.stop();
   healthMonitor.stop();
   containerCleanupService.stop();
+  discordAlertService.stop();
   stateManager.close();
   stopCleanupInterval();
   server.close(() => {

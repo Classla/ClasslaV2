@@ -376,7 +376,7 @@ router.post(
 
 /**
  * GET /api/containers
- * List all containers with optional filtering and pagination
+ * List all containers with optional filtering and pagination (uses LIVE Docker data)
  */
 router.get(
   "/",
@@ -403,25 +403,30 @@ router.get(
         throw invalidParameter("offset must be a non-negative integer");
       }
 
-      // Get containers from state manager
-      const containers = stateManager.listContainers({
+      // Get LIVE containers from Docker (not stale SQLite)
+      const liveContainers = await containerService.listContainers({
         status,
         limit,
         offset,
       });
 
-      // Get total count for pagination
-      const total = stateManager.getContainerCount(status);
+      // Filter out management containers (traefik, management-api)
+      const ideContainers = liveContainers.filter(
+        (c) => !c.serviceName.includes("traefik") && !c.serviceName.includes("management-api")
+      );
+
+      // Get total count
+      const total = ideContainers.length;
 
       res.json({
-        containers: containers.map((c) => ({
+        containers: ideContainers.map((c) => ({
           id: c.id,
           serviceName: c.serviceName,
           status: c.status,
           urls: c.urls,
           s3Bucket: c.s3Bucket,
           createdAt: c.createdAt.toISOString(),
-          lastActivity: c.lastActivity?.toISOString(),
+          startedAt: c.createdAt.toISOString(), // Use createdAt as startedAt for live data
         })),
         total,
         limit: limit || total,

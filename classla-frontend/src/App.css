@@ -231,12 +231,19 @@
 }
 
 /* Placeholder styles for empty nodes */
-.ProseMirror .is-empty::before {
+.ProseMirror .is-empty:not(pre):not(code)::before {
   content: attr(data-placeholder);
   float: left;
   color: #9ca3af;
   pointer-events: none;
   height: 0;
+}
+
+/* Hide placeholder inside code blocks */
+.ProseMirror pre .is-empty::before,
+.ProseMirror pre.is-empty::before,
+.ProseMirror pre code::before {
+  content: none !important;
 }
 /* 
 Enhanced TipTap Block Styles */
@@ -319,7 +326,7 @@ Enhanced TipTap Block Styles */
 
 /* Removed the aggressive hover effect that was causing layout issues */
 
-.ProseMirror .is-empty:first-child::before {
+.ProseMirror .is-empty:first-child:not(pre):not(code)::before {
   content: attr(data-placeholder);
   float: left;
   color: #9ca3af;
@@ -565,7 +572,7 @@ Enhanced TipTap Block Styles */
   transition: background-color 0.15s ease;
 }
 
-.ProseMirror > *:hover {
+.ProseMirror > *:hover:not(pre) {
   background-color: rgba(55, 53, 47, 0.03);
 }
 

@@ -59,10 +59,23 @@ export class QueueMaintainer {
     console.log(`[QueueMaintainer] Check interval: ${this.checkIntervalMs}ms`);
     console.log("[QueueMaintainer] ========================================");
 
-    // Do initial check immediately
-    console.log("[QueueMaintainer] Running initial queue check...");
-    this.checkAndMaintainQueue().catch((error) => {
-      console.error("[QueueMaintainer] Error in initial queue check:", error);
+    // First, sync with Docker to discover existing pre-warmed containers
+    console.log("[QueueMaintainer] Syncing with Docker to discover existing containers...");
+    this.syncWithDocker().then(() => {
+      const syncedStats = this.queueManager.getStats();
+      console.log(`[QueueMaintainer] After sync: ${syncedStats.preWarmed} pre-warmed containers in queue`);
+
+      // Do initial check after sync
+      console.log("[QueueMaintainer] Running initial queue check...");
+      this.checkAndMaintainQueue().catch((error) => {
+        console.error("[QueueMaintainer] Error in initial queue check:", error);
+      });
+    }).catch((error) => {
+      console.error("[QueueMaintainer] Error syncing with Docker:", error);
+      // Still do initial check even if sync fails
+      this.checkAndMaintainQueue().catch((error) => {
+        console.error("[QueueMaintainer] Error in initial queue check:", error);
+      });
     });
 
     // Then check periodically
@@ -72,8 +85,67 @@ export class QueueMaintainer {
         console.error("[QueueMaintainer] Error in periodic queue check:", error);
       });
     }, this.checkIntervalMs);
-    
+
     console.log("[QueueMaintainer] Queue maintainer started successfully");
+  }
+
+  /**
+   * Sync queue manager with actual Docker containers
+   * This discovers existing pre-warmed containers (without S3 buckets) and adds them to the queue
+   * Also removes stale entries for containers that no longer exist in Docker
+   */
+  private async syncWithDocker(): Promise<void> {
+    try {
+      // Get all live containers from Docker
+      const liveContainers = await this.containerService.listContainers();
+
+      // Filter for IDE containers (exclude traefik, management-api)
+      const ideContainers = liveContainers.filter(
+        (c) => !c.serviceName.includes("traefik") && !c.serviceName.includes("management-api")
+      );
+
+      // Find pre-warmed containers (those without S3 buckets)
+      const preWarmedContainers = ideContainers.filter(
+        (c) => !c.s3Bucket || c.s3Bucket.length === 0
+      );
+
+      // Get set of live container IDs for quick lookup
+      const liveContainerIds = new Set(ideContainers.map((c) => c.id));
+
+      console.log(`[QueueMaintainer] Found ${ideContainers.length} IDE containers in Docker`);
+      console.log(`[QueueMaintainer] Found ${preWarmedContainers.length} pre-warmed containers (no S3 bucket)`);
+
+      // Remove stale entries from queue (containers that no longer exist in Docker)
+      const trackedIds = this.queueManager.getAllContainerIds();
+      let removedCount = 0;
+      for (const containerId of trackedIds) {
+        if (!liveContainerIds.has(containerId)) {
+          this.queueManager.removeFromQueue(containerId);
+          removedCount++;
+          console.log(`[QueueMaintainer] Removed stale container ${containerId} from queue (no longer in Docker)`);
+        }
+      }
+
+      if (removedCount > 0) {
+        console.log(`[QueueMaintainer] Removed ${removedCount} stale containers from queue`);
+      }
+
+      // Add pre-warmed containers to queue if not already tracked
+      let addedCount = 0;
+      for (const container of preWarmedContainers) {
+        const existing = this.queueManager.getContainer(container.id);
+        if (!existing) {
+          this.queueManager.addToQueue(container.id, container.serviceName);
+          addedCount++;
+          console.log(`[QueueMaintainer] Added existing container ${container.id} to queue`);
+        }
+      }
+
+      console.log(`[QueueMaintainer] Synced: added ${addedCount}, removed ${removedCount} containers`);
+    } catch (error) {
+      console.error("[QueueMaintainer] Failed to sync with Docker:", error);
+      throw error;
+    }
   }
 
   /**
@@ -106,7 +178,11 @@ export class QueueMaintainer {
     try {
       console.log("[QueueMaintainer] ========================================");
       console.log("[QueueMaintainer] Starting queue maintenance check...");
-      
+
+      // First sync with Docker to remove stale entries and add new ones
+      console.log("[QueueMaintainer] Syncing with Docker...");
+      await this.syncWithDocker();
+
       const containersNeeded = this.queueManager.getContainersNeeded();
       const queueSize = this.queueManager.getQueueSize();
       const stats = this.queueManager.getStats();

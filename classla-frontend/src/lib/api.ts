@@ -614,6 +614,43 @@ export const apiClient = {
   // Self-service password change for managed students
   changePassword: (currentPassword: string, newPassword: string) =>
     api.post("/auth/change-password", { currentPassword, newPassword }),
+
+  // IDE Test Run endpoints
+  saveIDETestRun: (data: {
+    assignment_id: string;
+    block_id: string;
+    course_id?: string;
+    submission_id?: string;
+    results: any[];
+    total_points: number;
+    points_earned: number;
+    tests_passed: number;
+    tests_total: number;
+    container_id?: string;
+  }) => api.post("/ide-blocks/test-runs", data),
+  getIDETestRuns: (
+    assignmentId: string,
+    blockId: string,
+    params?: { student_id?: string; limit?: number }
+  ) =>
+    api.get(`/ide-blocks/test-runs/${assignmentId}/${blockId}`, { params }),
+  getLatestIDETestRun: (
+    assignmentId: string,
+    blockId: string,
+    params?: { student_id?: string }
+  ) =>
+    api.get(`/ide-blocks/test-runs/${assignmentId}/${blockId}/latest`, { params }),
+
+  // Admin IDE Dashboard endpoints
+  adminIde: {
+    getOverview: () => api.get("/admin/ide/overview"),
+    getContainers: (params?: { status?: string; limit?: number; offset?: number }) =>
+      api.get("/admin/ide/containers", { params }),
+    getQueueStats: () => api.get("/admin/ide/queue/stats"),
+    killContainer: (id: string) => api.delete(`/admin/ide/containers/${id}`),
+    containerAction: (id: string, action: "stop" | "restart" | "delete") =>
+      api.post(`/admin/ide/containers/${id}/action`, { action }),
+  },
 };
 
 export default api;

@@ -8,6 +8,10 @@ interface BucketInfo {
   region: string;
 }
 
+// Environment prefix for YJS S3 path isolation (prevents local/prod conflicts)
+const YJS_ENV_PREFIX = process.env.YJS_ENVIRONMENT_PREFIX ||
+  (process.env.NODE_ENV === 'production' ? 'prod' : 'dev');
+
 /**
  * Get S3 client for a specific bucket
  */
@@ -26,16 +30,18 @@ function getS3ClientForBucket(region: string): S3Client {
 
 /**
  * Get S3 key for Y.js document snapshot
+ * Includes environment prefix to isolate local dev from production
  */
 export function getSnapshotKey(filePath: string): string {
-  return `.yjs/${filePath}/snapshot.bin`;
+  return `.yjs/${YJS_ENV_PREFIX}/${filePath}/snapshot.bin`;
 }
 
 /**
  * Get S3 key for Y.js document updates
+ * Includes environment prefix to isolate local dev from production
  */
 export function getUpdatesKey(filePath: string): string {
-  return `.yjs/${filePath}/updates.bin`;
+  return `.yjs/${YJS_ENV_PREFIX}/${filePath}/updates.bin`;
 }
 
 /**
