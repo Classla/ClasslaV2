@@ -11,6 +11,8 @@ import {
 } from "../middleware/authorization";
 
 import { UserRole } from "../types/enums";
+import { getIO } from "../services/websocket";
+import { broadcastFolderUpdate } from "../services/moduleTreeYjsService";
 
 const router = Router();
 
@@ -224,6 +226,15 @@ router.post(
         throw folderError;
       }
 
+      // Broadcast folder creation to YJS
+      try {
+        const io = getIO();
+        broadcastFolderUpdate(io, folder.id, folder, "create");
+      } catch (broadcastError) {
+        console.error("Failed to broadcast folder creation:", broadcastError);
+        // Don't fail the request if broadcast fails
+      }
+
       res.status(201).json(folder);
     } catch (error) {
       console.error("Error creating folder:", error);
@@ -332,6 +343,15 @@ router.put(
         throw updateError;
       }
 
+      // Broadcast folder update to YJS
+      try {
+        const io = getIO();
+        broadcastFolderUpdate(io, updatedFolder.id, updatedFolder, "update");
+      } catch (broadcastError) {
+        console.error("Failed to broadcast folder update:", broadcastError);
+        // Don't fail the request if broadcast fails
+      }
+
       res.json(updatedFolder);
     } catch (error) {
       console.error("Error updating folder:", error);
@@ -405,6 +425,15 @@ router.delete(
 
       if (deleteError) {
         throw deleteError;
+      }
+
+      // Broadcast folder deletion to YJS
+      try {
+        const io = getIO();
+        broadcastFolderUpdate(io, id, existingFolder, "delete");
+      } catch (broadcastError) {
+        console.error("Failed to broadcast folder deletion:", broadcastError);
+        // Don't fail the request if broadcast fails
       }
 
       res.json({

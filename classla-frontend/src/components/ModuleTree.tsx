@@ -5,6 +5,7 @@ import { Tree } from "react-arborist";
 
 import { apiClient } from "../lib/api";
 import { useToast } from "../hooks/use-toast";
+import { useModuleTreeYjs } from "../hooks/useModuleTreeYjs";
 import { Button } from "./ui/button";
 import {
   Dialog,
@@ -89,6 +90,9 @@ const ModuleTree: React.FC<ModuleTreeProps> = ({ courseId, course, userRole, isI
   const [loading, setLoading] = useState(true);
   const [treeHeight, setTreeHeight] = useState(384);
   const treeContainerRef = useRef<HTMLDivElement>(null);
+
+  // Real-time module tree synchronization with YJS
+  const { moduleTreeData, isLoading: yjsLoading, error: yjsError } = useModuleTreeYjs(courseId);
   const [rootContextMenu, setRootContextMenu] = useState<{
     x: number;
     y: number;
@@ -113,6 +117,28 @@ const ModuleTree: React.FC<ModuleTreeProps> = ({ courseId, course, userRole, isI
   // Default to instructor false if not specified
   const effectiveIsInstructor = isInstructor ?? false;
 
+  // Update local state from YJS real-time data
+  useEffect(() => {
+    if (moduleTreeData) {
+      console.log("[ModuleTree] Updating from YJS data", {
+        assignmentsCount: moduleTreeData.assignments.size,
+        foldersCount: moduleTreeData.folders.size,
+      });
+
+      // Convert Map to Array for assignments
+      const assignmentsArray: Assignment[] = Array.from(moduleTreeData.assignments.values());
+      setAssignments(assignmentsArray);
+
+      // Convert Map to Array for folders
+      const foldersArray: Folder[] = Array.from(moduleTreeData.folders.values());
+      setFolders(foldersArray);
+
+      // Mark as loaded
+      setLoading(false);
+    }
+  }, [moduleTreeData]);
+
+  // Fallback: Initial fetch if YJS fails or takes too long
   useEffect(() => {
     const fetchData = async () => {
       try {
@@ -147,8 +173,17 @@ const ModuleTree: React.FC<ModuleTreeProps> = ({ courseId, course, userRole, isI
       }
     };
 
-    fetchData();
-  }, [courseId, effectiveIsInstructor, toast]);
+    // Only fetch if YJS hasn't loaded data yet
+    // This provides a fallback in case YJS connection fails
+    const timeout = setTimeout(() => {
+      if (!moduleTreeData && !yjsLoading) {
+        console.log("[ModuleTree] YJS not loaded, falling back to API fetch");
+        fetchData();
+      }
+    }, 2000); // Wait 2 seconds for YJS before falling back
+
+    return () => clearTimeout(timeout);
+  }, [courseId, effectiveIsInstructor, toast, moduleTreeData, yjsLoading]);
 
   // Build tree data for react-arborist
   const treeData = useMemo(() => {

@@ -188,6 +188,10 @@ setupAIWebSocket(io);
 const { setupYjsWebSocket, saveAllDocumentsToS3 } = require("./services/yjsProviderService");
 setupYjsWebSocket(io);
 
+// Set up module tree YJS WebSocket handlers
+const { setupModuleTreeWebSocket } = require("./services/moduleTreeYjsService");
+setupModuleTreeWebSocket(io);
+
 // Old file sync WebSocket (deprecated - kept for backward compatibility during migration)
 // const { setupFileSyncWebSocket } = require("./services/fileSyncService");
 // setupFileSyncWebSocket(io);

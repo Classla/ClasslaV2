@@ -12,6 +12,8 @@ import {
 } from "../middleware/authorization";
 import { UserRole } from "../types/enums";
 import { Assignment } from "../types/entities";
+import { getIO } from "../services/websocket";
+import { broadcastAssignmentUpdate } from "../services/moduleTreeYjsService";
 
 const router = Router();
 
@@ -714,6 +716,15 @@ router.post(
         throw assignmentError;
       }
 
+      // Broadcast assignment creation to YJS
+      try {
+        const io = getIO();
+        broadcastAssignmentUpdate(io, assignment.id, assignment, "create");
+      } catch (broadcastError) {
+        console.error("Failed to broadcast assignment creation:", broadcastError);
+        // Don't fail the request if broadcast fails
+      }
+
       res.status(201).json(assignment);
     } catch (error) {
       console.error("Error creating assignment:", error);
@@ -870,6 +881,15 @@ router.put(
         throw updateError;
       }
 
+      // Broadcast assignment update to YJS
+      try {
+        const io = getIO();
+        broadcastAssignmentUpdate(io, updatedAssignment.id, updatedAssignment, "update");
+      } catch (broadcastError) {
+        console.error("Failed to broadcast assignment update:", broadcastError);
+        // Don't fail the request if broadcast fails
+      }
+
       res.json(updatedAssignment);
     } catch (error) {
       console.error("Error updating assignment:", error);
@@ -980,6 +1000,15 @@ router.delete(
 
       if (deleteError) {
         throw deleteError;
+      }
+
+      // Broadcast assignment deletion to YJS
+      try {
+        const io = getIO();
+        broadcastAssignmentUpdate(io, id, existingAssignment, "delete");
+      } catch (broadcastError) {
+        console.error("Failed to broadcast assignment deletion:", broadcastError);
+        // Don't fail the request if broadcast fails
       }
 
       res.json({
