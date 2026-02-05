@@ -650,6 +650,17 @@ export const apiClient = {
     killContainer: (id: string) => api.delete(`/admin/ide/containers/${id}`),
     containerAction: (id: string, action: "stop" | "restart" | "delete") =>
       api.post(`/admin/ide/containers/${id}/action`, { action }),
+    // Load test endpoints
+    startLoadTest: (config: {
+      numContainers: number;
+      testCode: string;
+      mainFile: string;
+      spawnBatchSize?: number;
+      executionTimeout?: number;
+    }) => api.post("/admin/ide/loadtest/start", config),
+    stopLoadTest: (testId: string) => api.delete(`/admin/ide/loadtest/${testId}`),
+    getLoadTestStreamUrl: (testId: string) =>
+      `${API_BASE_URL}/admin/ide/loadtest/${testId}/stream`,
   },
 };
 

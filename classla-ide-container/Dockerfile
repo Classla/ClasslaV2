@@ -541,6 +541,28 @@ RUN echo '#!/usr/bin/env python3' > /usr/local/bin/run-server.py && \
     echo 'def health():' >> /usr/local/bin/run-server.py && \
     echo '    return jsonify({"status": "ok"}), 200' >> /usr/local/bin/run-server.py && \
     echo '' >> /usr/local/bin/run-server.py && \
+    echo '@app.route("/write-file", methods=["POST"])' >> /usr/local/bin/run-server.py && \
+    echo 'def write_file():' >> /usr/local/bin/run-server.py && \
+    echo '    """Write content to a file in the workspace"""' >> /usr/local/bin/run-server.py && \
+    echo '    try:' >> /usr/local/bin/run-server.py && \
+    echo '        data = request.get_json()' >> /usr/local/bin/run-server.py && \
+    echo '        if not data:' >> /usr/local/bin/run-server.py && \
+    echo '            return jsonify({"error": "No JSON data provided"}), 400' >> /usr/local/bin/run-server.py && \
+    echo '        path = data.get("path")' >> /usr/local/bin/run-server.py && \
+    echo '        content = data.get("content", "")' >> /usr/local/bin/run-server.py && \
+    echo '        if not path:' >> /usr/local/bin/run-server.py && \
+    echo '            return jsonify({"error": "path is required"}), 400' >> /usr/local/bin/run-server.py && \
+    echo '        # Ensure path is within workspace for security' >> /usr/local/bin/run-server.py && \
+    echo '        if not path.startswith("/workspace") and not path.startswith("/home/coder/project"):' >> /usr/local/bin/run-server.py && \
+    echo '            path = os.path.join("/workspace", path.lstrip("/"))' >> /usr/local/bin/run-server.py && \
+    echo '        # Create parent directories if needed' >> /usr/local/bin/run-server.py && \
+    echo '        os.makedirs(os.path.dirname(path), exist_ok=True)' >> /usr/local/bin/run-server.py && \
+    echo '        with open(path, "w") as f:' >> /usr/local/bin/run-server.py && \
+    echo '            f.write(content)' >> /usr/local/bin/run-server.py && \
+    echo '        return jsonify({"status": "success", "path": path}), 200' >> /usr/local/bin/run-server.py && \
+    echo '    except Exception as e:' >> /usr/local/bin/run-server.py && \
+    echo '        return jsonify({"error": str(e)}), 500' >> /usr/local/bin/run-server.py && \
+    echo '' >> /usr/local/bin/run-server.py && \
     echo '@app.route("/run", methods=["POST"])' >> /usr/local/bin/run-server.py && \
     echo 'def run_code():' >> /usr/local/bin/run-server.py && \
     echo '    try:' >> /usr/local/bin/run-server.py && \

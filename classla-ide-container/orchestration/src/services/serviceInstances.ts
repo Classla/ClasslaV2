@@ -16,6 +16,7 @@ import { QueueManager } from "./queueManager";
 import { QueueMaintainer } from "./queueMaintainer";
 import { ContainerCleanupService } from "./containerCleanupService";
 import { DiscordAlertService } from "./discordAlertService";
+import { LoadTestService } from "./loadTestService";
 import { config } from "../config/index";
 import Docker from "dockerode";
 
@@ -50,6 +51,12 @@ export const containerCleanupService = new ContainerCleanupService(
 export const discordAlertService = new DiscordAlertService(
   resourceMonitor,
   containerService
+);
+export const loadTestService = new LoadTestService(
+  containerService,
+  stateManager,
+  healthMonitor,
+  resourceMonitor
 );
 
 // Initialize existing container IDs on startup

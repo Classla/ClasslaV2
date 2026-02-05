@@ -14,6 +14,7 @@ import { handleInactivityShutdown } from "./routes/containers";
 import healthRouter from "./routes/health";
 import dashboardRouter from "./routes/dashboard";
 import dashboardApiRouter from "./routes/dashboardApi";
+import loadtestRouter from "./routes/loadtest";
 import {
   healthMonitor,
   stateManager,
@@ -105,6 +106,9 @@ app.use("/health", healthRouter);
 app.use("/api/dashboard", dashboardApiRouter);
 // Dashboard routes (static files, no authentication for now)
 app.use("/dashboard", dashboardRouter);
+// Load test routes (require authentication)
+app.use("/api/loadtest", authenticate, loadtestRouter);
+app.use("/loadtest", authenticate, loadtestRouter);
 
 // 404 handler
 app.use((req: Request, res: Response) => {

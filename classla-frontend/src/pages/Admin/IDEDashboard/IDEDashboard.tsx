@@ -43,6 +43,7 @@ import type {
   DashboardOverview,
   QueueStats,
 } from "../../../types/adminIde";
+import LoadTestPanel from "./LoadTestPanel";
 
 // Helper function to format bytes to human readable
 const formatBytes = (bytes: number): string => {
@@ -364,6 +365,9 @@ const IDEDashboard: React.FC = () => {
 
       {/* Container Stats */}
       <StatsOverview overview={overview} queueStats={queueStats} />
+
+      {/* Load Test Panel */}
+      <LoadTestPanel />
 
       {/* Container Table */}
       <Card>

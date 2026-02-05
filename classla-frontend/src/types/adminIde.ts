@@ -62,3 +62,62 @@ export interface QueueStats {
   targetSize: number;
   withS3Bucket: number;
 }
+
+// Load Test Types
+export interface LoadTestConfig {
+  numContainers: number;
+  testCode: string;
+  mainFile: string;
+  spawnBatchSize: number;
+  executionTimeout: number;
+}
+
+export type LoadTestContainerStatus =
+  | "pending"
+  | "starting"
+  | "running"
+  | "executing"
+  | "completed"
+  | "failed";
+
+export interface LoadTestContainerInfo {
+  id: string;
+  status: LoadTestContainerStatus;
+  startLatency?: number;
+  executionLatency?: number;
+  error?: string;
+  startedAt?: string;
+  completedAt?: string;
+}
+
+export interface LoadTestSummary {
+  pending: number;
+  starting: number;
+  running: number;
+  executing: number;
+  completed: number;
+  failed: number;
+}
+
+export interface LoadTestMetrics {
+  testId: string;
+  status: "running" | "completed" | "stopped" | "error";
+  containers: LoadTestContainerInfo[];
+  summary: LoadTestSummary;
+  startTime: string;
+  endTime?: string;
+  totalDuration?: number;
+  averageStartLatency?: number;
+  averageExecutionLatency?: number;
+  error?: string;
+  resourceUsage?: {
+    cpu: number;
+    memory: number;
+  };
+}
+
+export interface LoadTestStartResponse {
+  testId: string;
+  status: string;
+  message: string;
+}

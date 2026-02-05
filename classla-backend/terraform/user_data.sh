@@ -73,6 +73,10 @@ IDE_MANAGER_SECRET_ACCESS_KEY=$(echo $APP_SECRET | jq -r '.ide_manager_secret_ac
 CONTAINER_SERVICE_TOKEN=$(echo $APP_SECRET | jq -r '.container_service_token // .CONTAINER_SERVICE_TOKEN // empty')
 TAVILY_API_KEY=$(echo $APP_SECRET | jq -r '.tavily_api_key // .TAVILY_API_KEY // empty')
 
+# Parse IDE orchestration credentials
+IDE_API_BASE_URL=$(echo $APP_SECRET | jq -r '.ide_api_base_url // .IDE_API_BASE_URL // empty')
+IDE_API_KEY=$(echo $APP_SECRET | jq -r '.ide_api_key // .IDE_API_KEY // empty')
+
 # Create directory for app
 mkdir -p /opt/classla-backend
 
@@ -128,6 +132,21 @@ if [ -n "$TAVILY_API_KEY" ]; then
   echo "Added Tavily API Key to environment file" >> /var/log/classla-backend-deployment.log
 else
   echo "WARNING: Tavily API Key not provided, AI web search will be disabled" >> /var/log/classla-backend-deployment.log
+fi
+
+# IDE Orchestration Service Configuration
+if [ -n "$IDE_API_BASE_URL" ]; then
+  echo "IDE_API_BASE_URL=$IDE_API_BASE_URL" >> /opt/classla-backend/.env
+  echo "Added IDE API Base URL to environment file: $IDE_API_BASE_URL" >> /var/log/classla-backend-deployment.log
+else
+  echo "WARNING: IDE_API_BASE_URL not provided, using default https://ide.classla.org/api" >> /var/log/classla-backend-deployment.log
+fi
+
+if [ -n "$IDE_API_KEY" ]; then
+  echo "IDE_API_KEY=$IDE_API_KEY" >> /opt/classla-backend/.env
+  echo "Added IDE API Key to environment file" >> /var/log/classla-backend-deployment.log
+else
+  echo "WARNING: IDE_API_KEY not provided, admin IDE endpoints may fail" >> /var/log/classla-backend-deployment.log
 fi
 
 # Log environment setup
