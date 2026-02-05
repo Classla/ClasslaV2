@@ -2,7 +2,13 @@ import express, { Request, Response } from "express";
 import { supabase, authenticateToken } from "../middleware/auth";
 import { AuthenticationError } from "../middleware/errorHandler";
 import { sessionManagementService } from "../services/session";
-import { isEnrolledInCourse } from "../middleware/authorization";
+import {
+  isEnrolledInCourse,
+  getCoursePermissions,
+  getUserCourseRole,
+  CoursePermissions
+} from "../middleware/authorization";
+import { UserRole } from "../types/enums";
 import { v4 as uuidv4 } from "uuid";
 import {
   S3Client,
@@ -36,6 +42,101 @@ const s3Client = new S3Client({
         }
       : undefined,
 });
+
+/**
+ * S3 Bucket type for authorization checks
+ */
+interface S3Bucket {
+  id: string;
+  bucket_name: string;
+  user_id: string;
+  course_id: string | null;
+  assignment_id: string | null;
+  is_template: boolean;
+  region: string;
+  status: string;
+  deleted_at: string | null;
+}
+
+/**
+ * Check if a user can access an S3 bucket based on ownership and course permissions.
+ *
+ * Authorization logic:
+ * 1. System admins (isAdmin=true) can access all buckets
+ * 2. Bucket owner always has full access
+ * 3. If bucket has a course_id:
+ *    - Instructors can access all buckets in their course
+ *    - TAs can read all buckets; write access depends on TA permissions
+ *    - For student-owned buckets, TAs/Instructors need canGrade to access
+ *
+ * @param userId - The ID of the user requesting access
+ * @param bucket - The S3 bucket being accessed
+ * @param isAdmin - Whether the user is a system admin
+ * @param requiredPermission - 'read' for viewing, 'write' for modifications
+ * @returns Promise<boolean> - Whether access should be granted
+ */
+const canAccessBucket = async (
+  userId: string,
+  bucket: S3Bucket,
+  isAdmin: boolean,
+  requiredPermission: 'read' | 'write' = 'read'
+): Promise<boolean> => {
+  // 1. System admins bypass all checks
+  if (isAdmin) {
+    return true;
+  }
+
+  // 2. Bucket owner always has access
+  if (bucket.user_id === userId) {
+    return true;
+  }
+
+  // 3. Check course permissions if bucket has course_id
+  if (bucket.course_id) {
+    const permissions = await getCoursePermissions(userId, bucket.course_id, false);
+
+    // Not enrolled in course at all
+    if (!permissions.canRead) {
+      return false;
+    }
+
+    // Instructors have full access to all course buckets
+    if (permissions.canManage) {
+      return true;
+    }
+
+    // For read access: TAs and other elevated roles can read
+    if (requiredPermission === 'read') {
+      // Check if this is a student's bucket
+      const ownerRole = await getUserCourseRole(bucket.user_id, bucket.course_id);
+
+      if (ownerRole === UserRole.STUDENT || ownerRole === UserRole.AUDIT) {
+        // For student buckets, need canGrade permission to view submissions
+        return permissions.canGrade;
+      }
+
+      // For instructor/TA buckets (templates, model solutions), TAs can read
+      return permissions.canRead;
+    }
+
+    // For write access: need canWrite permission
+    if (requiredPermission === 'write') {
+      // Check if this is a student's bucket
+      const ownerRole = await getUserCourseRole(bucket.user_id, bucket.course_id);
+
+      if (ownerRole === UserRole.STUDENT || ownerRole === UserRole.AUDIT) {
+        // Only instructors can write to student buckets (for feedback, etc.)
+        // TAs typically shouldn't modify student submissions
+        return permissions.canManage;
+      }
+
+      // For course template buckets, TAs with write permission can edit
+      return permissions.canWrite;
+    }
+  }
+
+  return false;
+};
 
 /**
  * POST /api/s3buckets
@@ -452,7 +553,7 @@ router.post(
   authenticateToken,
   asyncHandler(async (req: Request, res: Response) => {
     const { id } = req.params;
-    const { id: userId } = req.user!;
+    const { id: userId, isAdmin } = req.user!;
 
     // Fetch bucket
     // Fetch bucket (include deleted buckets for soft delete endpoint)
@@ -466,8 +567,10 @@ router.post(
       return res.status(404).json({ error: "Bucket not found" });
     }
 
-    // Check if user owns the bucket
-    if (bucket.user_id !== userId) {
+    // Check if user has permission to access this bucket
+    // Soft delete requires write permission (owner, admin, or course instructor/TA with write access)
+    const hasAccess = await canAccessBucket(userId, bucket, isAdmin || false, 'write');
+    if (!hasAccess) {
       return res.status(403).json({
         error: "You do not have permission to delete this bucket",
       });
@@ -580,12 +683,13 @@ router.get(
   "/:bucketId/files",
   asyncHandler(async (req: Request, res: Response) => {
     const { bucketId } = req.params;
-    
+
     // Allow test bucket without authentication in development
-    const isTestBucket = process.env.NODE_ENV === 'development' && 
+    const isTestBucket = process.env.NODE_ENV === 'development' &&
                          bucketId === '00000000-0000-0000-0000-000000000001';
-    
+
     let userId: string | undefined;
+    let isAdmin: boolean = false;
     if (!isTestBucket) {
       // For non-test buckets, require authentication
       try {
@@ -593,21 +697,24 @@ router.get(
         if (!sessionData) {
           throw new AuthenticationError("Valid session is required");
         }
-        
+
         // Handle both WorkOS users and managed students
         if (sessionData.isManagedStudent) {
           // For managed students, use userId directly from session
+          // Managed students are never admins
           userId = sessionData.userId;
+          isAdmin = false;
         } else {
-          // For WorkOS users, look up by workos_user_id
+          // For WorkOS users, look up by workos_user_id (include is_admin)
           const { data: userData } = await supabase
             .from("users")
-            .select("id")
+            .select("id, is_admin")
             .eq("workos_user_id", sessionData.workosUserId)
             .single();
 
           if (userData) {
             userId = userData.id;
+            isAdmin = userData.is_admin || false;
           }
         }
 
@@ -620,6 +727,7 @@ router.get(
     } else {
       // Test bucket - use test user ID
       userId = "00000000-0000-0000-0000-000000000000";
+      isAdmin = false;
     }
 
     // Fetch bucket and verify ownership
@@ -634,11 +742,15 @@ router.get(
       return res.status(404).json({ error: "Bucket not found" });
     }
 
-    // Check if user owns the bucket (or it's a test bucket)
-    if (!isTestBucket && bucket.user_id !== userId) {
-      return res.status(403).json({
-        error: "You do not have permission to access this bucket",
-      });
+    // Check if user has permission to access this bucket
+    // List files requires read permission
+    if (!isTestBucket) {
+      const hasAccess = await canAccessBucket(userId, bucket, isAdmin, 'read');
+      if (!hasAccess) {
+        return res.status(403).json({
+          error: "You do not have permission to access this bucket",
+        });
+      }
     }
 
     try {
@@ -731,7 +843,7 @@ router.get(
     const { bucketId } = req.params;
     // Decode the file path (Express may have already decoded it, but be safe)
     const filePath = decodeURIComponent(req.params[0] || ""); // Everything after /files/
-    const { id: userId } = req.user!;
+    const { id: userId, isAdmin } = req.user!;
 
     if (!filePath) {
       return res.status(400).json({ error: "File path is required" });
@@ -749,8 +861,10 @@ router.get(
       return res.status(404).json({ error: "Bucket not found" });
     }
 
-    // Check if user owns the bucket
-    if (bucket.user_id !== userId) {
+    // Check if user has permission to access this bucket
+    // Reading file content requires read permission
+    const hasAccess = await canAccessBucket(userId, bucket, isAdmin || false, 'read');
+    if (!hasAccess) {
       return res.status(403).json({
         error: "You do not have permission to access this bucket",
       });
@@ -830,7 +944,7 @@ router.put(
     const { bucketId } = req.params;
     // Decode the file path (Express may have already decoded it, but be safe)
     const filePath = decodeURIComponent(req.params[0] || ""); // Everything after /files/
-    const { id: userId } = req.user!;
+    const { id: userId, isAdmin } = req.user!;
     const { content } = req.body;
 
     if (!filePath) {
@@ -853,8 +967,10 @@ router.put(
       return res.status(404).json({ error: "Bucket not found" });
     }
 
-    // Check if user owns the bucket
-    if (bucket.user_id !== userId) {
+    // Check if user has permission to modify this bucket
+    // Writing file content requires write permission
+    const hasAccess = await canAccessBucket(userId, bucket, isAdmin || false, 'write');
+    if (!hasAccess) {
       return res.status(403).json({
         error: "You do not have permission to modify this bucket",
       });
@@ -1028,10 +1144,11 @@ router.delete(
     }
 
     // Allow test bucket without authentication in development
-    const isTestBucket = process.env.NODE_ENV === 'development' && 
+    const isTestBucket = process.env.NODE_ENV === 'development' &&
                          bucketId === '00000000-0000-0000-0000-000000000001';
-    
+
     let userId: string | undefined;
+    let isAdmin: boolean = false;
     if (!isTestBucket) {
       // For non-test buckets, require authentication
       try {
@@ -1039,21 +1156,24 @@ router.delete(
         if (!sessionData) {
           throw new AuthenticationError("Valid session is required");
         }
-        
+
         // Handle both WorkOS users and managed students
         if (sessionData.isManagedStudent) {
           // For managed students, use userId directly from session
+          // Managed students are never admins
           userId = sessionData.userId;
+          isAdmin = false;
         } else {
-          // For WorkOS users, look up by workos_user_id
+          // For WorkOS users, look up by workos_user_id (include is_admin)
           const { data: userData } = await supabase
             .from("users")
-            .select("id")
+            .select("id, is_admin")
             .eq("workos_user_id", sessionData.workosUserId)
             .single();
 
           if (userData) {
             userId = userData.id;
+            isAdmin = userData.is_admin || false;
           }
         }
 
@@ -1066,6 +1186,7 @@ router.delete(
     } else {
       // Test bucket - use test user ID
       userId = "00000000-0000-0000-0000-000000000000";
+      isAdmin = false;
     }
 
     // Fetch bucket and verify ownership
@@ -1080,11 +1201,15 @@ router.delete(
       return res.status(404).json({ error: "Bucket not found" });
     }
 
-    // Check if user owns the bucket (or it's a test bucket)
-    if (!isTestBucket && bucket.user_id !== userId) {
-      return res.status(403).json({
-        error: "You do not have permission to modify this bucket",
-      });
+    // Check if user has permission to modify this bucket
+    // Deleting files requires write permission
+    if (!isTestBucket) {
+      const hasAccess = await canAccessBucket(userId, bucket, isAdmin, 'write');
+      if (!hasAccess) {
+        return res.status(403).json({
+          error: "You do not have permission to modify this bucket",
+        });
+      }
     }
 
     try {
@@ -1399,10 +1524,11 @@ router.post(
     }
 
     // Allow test bucket without authentication in development
-    const isTestBucket = process.env.NODE_ENV === 'development' && 
+    const isTestBucket = process.env.NODE_ENV === 'development' &&
                          bucketId === '00000000-0000-0000-0000-000000000001';
-    
+
     let userId: string | undefined;
+    let isAdmin: boolean = false;
     if (!isTestBucket) {
       // For non-test buckets, require authentication
       try {
@@ -1410,21 +1536,24 @@ router.post(
         if (!sessionData) {
           throw new AuthenticationError("Valid session is required");
         }
-        
+
         // Handle both WorkOS users and managed students
         if (sessionData.isManagedStudent) {
           // For managed students, use userId directly from session
+          // Managed students are never admins
           userId = sessionData.userId;
+          isAdmin = false;
         } else {
-          // For WorkOS users, look up by workos_user_id
+          // For WorkOS users, look up by workos_user_id (include is_admin)
           const { data: userData } = await supabase
             .from("users")
-            .select("id")
+            .select("id, is_admin")
             .eq("workos_user_id", sessionData.workosUserId)
             .single();
 
           if (userData) {
             userId = userData.id;
+            isAdmin = userData.is_admin || false;
           }
         }
 
@@ -1437,6 +1566,7 @@ router.post(
     } else {
       // Test bucket - use test user ID
       userId = "00000000-0000-0000-0000-000000000000";
+      isAdmin = false;
     }
 
     // Fetch bucket and verify ownership
@@ -1451,11 +1581,15 @@ router.post(
       return res.status(404).json({ error: "Bucket not found" });
     }
 
-    // Check if user owns the bucket (or it's a test bucket)
-    if (!isTestBucket && bucket.user_id !== userId) {
-      return res.status(403).json({
-        error: "You do not have permission to modify this bucket",
-      });
+    // Check if user has permission to modify this bucket
+    // Creating files requires write permission
+    if (!isTestBucket) {
+      const hasAccess = await canAccessBucket(userId, bucket, isAdmin, 'write');
+      if (!hasAccess) {
+        return res.status(403).json({
+          error: "You do not have permission to modify this bucket",
+        });
+      }
     }
 
     try {

@@ -23,17 +23,23 @@ Three main components:
 - **Regular accounts**: WorkOS OAuth, have `workos_user_id`
 - **Managed accounts**: No WorkOS ID, just `username` + `password_hash` + `managed_by_id`. Teachers create these for students without WorkOS accounts.
 
+### System Superadmin vs Course Roles (IMPORTANT DISTINCTION)
+- **System Superadmin** (`users.is_admin = true`): Site-wide admin that bypasses ALL authorization checks. Accessed via `req.user.isAdmin`. This is NOT a course role.
+- **Course Roles**: Per-course enrollment roles stored in `course_enrollments.role`. These determine what a user can do within a specific course.
+
 ### Course Roles (hierarchy: top = most access)
 1. **INSTRUCTOR** - Full course management (canRead, canWrite, canGrade, canManage)
 2. **TEACHING_ASSISTANT** - Configurable via TA permissions
 3. **STUDENT** - canRead only, access own submissions only
 4. **AUDIT** - canRead only, no submissions
 
+Note: `UserRole.ADMIN` exists in the enum but is rarely used. Don't confuse it with system superadmin (`isAdmin`).
+
 ### Authorization Rules (ALWAYS ENFORCE)
+- **System superadmins (`isAdmin=true`) bypass ALL checks** - checked first before any other authorization
 - **Students can ONLY access their own resources** (submissions, grades, IDE buckets)
-- **Instructors/TAs/Admins can access all student resources in their course**
-- **System admins (`isAdmin=true`) bypass all course checks**
-- **Managed students** cannot create courses, are never admins
+- **Instructors/TAs can access all student resources in their course**
+- **Managed students** cannot create courses, are never system admins
 
 ### Key Authorization Functions (`middleware/authorization.ts`)
 - `getCoursePermissions(userId, courseId, isAdmin)` - Returns {canRead, canWrite, canGrade, canManage}
