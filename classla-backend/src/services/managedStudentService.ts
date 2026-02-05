@@ -357,6 +357,161 @@ export class ManagedStudentService {
   }
 
   /**
+   * Check if a username is available globally
+   * @param username - The username to check
+   * @returns Object with available flag and suggestion if not available
+   */
+  async checkUsernameAvailability(username: string): Promise<{
+    available: boolean;
+    suggestion?: string;
+  }> {
+    try {
+      // Validate username format first
+      const validation = passwordService.validateUsername(username);
+      if (!validation.valid) {
+        return { available: false };
+      }
+
+      const normalizedUsername = username.toLowerCase();
+
+      // Check if username exists in the database (global uniqueness)
+      const { data, error } = await supabase
+        .from('users')
+        .select('id')
+        .eq('username', normalizedUsername)
+        .maybeSingle();
+
+      if (error) {
+        logger.error('Error checking username availability', {
+          username: normalizedUsername,
+          error: error.message
+        });
+        throw error;
+      }
+
+      if (data) {
+        // Username is taken, generate a suggestion
+        let counter = 1;
+        let suggestion = `${normalizedUsername}${counter}`;
+
+        // Find an available suggestion
+        while (counter < 100) {
+          const { data: existingSuggestion } = await supabase
+            .from('users')
+            .select('id')
+            .eq('username', suggestion)
+            .maybeSingle();
+
+          if (!existingSuggestion) {
+            break;
+          }
+          counter++;
+          suggestion = `${normalizedUsername}${counter}`;
+        }
+
+        return { available: false, suggestion };
+      }
+
+      return { available: true };
+    } catch (error) {
+      logger.error('Failed to check username availability', {
+        username,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+      throw new ManagedStudentServiceError(
+        'Failed to check username availability',
+        'USERNAME_CHECK_ERROR',
+        500
+      );
+    }
+  }
+
+  /**
+   * Validate multiple usernames for bulk import
+   * @param usernames - Array of usernames to validate
+   * @returns Validation results for each username
+   */
+  async validateUsernamesForBulkImport(usernames: string[]): Promise<{
+    valid: boolean;
+    results: Array<{
+      username: string;
+      valid: boolean;
+      available: boolean;
+      error?: string;
+      suggestion?: string;
+    }>;
+  }> {
+    const results: Array<{
+      username: string;
+      valid: boolean;
+      available: boolean;
+      error?: string;
+      suggestion?: string;
+    }> = [];
+
+    // Check for duplicates within the batch
+    const seen = new Set<string>();
+    const duplicatesInBatch = new Set<string>();
+
+    for (const username of usernames) {
+      const normalized = username.toLowerCase();
+      if (seen.has(normalized)) {
+        duplicatesInBatch.add(normalized);
+      }
+      seen.add(normalized);
+    }
+
+    for (const username of usernames) {
+      const normalized = username.toLowerCase();
+
+      // Validate format
+      const validation = passwordService.validateUsername(username);
+      if (!validation.valid) {
+        results.push({
+          username,
+          valid: false,
+          available: false,
+          error: validation.message || 'Invalid username format'
+        });
+        continue;
+      }
+
+      // Check for duplicates in the batch
+      if (duplicatesInBatch.has(normalized)) {
+        results.push({
+          username,
+          valid: false,
+          available: false,
+          error: 'Duplicate username in import list'
+        });
+        continue;
+      }
+
+      // Check global availability
+      try {
+        const availability = await this.checkUsernameAvailability(username);
+        results.push({
+          username,
+          valid: true,
+          available: availability.available,
+          suggestion: availability.suggestion,
+          error: availability.available ? undefined : 'Username already taken'
+        });
+      } catch (error) {
+        results.push({
+          username,
+          valid: false,
+          available: false,
+          error: 'Failed to check availability'
+        });
+      }
+    }
+
+    const allValid = results.every(r => r.valid && r.available);
+    return { valid: allValid, results };
+  }
+
+  /**
    * Update a managed student's details
    * @param teacherId - ID of the teacher (for ownership verification)
    * @param studentId - ID of the student
@@ -540,21 +695,30 @@ export class ManagedStudentService {
       // Hash and update the new password
       const newPasswordHash = await passwordService.hash(newPassword);
 
-      const { error: updateError } = await supabase
+      const { data: updatedUser, error: updateError } = await supabase
         .from('users')
         .update({
           password_hash: newPasswordHash,
           updated_at: new Date().toISOString()
         })
-        .eq('id', studentId);
+        .eq('id', studentId)
+        .eq('is_managed', true)
+        .select('id')
+        .single();
 
       if (updateError) {
         throw updateError;
       }
 
-      logger.info('Managed student changed their password', {
-        studentId
-      });
+      if (!updatedUser) {
+        throw new ManagedStudentServiceError(
+          'Failed to update password',
+          'PASSWORD_UPDATE_FAILED',
+          500
+        );
+      }
+
+      logger.info('Managed student changed their password', { studentId });
     } catch (error) {
       if (error instanceof ManagedStudentServiceError) {
         throw error;

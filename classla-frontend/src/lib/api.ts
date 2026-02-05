@@ -611,6 +611,12 @@ export const apiClient = {
     api.delete(`/managed-students/${studentId}/enroll/${courseId}`),
   getManagedStudentCourses: () => api.get("/managed-students/courses"),
 
+  // Username availability checking
+  checkUsernameAvailability: (username: string) =>
+    api.post("/managed-students/check-username", { username }),
+  validateUsernamesForBulkImport: (usernames: string[]) =>
+    api.post("/managed-students/validate-usernames", { usernames }),
+
   // Self-service password change for managed students
   changePassword: (currentPassword: string, newPassword: string) =>
     api.post("/auth/change-password", { currentPassword, newPassword }),

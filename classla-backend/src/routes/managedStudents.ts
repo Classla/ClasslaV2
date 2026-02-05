@@ -118,6 +118,114 @@ router.get(
 );
 
 /**
+ * POST /managed-students/check-username
+ * Check if a username is available globally
+ */
+router.post(
+  "/managed-students/check-username",
+  authenticateToken,
+  async (req: Request, res: Response) => {
+    try {
+      const { username } = req.body;
+
+      if (!username || typeof username !== "string") {
+        return res.status(400).json({
+          success: false,
+          error: "Username is required",
+          code: "MISSING_USERNAME",
+        });
+      }
+
+      const result = await managedStudentService.checkUsernameAvailability(username);
+
+      return res.json({
+        success: true,
+        available: result.available,
+        suggestion: result.suggestion,
+      });
+    } catch (error) {
+      logger.error("Failed to check username availability", {
+        requestId: req.headers["x-request-id"],
+        username: req.body.username,
+        error: error instanceof Error ? error.message : "Unknown error",
+      });
+
+      if (error instanceof ManagedStudentServiceError) {
+        return res.status(error.statusCode || 500).json({
+          success: false,
+          error: error.message,
+          code: error.code,
+        });
+      }
+
+      return res.status(500).json({
+        success: false,
+        error: "Failed to check username",
+        code: "USERNAME_CHECK_ERROR",
+      });
+    }
+  }
+);
+
+/**
+ * POST /managed-students/validate-usernames
+ * Validate multiple usernames for bulk import
+ */
+router.post(
+  "/managed-students/validate-usernames",
+  authenticateToken,
+  async (req: Request, res: Response) => {
+    try {
+      const { usernames } = req.body;
+
+      if (!Array.isArray(usernames) || usernames.length === 0) {
+        return res.status(400).json({
+          success: false,
+          error: "Usernames array is required",
+          code: "MISSING_USERNAMES",
+        });
+      }
+
+      if (usernames.length > 500) {
+        return res.status(400).json({
+          success: false,
+          error: "Maximum 500 usernames can be validated at once",
+          code: "TOO_MANY_USERNAMES",
+        });
+      }
+
+      const result = await managedStudentService.validateUsernamesForBulkImport(usernames);
+
+      return res.json({
+        success: true,
+        valid: result.valid,
+        results: result.results,
+      });
+    } catch (error) {
+      logger.error("Failed to validate usernames", {
+        requestId: req.headers["x-request-id"],
+        count: req.body.usernames?.length,
+        error: error instanceof Error ? error.message : "Unknown error",
+      });
+
+      if (error instanceof ManagedStudentServiceError) {
+        return res.status(error.statusCode || 500).json({
+          success: false,
+          error: error.message,
+          code: error.code,
+        });
+      }
+
+      return res.status(500).json({
+        success: false,
+        error: "Failed to validate usernames",
+        code: "VALIDATION_ERROR",
+      });
+    }
+  }
+);
+
+/**
  * GET /managed-students/courses
  * List all courses where the teacher is an instructor (for enrollment dropdowns)
  */

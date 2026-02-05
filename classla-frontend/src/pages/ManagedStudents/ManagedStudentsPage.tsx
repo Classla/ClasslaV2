@@ -1,10 +1,11 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { apiClient } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
   Card,
   CardContent,
@@ -59,6 +60,9 @@ import {
   Download,
   RefreshCw,
   FileText,
+  AlertCircle,
+  CheckCircle2,
+  Loader2,
 } from "lucide-react";
 import type { ManagedStudentWithEnrollments } from "@/types";
 
@@ -72,6 +76,9 @@ interface BulkStudent {
   lastName: string;
   username: string;
   password: string;
+  usernameProvided?: boolean; // true if username was explicitly provided in CSV
+  validationError?: string; // error message if validation failed
+  suggestion?: string; // suggested username if original was taken
 }
 
 // Generate a random password
@@ -141,12 +148,20 @@ const ManagedStudentsPage: React.FC = () => {
   const [selectedCourseId, setSelectedCourseId] = useState<string>("");
   const [creating, setCreating] = useState(false);
 
+  // Username availability state
+  const [usernameAvailable, setUsernameAvailable] = useState<boolean | null>(null);
+  const [usernameSuggestion, setUsernameSuggestion] = useState<string | null>(null);
+  const [checkingUsername, setCheckingUsername] = useState(false);
+  const usernameCheckTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
   // Bulk import state
   const [bulkNamesList, setBulkNamesList] = useState("");
   const [bulkStudents, setBulkStudents] = useState<BulkStudent[]>([]);
   const [bulkCourseId, setBulkCourseId] = useState<string>("");
   const [bulkImporting, setBulkImporting] = useState(false);
   const [bulkResults, setBulkResults] = useState<BulkStudent[] | null>(null);
+  const [bulkValidating, setBulkValidating] = useState(false);
+  const [bulkValidationErrors, setBulkValidationErrors] = useState<string[]>([]);
 
   useEffect(() => {
     fetchData();
@@ -170,6 +185,86 @@ const ManagedStudentsPage: React.FC = () => {
       });
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Check username availability with debounce
+  const checkUsernameAvailability = useCallback(async (username: string) => {
+    if (!username || username.length < 3) {
+      setUsernameAvailable(null);
+      setUsernameSuggestion(null);
+      return;
+    }
+
+    // Validate format locally first
+    const validChars = /^[a-zA-Z0-9_]+$/;
+    if (!validChars.test(username)) {
+      setUsernameAvailable(false);
+      setUsernameSuggestion(null);
+      return;
+    }
+
+    setCheckingUsername(true);
+    try {
+      const response = await apiClient.checkUsernameAvailability(username);
+      setUsernameAvailable(response.data.available);
+      setUsernameSuggestion(response.data.suggestion || null);
+    } catch (error) {
+      console.error("Failed to check username:", error);
+      setUsernameAvailable(null);
+    } finally {
+      setCheckingUsername(false);
+    }
+  }, []);
+
+  // Handle username change with debounce
+  const handleUsernameChange = (value: string) => {
+    setNewUsername(value);
+    setUsernameAvailable(null);
+    setUsernameSuggestion(null);
+
+    // Clear previous timeout
+    if (usernameCheckTimeoutRef.current) {
+      clearTimeout(usernameCheckTimeoutRef.current);
+    }
+
+    // Set new timeout for debounced check
+    if (value.length >= 3) {
+      usernameCheckTimeoutRef.current = setTimeout(() => {
+        checkUsernameAvailability(value);
+      }, 500);
+    }
+  };
+
+  // Generate username from first/last name
+  const handleAutoGenerateUsername = async () => {
+    const cleanFirst = newFirstName.toLowerCase().replace(/[^a-z]/g, "");
+    const cleanLast = newLastName.toLowerCase().replace(/[^a-z]/g, "");
+
+    let base = cleanFirst && cleanLast
+      ? `${cleanFirst}_${cleanLast}`
+      : cleanFirst || cleanLast || "student";
+
+    // Check availability and get suggestion if needed
+    setCheckingUsername(true);
+    try {
+      const response = await apiClient.checkUsernameAvailability(base);
+      if (response.data.available) {
+        setNewUsername(base);
+        setUsernameAvailable(true);
+        setUsernameSuggestion(null);
+      } else {
+        // Use the suggested username
+        const suggestion = response.data.suggestion || `${base}1`;
+        setNewUsername(suggestion);
+        setUsernameAvailable(true);
+        setUsernameSuggestion(null);
+      }
+    } catch (error) {
+      console.error("Failed to generate username:", error);
+      setNewUsername(base);
+    } finally {
+      setCheckingUsername(false);
     }
   };
 
@@ -204,6 +299,8 @@ const ManagedStudentsPage: React.FC = () => {
       setNewFirstName("");
       setNewLastName("");
       setNewCourseId("");
+      setUsernameAvailable(null);
+      setUsernameSuggestion(null);
       setCreateDialogOpen(false);
       fetchData();
     } catch (error: any) {
@@ -325,7 +422,7 @@ const ManagedStudentsPage: React.FC = () => {
     });
   };
 
-  // Parse CSV file
+  // Parse CSV file - supports: first_name,last_name OR first_name,last_name,username
   const handleCsvUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -335,9 +432,11 @@ const ManagedStudentsPage: React.FC = () => {
       const text = e.target?.result as string;
       const lines = text.split("\n").filter((line) => line.trim());
 
-      // Skip header if it looks like one
-      const startIndex = lines[0]?.toLowerCase().includes("name") ||
-        lines[0]?.toLowerCase().includes("first") ? 1 : 0;
+      // Detect header and check for username column
+      const headerLine = lines[0]?.toLowerCase() || "";
+      const hasHeader = headerLine.includes("name") || headerLine.includes("first");
+      const hasUsernameColumn = headerLine.includes("username") || headerLine.includes("user");
+      const startIndex = hasHeader ? 1 : 0;
 
       const existingUsernames = new Set(students.map((s) => s.username));
       const parsed: BulkStudent[] = [];
@@ -348,11 +447,16 @@ const ManagedStudentsPage: React.FC = () => {
         if (cols.length >= 1) {
           let firstName = "";
           let lastName = "";
+          let providedUsername = "";
 
           if (cols.length >= 2) {
             // Assume first_name, last_name columns
             firstName = cols[0];
             lastName = cols[1];
+            // Check for username in third column
+            if (cols.length >= 3 && cols[2]) {
+              providedUsername = cols[2].toLowerCase().trim();
+            }
           } else {
             // Single column - split by space
             const parts = cols[0].split(/\s+/);
@@ -360,15 +464,28 @@ const ManagedStudentsPage: React.FC = () => {
             lastName = parts.slice(1).join(" ") || "";
           }
 
-          if (firstName || lastName) {
-            const username = generateUsername(firstName, lastName, existingUsernames);
+          if (firstName || lastName || providedUsername) {
+            let username: string;
+            let usernameProvided = false;
+
+            if (providedUsername) {
+              // Use provided username
+              username = providedUsername;
+              usernameProvided = true;
+              existingUsernames.add(username); // Track for local duplicate detection
+            } else {
+              // Auto-generate username
+              username = generateUsername(firstName, lastName, existingUsernames);
+            }
+
             const password = generatePassword();
-            parsed.push({ firstName, lastName, username, password });
+            parsed.push({ firstName, lastName, username, password, usernameProvided });
           }
         }
       }
 
       setBulkStudents(parsed);
+      setBulkValidationErrors([]);
     };
     reader.readAsText(file);
 
@@ -383,13 +500,70 @@ const ManagedStudentsPage: React.FC = () => {
     setBulkStudents(parsed);
   };
 
+  // Validate usernames before bulk import
+  const validateBulkUsernames = async (): Promise<boolean> => {
+    const usernames = bulkStudents.map(s => s.username);
+
+    setBulkValidating(true);
+    setBulkValidationErrors([]);
+
+    try {
+      const response = await apiClient.validateUsernamesForBulkImport(usernames);
+
+      if (!response.data.valid) {
+        // Update students with validation results
+        const updatedStudents = bulkStudents.map((student, index) => {
+          const result = response.data.results[index];
+          return {
+            ...student,
+            validationError: result?.error,
+            suggestion: result?.suggestion,
+          };
+        });
+        setBulkStudents(updatedStudents);
+
+        // Collect error messages
+        const errors = response.data.results
+          .filter((r: any) => r.error)
+          .map((r: any) => `${r.username}: ${r.error}`);
+        setBulkValidationErrors(errors);
+
+        return false;
+      }
+
+      return true;
+    } catch (error) {
+      console.error("Failed to validate usernames:", error);
+      toast({
+        title: "Validation Error",
+        description: "Failed to validate usernames. Please try again.",
+        variant: "destructive",
+      });
+      return false;
+    } finally {
+      setBulkValidating(false);
+    }
+  };
+
   const handleBulkImport = async () => {
     if (bulkStudents.length === 0) return;
+
+    // Validate usernames first
+    const isValid = await validateBulkUsernames();
+    if (!isValid) {
+      toast({
+        title: "Validation Failed",
+        description: "Some usernames have issues. Please fix them before importing.",
+        variant: "destructive",
+      });
+      return;
+    }
 
     setBulkImporting(true);
     const results: BulkStudent[] = [];
     let successCount = 0;
     let failCount = 0;
+    const failedStudents: { username: string; error: string }[] = [];
 
     for (const student of bulkStudents) {
       try {
@@ -402,14 +576,22 @@ const ManagedStudentsPage: React.FC = () => {
         });
         results.push(student);
         successCount++;
-      } catch (error) {
+      } catch (error: any) {
         console.error(`Failed to create ${student.username}:`, error);
+        const errorMessage = error?.response?.data?.error || "Creation failed";
+        failedStudents.push({ username: student.username, error: errorMessage });
         failCount++;
       }
     }
 
     setBulkResults(results);
     setBulkImporting(false);
+
+    if (failCount > 0) {
+      setBulkValidationErrors(
+        failedStudents.map(f => `${f.username}: ${f.error}`)
+      );
+    }
 
     toast({
       title: "Bulk Import Complete",
@@ -442,6 +624,7 @@ const ManagedStudentsPage: React.FC = () => {
     setBulkStudents([]);
     setBulkCourseId("");
     setBulkResults(null);
+    setBulkValidationErrors([]);
   };
 
   const getDisplayName = (student: ManagedStudentWithEnrollments) => {
@@ -489,17 +672,95 @@ const ManagedStudentsPage: React.FC = () => {
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-4 py-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="firstName">First Name</Label>
+                  <Input
+                    id="firstName"
+                    placeholder="First name"
+                    value={newFirstName}
+                    onChange={(e) => setNewFirstName(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="lastName">Last Name</Label>
+                  <Input
+                    id="lastName"
+                    placeholder="Last name"
+                    value={newLastName}
+                    onChange={(e) => setNewLastName(e.target.value)}
+                  />
+                </div>
+              </div>
               <div className="space-y-2">
                 <Label htmlFor="username">Username *</Label>
-                <Input
-                  id="username"
-                  placeholder="student_username"
-                  value={newUsername}
-                  onChange={(e) => setNewUsername(e.target.value)}
-                />
-                <p className="text-xs text-muted-foreground">
-                  Letters, numbers, and underscores only. 3-30 characters.
-                </p>
+                <div className="flex gap-2">
+                  <div className="relative flex-1">
+                    <Input
+                      id="username"
+                      placeholder="student_username"
+                      value={newUsername}
+                      onChange={(e) => handleUsernameChange(e.target.value)}
+                      className={`pr-8 ${
+                        usernameAvailable === true
+                          ? "border-green-500 focus-visible:ring-green-500"
+                          : usernameAvailable === false
+                          ? "border-red-500 focus-visible:ring-red-500"
+                          : ""
+                      }`}
+                    />
+                    {checkingUsername && (
+                      <Loader2 className="absolute right-2 top-2.5 h-4 w-4 animate-spin text-muted-foreground" />
+                    )}
+                    {!checkingUsername && usernameAvailable === true && (
+                      <CheckCircle2 className="absolute right-2 top-2.5 h-4 w-4 text-green-500" />
+                    )}
+                    {!checkingUsername && usernameAvailable === false && (
+                      <AlertCircle className="absolute right-2 top-2.5 h-4 w-4 text-red-500" />
+                    )}
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={handleAutoGenerateUsername}
+                    disabled={checkingUsername || (!newFirstName && !newLastName)}
+                    title="Generate from name"
+                  >
+                    Auto
+                  </Button>
+                </div>
+                {usernameAvailable === false && usernameSuggestion && (
+                  <p className="text-xs text-red-500">
+                    Username taken. Try:{" "}
+                    <button
+                      type="button"
+                      className="underline hover:no-underline"
+                      onClick={() => {
+                        setNewUsername(usernameSuggestion);
+                        setUsernameAvailable(true);
+                        setUsernameSuggestion(null);
+                      }}
+                    >
+                      {usernameSuggestion}
+                    </button>
+                  </p>
+                )}
+                {usernameAvailable === false && !usernameSuggestion && (
+                  <p className="text-xs text-red-500">
+                    Username is already taken or invalid.
+                  </p>
+                )}
+                {usernameAvailable === null && newUsername.length > 0 && newUsername.length < 3 && (
+                  <p className="text-xs text-muted-foreground">
+                    Username must be at least 3 characters.
+                  </p>
+                )}
+                {usernameAvailable === null && newUsername.length === 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    Letters, numbers, and underscores only. 3-30 characters.
+                  </p>
+                )}
               </div>
               <div className="space-y-2">
                 <Label htmlFor="password">Password *</Label>
@@ -525,26 +786,6 @@ const ManagedStudentsPage: React.FC = () => {
                 <p className="text-xs text-muted-foreground">
                   At least 8 characters. Share this with the student.
                 </p>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="firstName">First Name</Label>
-                  <Input
-                    id="firstName"
-                    placeholder="First name"
-                    value={newFirstName}
-                    onChange={(e) => setNewFirstName(e.target.value)}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="lastName">Last Name</Label>
-                  <Input
-                    id="lastName"
-                    placeholder="Last name"
-                    value={newLastName}
-                    onChange={(e) => setNewLastName(e.target.value)}
-                  />
-                </div>
               </div>
               {courses.length > 0 && (
                 <div className="space-y-2">
@@ -572,8 +813,18 @@ const ManagedStudentsPage: React.FC = () => {
               >
                 Cancel
               </Button>
-              <Button onClick={handleCreateStudent} disabled={creating}>
-                {creating ? "Creating..." : "Create Student"}
+              <Button
+                onClick={handleCreateStudent}
+                disabled={creating || checkingUsername || usernameAvailable === false || !newUsername || !newPassword}
+              >
+                {creating ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Creating...
+                  </>
+                ) : (
+                  "Create Student"
+                )}
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -634,10 +885,28 @@ const ManagedStudentsPage: React.FC = () => {
                 <p className="text-sm text-muted-foreground">
                   {bulkStudents.length} student{bulkStudents.length !== 1 ? "s" : ""} to import
                 </p>
-                <Button onClick={() => setBulkStudents([])} variant="ghost" size="sm">
+                <Button onClick={() => { setBulkStudents([]); setBulkValidationErrors([]); }} variant="ghost" size="sm">
                   Clear
                 </Button>
               </div>
+
+              {bulkValidationErrors.length > 0 && (
+                <Alert variant="destructive">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription>
+                    <p className="font-medium mb-1">Username validation errors:</p>
+                    <ul className="list-disc pl-4 text-xs space-y-1">
+                      {bulkValidationErrors.slice(0, 5).map((err, i) => (
+                        <li key={i}>{err}</li>
+                      ))}
+                      {bulkValidationErrors.length > 5 && (
+                        <li>...and {bulkValidationErrors.length - 5} more</li>
+                      )}
+                    </ul>
+                  </AlertDescription>
+                </Alert>
+              )}
+
               <div className="border rounded-md max-h-48 overflow-y-auto">
                 <table className="w-full text-sm">
                   <thead className="bg-muted sticky top-0">
@@ -649,9 +918,19 @@ const ManagedStudentsPage: React.FC = () => {
                   </thead>
                   <tbody>
                     {bulkStudents.map((s, i) => (
-                      <tr key={i} className="border-t">
+                      <tr key={i} className={`border-t ${s.validationError ? "bg-red-50" : ""}`}>
                         <td className="p-2">{s.firstName} {s.lastName}</td>
-                        <td className="p-2 font-mono text-xs">{s.username}</td>
+                        <td className="p-2 font-mono text-xs">
+                          <span className={s.validationError ? "text-red-600" : ""}>
+                            {s.username}
+                          </span>
+                          {s.usernameProvided && (
+                            <span className="ml-1 text-blue-500 text-[10px]">(custom)</span>
+                          )}
+                          {s.suggestion && (
+                            <span className="ml-1 text-green-600 text-[10px]">→ {s.suggestion}</span>
+                          )}
+                        </td>
                         <td className="p-2 font-mono text-xs">{s.password}</td>
                       </tr>
                     ))}
@@ -677,11 +956,23 @@ const ManagedStudentsPage: React.FC = () => {
                 </div>
               )}
               <DialogFooter>
-                <Button variant="outline" onClick={() => setBulkStudents([])}>
+                <Button variant="outline" onClick={() => { setBulkStudents([]); setBulkValidationErrors([]); }}>
                   Back
                 </Button>
-                <Button onClick={handleBulkImport} disabled={bulkImporting}>
-                  {bulkImporting ? "Importing..." : `Import ${bulkStudents.length} Student${bulkStudents.length !== 1 ? "s" : ""}`}
+                <Button onClick={handleBulkImport} disabled={bulkImporting || bulkValidating}>
+                  {bulkValidating ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Validating...
+                    </>
+                  ) : bulkImporting ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Importing...
+                    </>
+                  ) : (
+                    `Import ${bulkStudents.length} Student${bulkStudents.length !== 1 ? "s" : ""}`
+                  )}
                 </Button>
               </DialogFooter>
             </div>
@@ -738,12 +1029,13 @@ const ManagedStudentsPage: React.FC = () => {
                         Click to upload or drag and drop
                       </p>
                       <p className="text-xs text-muted-foreground mt-1">
-                        CSV with columns: First Name, Last Name
+                        CSV with columns: First Name, Last Name, Username (optional)
                       </p>
                     </label>
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    The CSV can have a header row. Usernames and passwords will be generated automatically.
+                    The CSV can have a header row. Usernames will be auto-generated if not provided.
+                    Passwords are always generated automatically.
                   </p>
                 </div>
                 <DialogFooter>
