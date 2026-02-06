@@ -17,6 +17,7 @@ import {
   RefreshCw,
   ExternalLink,
   PanelLeft,
+  Sparkles,
 } from "lucide-react";
 import AutograderTestModal from "./AutograderTestModal";
 import AutograderTestList from "./AutograderTestList";
@@ -148,6 +149,9 @@ const IDEBlockEditor: React.FC<IDEBlockEditorProps> = memo(
     
     // Track ongoing status checks to prevent duplicate requests
     const statusCheckInProgress = useRef<Set<string>>(new Set());
+
+    // AI model solution generation
+    const [isGeneratingModelSolution, setIsGeneratingModelSolution] = useState(false);
 
     // Autograder test case management
     const [testModalOpen, setTestModalOpen] = useState(false);
@@ -965,6 +969,50 @@ const IDEBlockEditor: React.FC<IDEBlockEditorProps> = memo(
       }
     }, [ideData, updateAttributes, toast]);
 
+    const handleGenerateModelSolution = useCallback(async () => {
+      if (!assignmentId) {
+        toast({
+          title: "No assignment",
+          description: "Save the assignment first before generating a model solution.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      setIsGeneratingModelSolution(true);
+      try {
+        const response = await apiClient.generateModelSolution(assignmentId, ideData.id);
+        const { modelSolutionBucketId } = response.data;
+
+        if (modelSolutionBucketId) {
+          updateAttributes({
+            ideData: {
+              ...ideData,
+              modelSolution: {
+                ...ideData.modelSolution,
+                s3_bucket_id: modelSolutionBucketId,
+              },
+            },
+          });
+
+          toast({
+            title: "Model solution generated",
+            description: "AI has created a model solution. You can review it in the editor.",
+          });
+        }
+      } catch (error: any) {
+        console.error("Failed to generate model solution:", error);
+        const message = error.response?.data?.error?.message || error.message || "Failed to generate model solution.";
+        toast({
+          title: "Generation failed",
+          description: message,
+          variant: "destructive",
+        });
+      } finally {
+        setIsGeneratingModelSolution(false);
+      }
+    }, [assignmentId, ideData, updateAttributes, toast]);
+
     const handleRefreshInstance = useCallback(async (tab: TabType) => {
       const container = containers[tab];
       
@@ -1342,6 +1390,8 @@ const IDEBlockEditor: React.FC<IDEBlockEditorProps> = memo(
                     : undefined
                 }
                 hasModelSolution={!!(ideData.modelSolution.s3_bucket_id || containers.modelSolution)}
+                onGenerateModelSolution={handleGenerateModelSolution}
+                isGeneratingModelSolution={isGeneratingModelSolution}
                 onRefreshInstance={containers.modelSolution ? () => handleRefreshInstance("modelSolution") : undefined}
                 onOpenSidePanel={openSidePanel}
                 onOpenFullscreen={openFullscreen}
@@ -1526,6 +1576,8 @@ interface IDETabContentProps {
   onClearContainer: () => void;
   onDeleteModelSolution?: () => void;
   hasModelSolution?: boolean;
+  onGenerateModelSolution?: () => void;
+  isGeneratingModelSolution?: boolean;
   onRefreshInstance?: () => void;
   onOpenSidePanel: (state: any) => void;
   onOpenFullscreen: (state: any) => void;
@@ -1552,6 +1604,8 @@ const IDETabContent: React.FC<IDETabContentProps> = memo(
     onClearContainer,
     onDeleteModelSolution,
     hasModelSolution,
+    onGenerateModelSolution,
+    isGeneratingModelSolution,
     onRefreshInstance,
     onOpenSidePanel,
     onOpenFullscreen,
@@ -1699,6 +1753,22 @@ const IDETabContent: React.FC<IDETabContentProps> = memo(
           {/* Show language selection if no bucketId, no container, and not starting */}
           {!bucketId && !container && !isStarting && (
             <div className="flex flex-col items-center justify-center h-96">
+              {/* Create with AI button for model solution tab */}
+              {tab === "modelSolution" && !hasModelSolution && onGenerateModelSolution && (
+                <Button
+                  onClick={onGenerateModelSolution}
+                  disabled={isGeneratingModelSolution}
+                  variant="outline"
+                  className="mb-6 border-purple-300 text-purple-700 hover:bg-purple-50 hover:border-purple-400"
+                >
+                  {isGeneratingModelSolution ? (
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  ) : (
+                    <Sparkles className="w-4 h-4 mr-2" />
+                  )}
+                  {isGeneratingModelSolution ? "Generating..." : "Create with AI"}
+                </Button>
+              )}
               <Code2 className="w-16 h-16 text-gray-400 mb-4" />
               <p className="text-gray-600 font-medium mb-2">
                 Start Virtual Codespace

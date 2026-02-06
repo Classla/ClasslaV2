@@ -7,7 +7,10 @@ import {
   S3Client,
   CreateBucketCommand,
   PutObjectCommand,
+  ListObjectsV2Command,
+  GetObjectCommand,
 } from "@aws-sdk/client-s3";
+import { Readable } from "stream";
 import { v4 as uuidv4 } from "uuid";
 import { logger } from "../utils/logger";
 import { AuthenticatedSocket } from "./websocket";
@@ -808,8 +811,320 @@ export const generateContent = async (
 };
 
 /**
+ * Read all files from an S3 bucket and return their contents
+ */
+async function readBucketFiles(bucketName: string): Promise<IdeBlockFile[]> {
+  const listCommand = new ListObjectsV2Command({ Bucket: bucketName });
+  const listResponse = await s3Client.send(listCommand);
+
+  if (!listResponse.Contents || listResponse.Contents.length === 0) {
+    return [];
+  }
+
+  const files: IdeBlockFile[] = [];
+  for (const object of listResponse.Contents) {
+    if (!object.Key) continue;
+    // Skip directories and hidden files
+    if (object.Key.endsWith("/") || object.Key.startsWith(".")) continue;
+
+    const getCommand = new GetObjectCommand({
+      Bucket: bucketName,
+      Key: object.Key,
+    });
+    const response = await s3Client.send(getCommand);
+
+    if (response.Body) {
+      const stream = response.Body as Readable;
+      const chunks: Buffer[] = [];
+      await new Promise<void>((resolve, reject) => {
+        stream.on("data", (chunk: Buffer) => chunks.push(chunk));
+        stream.on("end", () => resolve());
+        stream.on("error", reject);
+      });
+      const content = Buffer.concat(chunks).toString("utf-8");
+      files.push({ path: object.Key, content });
+    }
+  }
+
+  return files;
+}
+
+/**
+ * Generate a model solution for an IDE block using AI
+ */
+export const generateModelSolution = async (options: {
+  assignmentId: string;
+  ideBlockId: string;
+  userId: string;
+  userEmail?: string;
+  courseId: string;
+}): Promise<{ modelSolutionBucketId: string }> => {
+  const { assignmentId, ideBlockId, userId, userEmail, courseId } = options;
+
+  // Fetch assignment content
+  const { data: assignment, error: assignmentError } = await supabase
+    .from("assignments")
+    .select("name, content")
+    .eq("id", assignmentId)
+    .single();
+
+  if (assignmentError || !assignment) {
+    throw new Error("Assignment not found");
+  }
+
+  // Find the IDE block in the assignment content
+  // content column is text, not jsonb - parse it
+  const content = typeof assignment.content === "string"
+    ? JSON.parse(assignment.content)
+    : assignment.content;
+  let ideBlock: any = null;
+
+  const findIdeBlock = (nodes: any[]) => {
+    for (const node of nodes) {
+      if (node.type === "ideBlock" && node.attrs?.ideData?.id === ideBlockId) {
+        ideBlock = node;
+        return;
+      }
+      if (node.content) {
+        findIdeBlock(node.content);
+        if (ideBlock) return;
+      }
+    }
+  };
+
+  if (content?.content) {
+    findIdeBlock(content.content);
+  }
+
+  if (!ideBlock) {
+    throw new Error("IDE block not found in assignment");
+  }
+
+  const ideData = ideBlock.attrs.ideData;
+
+  // Get template files from S3 if they exist
+  let templateFiles: IdeBlockFile[] = [];
+  if (ideData.template?.s3_bucket_id) {
+    const { data: templateBucket } = await supabase
+      .from("s3_buckets")
+      .select("bucket_name")
+      .eq("id", ideData.template.s3_bucket_id)
+      .single();
+
+    if (templateBucket) {
+      try {
+        templateFiles = await readBucketFiles(templateBucket.bucket_name);
+      } catch (err) {
+        logger.warn("Failed to read template files from S3", {
+          bucketId: ideData.template.s3_bucket_id,
+          error: err instanceof Error ? err.message : "Unknown",
+        });
+      }
+    }
+  }
+
+  // Get autograder tests
+  const tests = ideData.autograder?.tests || [];
+  const language = ideData.settings?.language || "python";
+
+  // Extract assignment instructions (text content from the TipTap document)
+  let instructions = "";
+  const extractText = (nodes: any[]) => {
+    for (const node of nodes) {
+      if (node.type === "text" && node.text) {
+        instructions += node.text;
+      } else if (node.type === "paragraph" || node.type === "heading") {
+        if (node.content) extractText(node.content);
+        instructions += "\n";
+      } else if (node.content) {
+        extractText(node.content);
+      }
+    }
+  };
+  if (content?.content) {
+    extractText(content.content);
+  }
+  instructions = instructions.trim();
+
+  // Format template files for the prompt
+  let templateContext = "No template files provided.";
+  if (templateFiles.length > 0) {
+    templateContext = templateFiles
+      .map((f) => `### ${f.path}\n\`\`\`\n${f.content}\n\`\`\``)
+      .join("\n\n");
+  }
+
+  // Format autograder tests for the prompt
+  let testsContext = "No autograder tests configured.";
+  if (tests.length > 0) {
+    testsContext = tests
+      .map((t: any) => {
+        if (t.type === "inputOutput") {
+          return `### ${t.name} (${t.points} pts)\nInput:\n${t.input}\nExpected Output:\n${t.expectedOutput}`;
+        } else if (t.type === "unitTest") {
+          return `### ${t.name} (${t.points} pts)\n\`\`\`\n${t.code}\n\`\`\``;
+        } else {
+          return `### ${t.name} (${t.points} pts) - Manual grading`;
+        }
+      })
+      .join("\n\n");
+  }
+
+  // Build the focused prompt
+  const prompt = `You are a coding assistant. Generate a model solution for this programming exercise.
+
+## Assignment: ${assignment.name}
+
+## Instructions
+${instructions || "No specific instructions provided."}
+
+## Template Code (student starting point)
+${templateContext}
+
+## Autograder Tests
+${testsContext}
+
+## Requirements
+- Language: ${language}
+- Your solution must pass all the autograder tests
+- Match the file structure of the template
+- Only output the solution code, no explanations
+
+## Output Format
+Return a JSON object with a files array. Your ENTIRE response must be valid JSON starting with { and ending with }.
+{
+  "files": [
+    {"path": "filename.ext", "content": "file content here"}
+  ]
+}`;
+
+  // Create LLM call log entry
+  let llmCallId: string | null = null;
+  try {
+    const { data: llmCall } = await supabase
+      .from("llm_calls")
+      .insert({
+        assignment_id: assignmentId,
+        user_id: userId,
+        course_id: courseId,
+        prompt: prompt.substring(0, 10000),
+        success: false,
+      })
+      .select("id")
+      .single();
+
+    if (llmCall) llmCallId = llmCall.id;
+  } catch (logError) {
+    logger.error("Error creating LLM call log entry", {
+      error: logError instanceof Error ? logError.message : "Unknown",
+    });
+  }
+
+  try {
+    const client = getBedrockClient();
+
+    const requestBody = {
+      anthropic_version: "bedrock-2023-05-31",
+      max_tokens: 8192,
+      system: "You are a coding assistant that generates model solutions for programming exercises. Your response must be ONLY valid JSON. Do NOT include any conversational text, markdown formatting, or code blocks. Your ENTIRE response must start with { and end with }.",
+      messages: [{ role: "user", content: prompt }],
+    };
+
+    const command = new InvokeModelCommand({
+      modelId: CLAUDE_MODEL_ID,
+      contentType: "application/json",
+      accept: "application/json",
+      body: JSON.stringify(requestBody),
+    });
+
+    logger.info("Generating model solution", {
+      assignmentId,
+      ideBlockId,
+      language,
+      templateFileCount: templateFiles.length,
+      testCount: tests.length,
+    });
+
+    const response = await client.send(command);
+    const responseBody = JSON.parse(new TextDecoder().decode(response.body));
+
+    if (!responseBody.content?.[0]?.text) {
+      throw new Error("Unexpected response format from AI model");
+    }
+
+    let generatedText = responseBody.content[0].text.trim();
+
+    // Remove markdown code blocks if present
+    const jsonMatch = generatedText.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+    if (jsonMatch) {
+      generatedText = jsonMatch[1];
+    }
+
+    const parsed = JSON.parse(generatedText);
+
+    if (!parsed.files || !Array.isArray(parsed.files) || parsed.files.length === 0) {
+      throw new Error("AI did not return valid solution files");
+    }
+
+    // Create S3 bucket with the solution files
+    const modelSolutionBucketId = await createBucketWithFiles(
+      parsed.files,
+      userId,
+      courseId,
+      assignmentId,
+      false
+    );
+
+    // Update LLM call log with success
+    if (llmCallId) {
+      try {
+        await supabase
+          .from("llm_calls")
+          .update({
+            success: true,
+            llm_response: generatedText.substring(0, 100000),
+          })
+          .eq("id", llmCallId);
+      } catch (updateError) {
+        logger.error("Failed to update LLM call log", {
+          error: updateError instanceof Error ? updateError.message : "Unknown",
+        });
+      }
+    }
+
+    logger.info("Model solution generated successfully", {
+      assignmentId,
+      ideBlockId,
+      bucketId: modelSolutionBucketId,
+      fileCount: parsed.files.length,
+    });
+
+    return { modelSolutionBucketId };
+  } catch (error: any) {
+    // Update LLM call log with error
+    if (llmCallId) {
+      try {
+        await supabase
+          .from("llm_calls")
+          .update({
+            success: false,
+            error: error.message || "Unknown error",
+          })
+          .eq("id", llmCallId);
+      } catch (updateError) {
+        logger.error("Failed to update LLM call log with error", {
+          error: updateError instanceof Error ? updateError.message : "Unknown",
+        });
+      }
+    }
+
+    throw error;
+  }
+};
+
+/**
  * Generate content with streaming support via WebSocket
- * 
+ *
  * Emits:
  * - block-start: { blockIndex, blockType } - When a new block is detected
  * - block-complete: { blockIndex, block } - When a block is fully parsed
@@ -1822,4 +2137,5 @@ function findMatchingBrace(text: string, start: number): number {
 export default {
   generateContent,
   generateContentStream,
+  generateModelSolution,
 };

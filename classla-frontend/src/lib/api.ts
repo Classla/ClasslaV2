@@ -463,6 +463,8 @@ export const apiClient = {
   // AI endpoints (uses separate axios instance with no timeout)
   generateAIContent: (prompt: string, assignmentId: string) =>
     aiApi.post("/ai/generate", { prompt, assignmentId }),
+  generateModelSolution: (assignmentId: string, ideBlockId: string) =>
+    aiApi.post("/ai/generate-model-solution", { assignmentId, ideBlockId }),
 
   // IDE Block endpoints
   startIDEContainer: (data: {

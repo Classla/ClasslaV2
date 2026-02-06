@@ -4,7 +4,7 @@ import { supabase } from "../middleware/auth";
 import { authenticateToken } from "../middleware/auth";
 import { getCoursePermissions, getUserCourseRole } from "../middleware/authorization";
 import { UserRole } from "../types/enums";
-import { generateContent, generateContentStream } from "../services/ai";
+import { generateContent, generateContentStream, generateModelSolution } from "../services/ai";
 import { logger } from "../utils/logger";
 import { AuthenticatedSocket } from "../services/websocket";
 import { sessionMiddleware } from "../config/session";
@@ -536,6 +536,143 @@ router.post(
       } else if (error.message?.includes("busy")) {
         errorCode = "AI_THROTTLED";
         errorMessage = "AI service is busy. Please try again in a moment.";
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+
+      res.status(500).json({
+        error: {
+          code: errorCode,
+          message: errorMessage,
+          timestamp: new Date().toISOString(),
+          path: req.path,
+        },
+      });
+    }
+  }
+);
+
+/**
+ * POST /api/ai/generate-model-solution
+ * Generate a model solution for an IDE block using AI
+ * Requires: Authentication, Instructor/TA role for the course
+ */
+router.post(
+  "/ai/generate-model-solution",
+  authenticateToken,
+  async (req: Request, res: Response): Promise<void> => {
+    try {
+      const { assignmentId, ideBlockId } = req.body;
+      const { id: userId, isAdmin, email: userEmail } = req.user!;
+
+      if (!assignmentId || typeof assignmentId !== "string") {
+        res.status(400).json({
+          error: {
+            code: "INVALID_ASSIGNMENT_ID",
+            message: "Assignment ID is required",
+            timestamp: new Date().toISOString(),
+            path: req.path,
+          },
+        });
+        return;
+      }
+
+      if (!ideBlockId || typeof ideBlockId !== "string") {
+        res.status(400).json({
+          error: {
+            code: "INVALID_IDE_BLOCK_ID",
+            message: "IDE block ID is required",
+            timestamp: new Date().toISOString(),
+            path: req.path,
+          },
+        });
+        return;
+      }
+
+      // Fetch the assignment to get course_id
+      const { data: assignment, error: assignmentError } = await supabase
+        .from("assignments")
+        .select("course_id")
+        .eq("id", assignmentId)
+        .single();
+
+      if (assignmentError || !assignment) {
+        res.status(404).json({
+          error: {
+            code: "ASSIGNMENT_NOT_FOUND",
+            message: "Assignment not found",
+            timestamp: new Date().toISOString(),
+            path: req.path,
+          },
+        });
+        return;
+      }
+
+      // Check permissions
+      if (!isAdmin) {
+        const userRole = await getUserCourseRole(userId, assignment.course_id);
+        const permissions = await getCoursePermissions(
+          userId,
+          assignment.course_id,
+          isAdmin
+        );
+
+        if (
+          !permissions.canWrite &&
+          userRole !== UserRole.INSTRUCTOR &&
+          userRole !== UserRole.TEACHING_ASSISTANT
+        ) {
+          res.status(403).json({
+            error: {
+              code: "PERMISSION_DENIED",
+              message:
+                "You must be an instructor or TA to generate AI content",
+              timestamp: new Date().toISOString(),
+              path: req.path,
+            },
+          });
+          return;
+        }
+      }
+
+      logger.info("Generating AI model solution", {
+        assignmentId,
+        ideBlockId,
+        userId,
+      });
+
+      const result = await generateModelSolution({
+        assignmentId,
+        ideBlockId,
+        userId,
+        userEmail,
+        courseId: assignment.course_id,
+      });
+
+      res.json({
+        success: true,
+        modelSolutionBucketId: result.modelSolutionBucketId,
+      });
+    } catch (error: any) {
+      logger.error("Failed to generate model solution", {
+        error: error.message,
+        stack: error.stack,
+        assignmentId: req.body.assignmentId,
+        userId: req.user?.id,
+      });
+
+      let errorCode = "AI_GENERATION_FAILED";
+      let errorMessage = "Failed to generate model solution. Please try again.";
+
+      if (error.message?.includes("Access denied")) {
+        errorCode = "BEDROCK_ACCESS_DENIED";
+        errorMessage = "AI service access denied. Please contact support.";
+      } else if (error.message?.includes("timeout")) {
+        errorCode = "AI_TIMEOUT";
+        errorMessage = "AI request timed out. Please try again.";
+      } else if (error.message?.includes("not found")) {
+        errorCode = "NOT_FOUND";
+        errorMessage = error.message;
       } else if (error.message) {
         errorMessage = error.message;
       }
