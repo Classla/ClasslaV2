@@ -315,6 +315,23 @@ export class StateManager {
   }
 
   /**
+   * Find a running container by its S3 bucket name.
+   * Returns the container if one is actively running with this bucket, null otherwise.
+   */
+  getRunningContainerByS3Bucket(s3Bucket: string): ContainerMetadata | null {
+    const stmt = this.db.prepare(`
+      SELECT * FROM containers WHERE s3_bucket = ? AND status = 'running' ORDER BY created_at DESC LIMIT 1
+    `);
+
+    const row = stmt.get(s3Bucket) as ContainerRow | undefined;
+    if (!row) {
+      return null;
+    }
+
+    return this.rowToContainer(row);
+  }
+
+  /**
    * Get total count of containers by status
    */
   getContainerCount(status?: ContainerStatus): number {

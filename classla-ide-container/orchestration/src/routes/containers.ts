@@ -48,6 +48,30 @@ router.post(
         throw invalidS3Bucket("s3Bucket is required and must be a string");
       }
 
+      // Check if there's already a running container for this S3 bucket
+      const existingContainer = stateManager.getRunningContainerByS3Bucket(s3Bucket);
+      if (existingContainer && existingContainer.urls?.codeServer) {
+        console.log(
+          `[Containers] ✅ Found existing running container ${existingContainer.id} for bucket ${s3Bucket}, reusing it`
+        );
+
+        // Update last activity timestamp
+        stateManager.updateContainerLifecycle(existingContainer.id, {
+          lastActivity: new Date(),
+        });
+
+        res.status(200).json({
+          id: existingContainer.id,
+          serviceName: existingContainer.serviceName,
+          status: existingContainer.status,
+          urls: existingContainer.urls,
+          message: "Container is already running. Reusing existing instance.",
+          isPreWarmed: false,
+          isReused: true,
+        });
+        return;
+      }
+
       // Validate S3 bucket accessibility before starting container
       const s3ValidationResult = await s3ValidationService.validateBucket(
         s3Bucket,

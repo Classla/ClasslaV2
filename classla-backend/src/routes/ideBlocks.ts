@@ -195,12 +195,13 @@ router.post(
       }
 
       // Return the container info
-      return res.status(201).json({
+      // Use the orchestration's status code (200 for reused, 201 for new)
+      return res.status(response.status).json({
         id: data.id,
         status: data.status,
         urls: data.urls,
         message: data.message || "Container is starting",
-        isPreWarmed: data.isPreWarmed || false, // Pass through isPreWarmed flag
+        isPreWarmed: (data as any).isPreWarmed || (data as any).isReused || false,
       });
     } catch (error: any) {
       console.error("Failed to start IDE container:", error);

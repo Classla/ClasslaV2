@@ -717,12 +717,6 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
         }
       });
 
-      // Open file immediately
-      setOpenTabs((prev) => (prev.includes(path) ? prev : [...prev, path]));
-        setSelectedFile(path);
-        selectedFileRef.current = path;
-        setFileContent((prev) => ({ ...prev, [path]: "" }));
-
       // Broadcast file creation to other tabs via Y.js WebSocket
       const socket = (yjsProvider as any).socketInstance;
       if (yjsProvider.connected && socket) {
@@ -737,34 +731,10 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
         }
       }
 
-      // Initialize Y.js document immediately to ensure all tabs sync
-      // Subscribe to document so it's available for syncing
-        try {
-          yjsProvider.subscribeToDocument(bucketId, path);
-          const { ytext } = yjsProvider.getDocument(bucketId, path);
-          // Initialize empty content if needed
-          if (ytext.length === 0) {
-            ytext.insert(0, "");
-          }
-        // Update local state with Y.js content
-        setFileContent((prev) => ({ ...prev, [path]: ytext.toString() }));
-        console.log(`[MonacoIDE] ✅ Initialized Y.js document for new file ${path}`);
-        } catch (error) {
-          console.warn(`[MonacoIDE] Failed to initialize Y.js for new file ${path}:`, error);
-        // Retry after a delay if initial attempt fails
-        setTimeout(() => {
-          try {
-            yjsProvider.subscribeToDocument(bucketId, path);
-            const { ytext } = yjsProvider.getDocument(bucketId, path);
-            if (ytext.length === 0) {
-              ytext.insert(0, "");
-            }
-            setFileContent((prev) => ({ ...prev, [path]: ytext.toString() }));
-          } catch (retryError) {
-            console.error(`[MonacoIDE] Retry failed for Y.js initialization:`, retryError);
-        }
-      }, 500);
-      }
+      // Open and select the new file using the standard file selection flow
+      // This properly handles Y.js subscription and binding setup without duplication
+      setFileContent((prev) => ({ ...prev, [path]: "" }));
+      handleFileSelect(path);
 
       // Create file in S3 in background (don't wait)
       apiClient.createS3File(bucketId, path, "").catch((error: any) => {
@@ -791,7 +761,7 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
         loadFileTree();
       }, 5000); // Increased delay to prevent premature S3 checks
     },
-    [bucketId, toast, loadFileTree]
+    [bucketId, toast, loadFileTree, handleFileSelect]
   );
 
   // Handle file deletion - optimistic update
@@ -827,26 +797,13 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
           return next;
         });
 
-      // Clear Y.js document content before unsubscribing (so container deletes the file)
-      if (yjsDocsRef.current[path]) {
-        const { doc, ytext } = yjsDocsRef.current[path];
-        // Clear the Y.js document content (this will sync to container and trigger file deletion)
-        doc.transact(() => {
-          ytext.delete(0, ytext.length);
-        }, "file-delete");
-        console.log(`[MonacoIDE] Cleared Y.js document content for deleted file: ${path}`);
-      }
-
-      // Clean up Y.js resources
+      // Clean up Y.js resources (backend handles document cleanup via file-tree-change delete event)
       if (yjsBindingsRef.current[path]) {
         yjsBindingsRef.current[path].dispose();
         delete yjsBindingsRef.current[path];
       }
       if (yjsDocsRef.current[path]) {
-        // Wait a moment for the clear to sync, then unsubscribe
-        setTimeout(() => {
         yjsProvider.unsubscribeDocument(bucketId, path);
-        }, 500);
         delete yjsDocsRef.current[path];
       }
 
@@ -899,6 +856,143 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
     [bucketId, selectedFile, openTabs, toast, loadFileTree]
   );
 
+  // Handle file rename
+  const handleRenameFile = useCallback(
+    async (oldPath: string, newPath: string) => {
+      if (!bucketId) return;
+
+      // Validate new path doesn't conflict with existing files
+      const pathExists = (nodes: FileNode[], targetPath: string): boolean => {
+        for (const node of nodes) {
+          if (node.path === targetPath) return true;
+          if (node.children && pathExists(node.children, targetPath)) return true;
+        }
+        return false;
+      };
+
+      if (pathExists(files, newPath)) {
+        toast({
+          title: "Rename failed",
+          description: `A file with the name "${newPath}" already exists.`,
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // Get content from old Y.js document (if available)
+      let content = "";
+      if (yjsDocsRef.current[oldPath]) {
+        const { ytext } = yjsDocsRef.current[oldPath];
+        content = ytext.toString();
+      } else if (fileContent[oldPath] !== undefined) {
+        content = fileContent[oldPath];
+      }
+
+      // Optimistic UI update - update file tree
+      const renameInTree = (nodes: FileNode[]): FileNode[] => {
+        return nodes.map((node) => {
+          if (node.path === oldPath) {
+            const newName = newPath.split("/").pop() || newPath;
+            return { ...node, name: newName, path: newPath };
+          }
+          if (node.type === "folder" && node.children) {
+            return { ...node, children: renameInTree(node.children) };
+          }
+          return node;
+        });
+      };
+      setFiles((prev) => renameInTree(prev));
+
+      // Update open tabs
+      setOpenTabs((prev) =>
+        prev.map((p) => (p === oldPath ? newPath : p))
+      );
+
+      // Update selected file
+      if (selectedFile === oldPath) {
+        setSelectedFile(newPath);
+        selectedFileRef.current = newPath;
+      }
+
+      // Update file content state
+      setFileContent((prev) => {
+        const next = { ...prev };
+        if (next[oldPath] !== undefined) {
+          next[newPath] = next[oldPath];
+          delete next[oldPath];
+        }
+        return next;
+      });
+
+      // Clean up old Y.js binding + unsubscribe
+      if (yjsBindingsRef.current[oldPath]) {
+        yjsBindingsRef.current[oldPath].dispose();
+        delete yjsBindingsRef.current[oldPath];
+      }
+      if (yjsDocsRef.current[oldPath]) {
+        yjsProvider.unsubscribeDocument(bucketId, oldPath);
+        delete yjsDocsRef.current[oldPath];
+      }
+
+      // Create new Y.js document with content + subscribe
+      try {
+        yjsProvider.subscribeToDocument(bucketId, newPath);
+        const { ytext } = yjsProvider.getDocument(bucketId, newPath);
+        if (content && ytext.length === 0) {
+          ytext.insert(0, content);
+        }
+        setFileContent((prev) => ({ ...prev, [newPath]: ytext.toString() }));
+      } catch (error) {
+        console.warn(`[MonacoIDE] Failed to initialize Y.js for renamed file ${newPath}:`, error);
+      }
+
+      // Broadcast file-tree-change events (delete old + create new)
+      const socket = (yjsProvider as any).socketInstance;
+      if (yjsProvider.connected && socket) {
+        try {
+          socket.emit("file-tree-change", {
+            bucketId,
+            filePath: oldPath,
+            action: "delete",
+          });
+          socket.emit("file-tree-change", {
+            bucketId,
+            filePath: newPath,
+            action: "create",
+          });
+        } catch (error) {
+          console.error("Failed to broadcast file rename:", error);
+        }
+      }
+
+      // Save new file to S3 (use PUT, not POST - Y.js subscription may have already created it)
+      // Then delete old file
+      try {
+        await apiClient.saveS3File(bucketId, newPath, content);
+        await apiClient.deleteS3File(bucketId, oldPath);
+      } catch (error: any) {
+        console.error("Failed to rename file in S3:", error);
+        toast({
+          title: "Failed to sync rename",
+          description: `File renamed locally but failed to sync: ${error.message}`,
+          variant: "destructive",
+        });
+        loadFileTree();
+      }
+
+      // Mark new file as recently created to prevent disappearing during S3 save
+      recentlyCreatedFilesRef.current.add(newPath);
+      setTimeout(() => {
+        recentlyCreatedFilesRef.current.delete(newPath);
+      }, 15000);
+
+      // Reload file tree after delay to catch any missed updates
+      setTimeout(() => {
+        loadFileTree();
+      }, 3000);
+    },
+    [bucketId, files, fileContent, selectedFile, toast, loadFileTree]
+  );
 
   // Connect to Y.js provider
   useEffect(() => {
@@ -2343,6 +2437,7 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
                     selectedPath={selectedFile || undefined}
                     onCreateFile={handleCreateFile}
                     onDeleteFile={handleDeleteFile}
+                    onRenameFile={handleRenameFile}
                   />
                 )}
               </div>

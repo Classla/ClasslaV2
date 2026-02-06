@@ -838,15 +838,54 @@ router.get(
  */
 router.get(
   "/:bucketId/files/*",
-  authenticateToken,
   asyncHandler(async (req: Request, res: Response) => {
     const { bucketId } = req.params;
     // Decode the file path (Express may have already decoded it, but be safe)
     const filePath = decodeURIComponent(req.params[0] || ""); // Everything after /files/
-    const { id: userId, isAdmin } = req.user!;
 
     if (!filePath) {
       return res.status(400).json({ error: "File path is required" });
+    }
+
+    // Allow test bucket without authentication in development
+    const isTestBucket = process.env.NODE_ENV === 'development' &&
+                         bucketId === '00000000-0000-0000-0000-000000000001';
+
+    let userId: string | undefined;
+    let isAdmin: boolean = false;
+    if (!isTestBucket) {
+      // For non-test buckets, require authentication
+      try {
+        const sessionData = await sessionManagementService.validateSession(req);
+        if (!sessionData) {
+          throw new AuthenticationError("Valid session is required");
+        }
+
+        if (sessionData.isManagedStudent) {
+          userId = sessionData.userId;
+          isAdmin = false;
+        } else {
+          const { data: userData } = await supabase
+            .from("users")
+            .select("id, is_admin")
+            .eq("workos_user_id", sessionData.workosUserId)
+            .single();
+
+          if (userData) {
+            userId = userData.id;
+            isAdmin = userData.is_admin || false;
+          }
+        }
+
+        if (!userId) {
+          throw new AuthenticationError("User not found");
+        }
+      } catch (error) {
+        return res.status(401).json({ error: "Valid session is required" });
+      }
+    } else {
+      userId = "00000000-0000-0000-0000-000000000000";
+      isAdmin = false;
     }
 
     // Fetch bucket and verify ownership
@@ -863,11 +902,13 @@ router.get(
 
     // Check if user has permission to access this bucket
     // Reading file content requires read permission
-    const hasAccess = await canAccessBucket(userId, bucket, isAdmin || false, 'read');
-    if (!hasAccess) {
-      return res.status(403).json({
-        error: "You do not have permission to access this bucket",
-      });
+    if (!isTestBucket) {
+      const hasAccess = await canAccessBucket(userId, bucket, isAdmin, 'read');
+      if (!hasAccess) {
+        return res.status(403).json({
+          error: "You do not have permission to access this bucket",
+        });
+      }
     }
 
     try {
@@ -939,12 +980,10 @@ router.get(
  */
 router.put(
   "/:bucketId/files/*",
-  authenticateToken,
   asyncHandler(async (req: Request, res: Response) => {
     const { bucketId } = req.params;
     // Decode the file path (Express may have already decoded it, but be safe)
     const filePath = decodeURIComponent(req.params[0] || ""); // Everything after /files/
-    const { id: userId, isAdmin } = req.user!;
     const { content } = req.body;
 
     if (!filePath) {
@@ -953,6 +992,47 @@ router.put(
 
     if (content === undefined) {
       return res.status(400).json({ error: "File content is required" });
+    }
+
+    // Allow test bucket without authentication in development
+    const isTestBucket = process.env.NODE_ENV === 'development' &&
+                         bucketId === '00000000-0000-0000-0000-000000000001';
+
+    let userId: string | undefined;
+    let isAdmin: boolean = false;
+    if (!isTestBucket) {
+      // For non-test buckets, require authentication
+      try {
+        const sessionData = await sessionManagementService.validateSession(req);
+        if (!sessionData) {
+          throw new AuthenticationError("Valid session is required");
+        }
+
+        if (sessionData.isManagedStudent) {
+          userId = sessionData.userId;
+          isAdmin = false;
+        } else {
+          const { data: userData } = await supabase
+            .from("users")
+            .select("id, is_admin")
+            .eq("workos_user_id", sessionData.workosUserId)
+            .single();
+
+          if (userData) {
+            userId = userData.id;
+            isAdmin = userData.is_admin || false;
+          }
+        }
+
+        if (!userId) {
+          throw new AuthenticationError("User not found");
+        }
+      } catch (error) {
+        return res.status(401).json({ error: "Valid session is required" });
+      }
+    } else {
+      userId = "00000000-0000-0000-0000-000000000000";
+      isAdmin = false;
     }
 
     // Fetch bucket and verify ownership
@@ -969,11 +1049,13 @@ router.put(
 
     // Check if user has permission to modify this bucket
     // Writing file content requires write permission
-    const hasAccess = await canAccessBucket(userId, bucket, isAdmin || false, 'write');
-    if (!hasAccess) {
-      return res.status(403).json({
-        error: "You do not have permission to modify this bucket",
-      });
+    if (!isTestBucket) {
+      const hasAccess = await canAccessBucket(userId, bucket, isAdmin, 'write');
+      if (!hasAccess) {
+        return res.status(403).json({
+          error: "You do not have permission to modify this bucket",
+        });
+      }
     }
 
     try {
@@ -1276,8 +1358,7 @@ router.delete(
       // CRITICAL: Pass skipSave=true to prevent saving the document state (which would recreate the file)
       try {
         const yjsProviderService = await import("../services/yjsProviderService");
-        // getDocumentId is not exported, so we'll construct it manually
-        const docId = `${bucketId}:${filePath}`;
+        const docId = yjsProviderService.getDocumentId(bucketId, filePath);
         yjsProviderService.cleanupDocument(docId, true); // skipSave=true to prevent recreating the file
         logger.info(`[File Delete] Cleaned up in-memory Y.js document: ${docId}`);
       } catch (yjsError: any) {

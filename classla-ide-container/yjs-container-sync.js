@@ -448,18 +448,34 @@ class YjsContainerSync {
         
         if (event === "unlink") {
           console.log(`[YjsContainerSync] File deleted: ${relativePath}`);
-          // Clear Y.js document when file is deleted in container
+          // Broadcast file-tree-change delete so IDE removes the file
+          // Then unsubscribe and clean up locally. Do NOT clear Y.js content -
+          // that sends a yjs-update to the backend which would recreate the document.
           if (this.socket && this.isConnected) {
             try {
-              const doc = this.getOrCreateDocument(relativePath);
-              const ytext = doc.getText("content");
-              // Clear the Y.js document to sync deletion to IDE
-              doc.transact(() => {
-                ytext.delete(0, ytext.length);
-              }, "filesystem-delete");
-              console.log(`[YjsContainerSync] 🗑️  Cleared Y.js document for deleted file: ${relativePath}`);
+              this.socket.emit("file-tree-change", {
+                bucketId: BUCKET_ID,
+                filePath: relativePath,
+                action: "delete",
+              });
+              this.socket.emit("unsubscribe-document", {
+                bucketId: BUCKET_ID,
+                filePath: relativePath,
+              });
+              // Clean up local document state (keyed by filePath)
+              if (this.documents.has(relativePath)) {
+                const doc = this.documents.get(relativePath);
+                doc.destroy();
+                this.documents.delete(relativePath);
+              }
+              // Cancel any pending file writes for this file
+              if (this.pendingFileWrites.has(relativePath)) {
+                clearTimeout(this.pendingFileWrites.get(relativePath));
+                this.pendingFileWrites.delete(relativePath);
+              }
+              console.log(`[YjsContainerSync] 🗑️  Broadcasted delete and cleaned up Y.js for: ${relativePath}`);
             } catch (error) {
-              console.error(`[YjsContainerSync] ❌ Error clearing Y.js for deleted file ${relativePath}:`, error);
+              console.error(`[YjsContainerSync] ❌ Error handling Y.js cleanup for deleted file ${relativePath}:`, error);
             }
           }
         } else {
@@ -645,16 +661,30 @@ class YjsContainerSync {
         }
       }
 
-      // Also clear the Y.js document to ensure it stays empty
+      // Unsubscribe from the Y.js document and clean up local state
+      // Do NOT clear Y.js content - that sends a yjs-update to the backend which
+      // would recreate the document. The backend already handles cleanup.
       try {
-        const doc = this.getOrCreateDocument(filePath);
-        const ytext = doc.getText("content");
-        doc.transact(() => {
-          ytext.delete(0, ytext.length);
-        }, "explicit-delete");
-        console.log(`[YjsContainerSync] ✅ Cleared Y.js document for deleted file: ${filePath}`);
+        if (this.socket && this.isConnected) {
+          this.socket.emit("unsubscribe-document", {
+            bucketId: BUCKET_ID,
+            filePath: filePath,
+          });
+        }
+        // Clean up local document state (keyed by filePath)
+        if (this.documents.has(filePath)) {
+          const doc = this.documents.get(filePath);
+          doc.destroy();
+          this.documents.delete(filePath);
+        }
+        // Cancel any pending file writes for this file
+        if (this.pendingFileWrites.has(filePath)) {
+          clearTimeout(this.pendingFileWrites.get(filePath));
+          this.pendingFileWrites.delete(filePath);
+        }
+        console.log(`[YjsContainerSync] ✅ Unsubscribed and cleaned up Y.js document for deleted file: ${filePath}`);
       } catch (error) {
-        console.error(`[YjsContainerSync] ❌ Failed to clear Y.js for deleted file ${filePath}:`, error);
+        console.error(`[YjsContainerSync] ❌ Failed to clean up Y.js for deleted file ${filePath}:`, error);
       }
     } else if (action === "create") {
       // CRITICAL: File was created in IDE - we MUST subscribe to receive YJS updates

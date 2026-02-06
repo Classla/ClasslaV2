@@ -23,6 +23,12 @@ const cleanupTimeouts = new Map<string, NodeJS.Timeout>();
 // Grace period before cleaning up a document with no connections (ms)
 const CLEANUP_GRACE_PERIOD = 30000; // 30 seconds
 
+// Track recently deleted documents to prevent on-demand recreation
+// When a file is deleted, we add its docId here; the yjs-update handler
+// checks this set and refuses to recreate documents that were just deleted
+const recentlyDeletedDocuments = new Set<string>();
+const RECENTLY_DELETED_GRACE_PERIOD = 30000; // 30 seconds
+
 // Environment prefix for YJS document isolation (prevents local/prod conflicts)
 const YJS_ENV_PREFIX = process.env.YJS_ENVIRONMENT_PREFIX ||
   (process.env.NODE_ENV === 'production' ? 'prod' : 'dev');
@@ -31,7 +37,7 @@ const YJS_ENV_PREFIX = process.env.YJS_ENVIRONMENT_PREFIX ||
  * Get document ID from bucket ID and file path
  * Includes environment prefix to isolate local dev from production
  */
-function getDocumentId(bucketId: string, filePath: string): string {
+export function getDocumentId(bucketId: string, filePath: string): string {
   return `${YJS_ENV_PREFIX}:${bucketId}:${filePath}`;
 }
 
@@ -241,6 +247,15 @@ export function cleanupDocument(docId: string, skipSave: boolean = false): void 
     if (saveTimeouts.has(docId)) {
       clearTimeout(saveTimeouts.get(docId)!);
       saveTimeouts.delete(docId);
+    }
+
+    // Track recently deleted documents to prevent on-demand recreation
+    // (e.g., container sending a stale yjs-update after we cleaned up)
+    if (skipSave) {
+      recentlyDeletedDocuments.add(docId);
+      setTimeout(() => {
+        recentlyDeletedDocuments.delete(docId);
+      }, RECENTLY_DELETED_GRACE_PERIOD);
     }
 
     logger.info(`[Yjs] 🧹 Cleaned up document ${docId}`);
@@ -498,6 +513,13 @@ export function setupYjsWebSocket(io: SocketIOServer): void {
         return;
       }
 
+      // Skip subscription for recently deleted documents to prevent recreation
+      const docIdCheck = getDocumentId(bucketId, filePath);
+      if (recentlyDeletedDocuments.has(docIdCheck)) {
+        logger.info(`[Yjs Server] ⏭️ Skipping subscription for recently deleted document: ${docIdCheck}`);
+        return;
+      }
+
       try {
         // Verify bucket access
         const { data: bucket, error: bucketError } = await supabase
@@ -620,6 +642,12 @@ export function setupYjsWebSocket(io: SocketIOServer): void {
         action,
       });
       
+      // Clean up Y.js document when a file is deleted to prevent saves from recreating it
+      if (action === "delete") {
+        cleanupDocument(docId, true); // skipSave=true prevents recreating file
+        logger.info(`[Yjs] Cleaned up document for deleted file: ${docId}`);
+      }
+
       logger.debug("File tree change broadcasted", { bucketId, filePath, action });
     });
 
@@ -650,7 +678,12 @@ export function setupYjsWebSocket(io: SocketIOServer): void {
 
       // CRITICAL FIX: If document doesn't exist, create it on-demand
       // This handles race conditions where yjs-update arrives before subscribe-document
+      // BUT: Skip if this document was recently deleted (prevents stale updates from recreating files)
       if (!doc || !bucketInfo) {
+        if (recentlyDeletedDocuments.has(docId)) {
+          logger.info(`[Yjs Server] ⏭️ Skipping on-demand creation for recently deleted document: ${docId}`);
+          return;
+        }
         logger.warn(`[Yjs Server] ⚠️ Document not found for yjs-update, creating on-demand: ${docId}`);
 
         // Look up bucket info from database
@@ -890,7 +923,7 @@ export async function saveAllDocumentsToS3(): Promise<void> {
   for (const [docId, doc] of documents.entries()) {
     const bucketInfo = documentBuckets.get(docId);
     if (bucketInfo) {
-      const filePath = docId.split(":").slice(1).join(":");
+      const filePath = docId.split(":").slice(2).join(":");
       promises.push(
         saveYjsDocumentToS3(bucketInfo, filePath, doc, true).catch((error) => {
           logger.error(`Failed to save document ${docId} during batch save:`, error);

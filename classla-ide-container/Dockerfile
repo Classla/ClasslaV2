@@ -448,6 +448,7 @@ RUN echo '#!/usr/bin/env python3' > /usr/local/bin/run-server.py && \
     echo 'import signal' >> /usr/local/bin/run-server.py && \
     echo 'import time' >> /usr/local/bin/run-server.py && \
     echo 'import psutil' >> /usr/local/bin/run-server.py && \
+    echo 'import shlex' >> /usr/local/bin/run-server.py && \
     echo '' >> /usr/local/bin/run-server.py && \
     echo 'app = Flask(__name__)' >> /usr/local/bin/run-server.py && \
     echo '# Enable CORS for all origins to allow frontend (localhost:5173) to connect' >> /usr/local/bin/run-server.py && \
@@ -638,7 +639,7 @@ RUN echo '#!/usr/bin/env python3' > /usr/local/bin/run-server.py && \
     echo '        clear_terminal()' >> /usr/local/bin/run-server.py && \
     echo '        ' >> /usr/local/bin/run-server.py && \
     echo '        # Build and send command' >> /usr/local/bin/run-server.py && \
-    echo '        command = f"{cmd} {filename}"' >> /usr/local/bin/run-server.py && \
+    echo '        command = f"{cmd} {shlex.quote(filename)}"' >> /usr/local/bin/run-server.py && \
     echo '        send_command(command)' >> /usr/local/bin/run-server.py && \
     echo '        ' >> /usr/local/bin/run-server.py && \
     echo '        return jsonify({' >> /usr/local/bin/run-server.py && \

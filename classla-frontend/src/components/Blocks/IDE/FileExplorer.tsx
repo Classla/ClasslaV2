@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useMemo } from "react";
 import { File, Folder, FolderOpen, Plus, Trash2, Edit2, ChevronRight, ChevronDown } from "lucide-react";
 import { Button } from "../../ui/button";
 import {
@@ -29,6 +29,22 @@ interface FileExplorerProps {
   onRenameFile?: (oldPath: string, newPath: string) => void;
 }
 
+// Sort file tree: folders first, then files, both alphabetically (case-insensitive)
+export function sortFileTree(nodes: FileNode[]): FileNode[] {
+  return [...nodes]
+    .sort((a, b) => {
+      // Folders before files
+      if (a.type !== b.type) return a.type === "folder" ? -1 : 1;
+      // Alphabetical within same type (case-insensitive)
+      return a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
+    })
+    .map((node) =>
+      node.type === "folder" && node.children
+        ? { ...node, children: sortFileTree(node.children) }
+        : node
+    );
+}
+
 const FileExplorer: React.FC<FileExplorerProps> = ({
   files,
   onFileSelect,
@@ -38,6 +54,7 @@ const FileExplorer: React.FC<FileExplorerProps> = ({
   onDeleteFile,
   onRenameFile,
 }) => {
+  const sortedFiles = useMemo(() => sortFileTree(files), [files]);
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
   const [editingPath, setEditingPath] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
@@ -84,7 +101,7 @@ const FileExplorer: React.FC<FileExplorerProps> = ({
       return (
         <div key={node.path}>
           <div
-            className={`flex items-center gap-1 px-2 py-1 cursor-pointer hover:bg-gray-100 rounded ${
+            className={`group flex items-center gap-1 px-2 py-1 cursor-pointer hover:bg-gray-100 rounded ${
               isSelected ? "bg-blue-100" : ""
             }`}
             style={{ paddingLeft: `${depth * 16 + 8}px` }}
@@ -125,7 +142,8 @@ const FileExplorer: React.FC<FileExplorerProps> = ({
                 onChange={(e) => setEditValue(e.target.value)}
                 onBlur={() => {
                   if (editValue && editValue !== node.name && onRenameFile) {
-                    const newPath = node.path.replace(node.name, editValue);
+                    const parentPath = node.path.substring(0, node.path.length - node.name.length);
+                    const newPath = parentPath + editValue;
                     onRenameFile(node.path, newPath);
                   }
                   setEditingPath(null);
@@ -134,7 +152,8 @@ const FileExplorer: React.FC<FileExplorerProps> = ({
                 onKeyDown={(e) => {
                   if (e.key === "Enter") {
                     if (editValue && editValue !== node.name && onRenameFile) {
-                      const newPath = node.path.replace(node.name, editValue);
+                      const parentPath = node.path.substring(0, node.path.length - node.name.length);
+                      const newPath = parentPath + editValue;
                       onRenameFile(node.path, newPath);
                     }
                     setEditingPath(null);
@@ -155,6 +174,20 @@ const FileExplorer: React.FC<FileExplorerProps> = ({
               <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100">
                 {node.type === "file" && (
                   <>
+                    {onRenameFile && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 w-6 p-0"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setEditingPath(node.path);
+                          setEditValue(node.name);
+                        }}
+                      >
+                        <Edit2 className="w-3 h-3" />
+                      </Button>
+                    )}
                     {onDeleteFile && (
                       <Button
                         variant="ghost"
@@ -273,7 +306,7 @@ const FileExplorer: React.FC<FileExplorerProps> = ({
             No files found
           </div>
         ) : (
-          <div>{files.map((file) => renderNode(file))}</div>
+          <div>{sortedFiles.map((file) => renderNode(file))}</div>
         )}
       </div>
     </div>
