@@ -898,6 +898,22 @@ class YjsContainerSync {
 
       const fullPath = path.join(WORKSPACE_PATH, filePath);
 
+      // Skip write if file content is unchanged to avoid resetting the inactivity timer.
+      // The inactivity monitor uses inotifywait on /workspace, so unnecessary writes
+      // prevent containers from ever auto-shutting down.
+      try {
+        const currentContent = await fs.readFile(fullPath, "utf-8");
+        if (currentContent === content) {
+          console.log(`[YjsContainerSync] Content unchanged, skipping file write: ${filePath}`);
+          return;
+        }
+      } catch (readError) {
+        // File doesn't exist (ENOENT) - proceed with write
+        if (readError.code !== "ENOENT") {
+          console.warn(`[YjsContainerSync] Could not read file for comparison: ${filePath}`, readError);
+        }
+      }
+
       // If Y.js content is empty, write empty file (don't delete)
       // File deletion is handled explicitly via file-tree-change events
       // Empty files are valid - users can clear all content without deleting the file
@@ -913,7 +929,6 @@ class YjsContainerSync {
         }
       } else {
         // File has content, write it
-        // CRITICAL: Always write, even if file exists, to ensure content is updated
         try {
       const dir = path.dirname(fullPath);
       await fs.mkdir(dir, { recursive: true });
