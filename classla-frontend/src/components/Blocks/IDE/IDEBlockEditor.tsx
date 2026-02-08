@@ -51,8 +51,6 @@ interface IDEBlockEditorProps {
   node: any;
   updateAttributes: (attrs: any) => void;
   deleteNode: () => void;
-  editor: any;
-  selected: boolean;
 }
 
 interface ContainerInfo {
@@ -86,17 +84,12 @@ public class Main {
 type TabType = "template" | "modelSolution" | "autoGrading";
 
 const IDEBlockEditor: React.FC<IDEBlockEditorProps> = memo(
-  ({ node, updateAttributes, deleteNode, editor, selected }) => {
+  ({ node, updateAttributes, deleteNode }) => {
     const ideData = node.attrs.ideData as IDEBlockData;
     const { toast } = useToast();
     const { user } = useAuth();
     const { openSidePanel, openFullscreen } = useIDEPanel();
     const { courseId, assignmentId } = useAssignmentContext();
-
-    // Track if the user clicked inside the IDE block (intentional focus)
-    // vs focus coming from keyboard navigation (unintentional)
-    const wasClickedRef = useRef(false);
-    const wrapperRef = useRef<HTMLDivElement>(null);
 
     // Admin toggle for local vs production IDE API
     const [useLocalIDE, setUseLocalIDE] = useState(false);
@@ -1087,50 +1080,13 @@ const IDEBlockEditor: React.FC<IDEBlockEditorProps> = memo(
 
     return (
       <NodeViewWrapper
-        ref={wrapperRef}
         className="ide-editor-wrapper"
         as="div"
         draggable={false}
         contentEditable={false}
-        onMouseDown={() => {
-          // Track that the user clicked inside the IDE block
-          wasClickedRef.current = true;
-          // Reset after a short delay (after focus events fire)
-          setTimeout(() => {
-            wasClickedRef.current = false;
-          }, 100);
-        }}
-        onFocus={(e: React.FocusEvent) => {
-          // If focus entered without a click (keyboard navigation),
-          // redirect focus back to the ProseMirror editor
-          if (!wasClickedRef.current && editor) {
-            e.preventDefault();
-            e.stopPropagation();
-            // Return focus to ProseMirror editor
-            editor.commands.focus();
-          }
-        }}
         onKeyDown={(e: React.KeyboardEvent) => {
-          const target = e.target as HTMLElement;
-
-          // Allow Backspace/Delete to propagate for block deletion
-          // when not focused on an editable element
-          if (e.key === "Backspace" || e.key === "Delete") {
-            const isEditableElement =
-              target.tagName === "INPUT" ||
-              target.tagName === "TEXTAREA" ||
-              target.isContentEditable ||
-              target.closest('[contenteditable="true"]') ||
-              target.closest(".monaco-editor") ||
-              target.closest("iframe");
-
-            if (!isEditableElement) {
-              // Let the event propagate to ProseMirror for block deletion
-              return;
-            }
-          }
-
           // Allow keyboard events to pass through if targeting terminal iframe
+          const target = e.target as HTMLElement;
           const isTerminalArea = target.closest('[data-terminal-container]') !== null ||
                                  target.closest('iframe[title="Terminal"]') !== null;
           if (!isTerminalArea) {
@@ -1140,24 +1096,8 @@ const IDEBlockEditor: React.FC<IDEBlockEditorProps> = memo(
           }
         }}
         onKeyUp={(e: React.KeyboardEvent) => {
-          const target = e.target as HTMLElement;
-
-          // Allow Backspace/Delete to propagate for block deletion
-          if (e.key === "Backspace" || e.key === "Delete") {
-            const isEditableElement =
-              target.tagName === "INPUT" ||
-              target.tagName === "TEXTAREA" ||
-              target.isContentEditable ||
-              target.closest('[contenteditable="true"]') ||
-              target.closest(".monaco-editor") ||
-              target.closest("iframe");
-
-            if (!isEditableElement) {
-              return;
-            }
-          }
-
           // Allow keyboard events to pass through if targeting terminal iframe
+          const target = e.target as HTMLElement;
           const isTerminalArea = target.closest('[data-terminal-container]') !== null ||
                                  target.closest('iframe[title="Terminal"]') !== null;
           if (!isTerminalArea) {

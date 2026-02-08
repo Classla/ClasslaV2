@@ -1,6 +1,5 @@
 import { Node, mergeAttributes } from "@tiptap/core";
 import { ReactNodeViewRenderer } from "@tiptap/react";
-import { NodeSelection, Plugin, PluginKey } from "@tiptap/pm/state";
 import IDEBlockEditorComponent from "../Blocks/IDE/IDEBlockEditor";
 import { generateUUID } from "./blockUtils";
 
@@ -424,151 +423,6 @@ export const IDEBlock = Node.create({
     };
   },
 
-  addKeyboardShortcuts() {
-    return {
-      // Handle Backspace to delete IDE block when selected or when cursor is right after it
-      Backspace: ({ editor }) => {
-        const { state } = editor;
-        const { selection } = state;
-        const { $anchor, empty } = selection;
-
-        // If the selection is a NodeSelection on this node type, delete it
-        if (selection instanceof NodeSelection && selection.node.type.name === this.name) {
-          editor.commands.deleteSelection();
-          return true;
-        }
-
-        // If cursor is empty and right after an IDE block, delete it directly
-        if (empty && $anchor.nodeBefore?.type.name === this.name) {
-          const nodePos = $anchor.pos - $anchor.nodeBefore.nodeSize;
-          const nodeSize = $anchor.nodeBefore.nodeSize;
-          // Delete the IDE block directly
-          editor.chain()
-            .deleteRange({ from: nodePos, to: nodePos + nodeSize })
-            .focus()
-            .run();
-          return true;
-        }
-
-        return false;
-      },
-      // Handle Delete to delete IDE block when selected or when cursor is right before it
-      Delete: ({ editor }) => {
-        const { state } = editor;
-        const { selection } = state;
-        const { $anchor, empty } = selection;
-
-        // If the selection is a NodeSelection on this node type, delete it
-        if (selection instanceof NodeSelection && selection.node.type.name === this.name) {
-          editor.commands.deleteSelection();
-          return true;
-        }
-
-        // If cursor is empty and right before an IDE block, delete it directly
-        if (empty && $anchor.nodeAfter?.type.name === this.name) {
-          const nodePos = $anchor.pos;
-          const nodeSize = $anchor.nodeAfter.nodeSize;
-          // Delete the IDE block directly
-          editor.chain()
-            .deleteRange({ from: nodePos, to: nodePos + nodeSize })
-            .focus()
-            .run();
-          return true;
-        }
-
-        return false;
-      },
-    };
-  },
-
-  // Add plugin to handle backspace/delete before focus can jump into IDE block
-  addProseMirrorPlugins() {
-    const extensionThis = this;
-
-    return [
-      new Plugin({
-        key: new PluginKey("ideBlockKeyHandler"),
-        props: {
-          handleKeyDown(view, event) {
-            if (event.key !== "Backspace" && event.key !== "Delete") {
-              return false;
-            }
-
-            const { state } = view;
-            const { selection } = state;
-            const { $anchor, empty } = selection;
-
-            // If the selection is a NodeSelection on an IDE block, delete it
-            if (selection instanceof NodeSelection && selection.node.type.name === extensionThis.name) {
-              view.dispatch(state.tr.deleteSelection());
-              return true;
-            }
-
-            // Handle Backspace: cursor right after an IDE block
-            if (event.key === "Backspace" && empty && $anchor.nodeBefore?.type.name === extensionThis.name) {
-              const nodePos = $anchor.pos - $anchor.nodeBefore.nodeSize;
-              const nodeSize = $anchor.nodeBefore.nodeSize;
-              const tr = state.tr.delete(nodePos, nodePos + nodeSize);
-              view.dispatch(tr);
-              return true;
-            }
-
-            // Handle Backspace: at start of a block (like paragraph) that comes right after an IDE block
-            if (event.key === "Backspace" && empty) {
-              // Check if we're at the very start of our parent block
-              const parentOffset = $anchor.parentOffset;
-              if (parentOffset === 0 && $anchor.depth > 0) {
-                // Get the position just before our parent block
-                const beforeParentPos = $anchor.before($anchor.depth);
-                const $beforeParent = state.doc.resolve(beforeParentPos);
-
-                // Check if the node before our parent is an IDE block
-                if ($beforeParent.nodeBefore?.type.name === extensionThis.name) {
-                  const nodePos = beforeParentPos - $beforeParent.nodeBefore.nodeSize;
-                  const nodeSize = $beforeParent.nodeBefore.nodeSize;
-                  const tr = state.tr.delete(nodePos, nodePos + nodeSize);
-                  view.dispatch(tr);
-                  return true;
-                }
-              }
-            }
-
-            // Handle Delete: cursor right before an IDE block
-            if (event.key === "Delete" && empty && $anchor.nodeAfter?.type.name === extensionThis.name) {
-              const nodePos = $anchor.pos;
-              const nodeSize = $anchor.nodeAfter.nodeSize;
-              const tr = state.tr.delete(nodePos, nodePos + nodeSize);
-              view.dispatch(tr);
-              return true;
-            }
-
-            // Handle Delete: at end of a block that comes right before an IDE block
-            if (event.key === "Delete" && empty && $anchor.depth > 0) {
-              const parent = $anchor.parent;
-              const parentOffset = $anchor.parentOffset;
-              if (parentOffset === parent.content.size) {
-                // Get the position just after our parent block
-                const afterParentPos = $anchor.after($anchor.depth);
-                const $afterParent = state.doc.resolve(afterParentPos);
-
-                // Check if the node after our parent is an IDE block
-                if ($afterParent.nodeAfter?.type.name === extensionThis.name) {
-                  const nodePos = afterParentPos;
-                  const nodeSize = $afterParent.nodeAfter.nodeSize;
-                  const tr = state.tr.delete(nodePos, nodePos + nodeSize);
-                  view.dispatch(tr);
-                  return true;
-                }
-              }
-            }
-
-            return false;
-          },
-        },
-      }),
-    ];
-  },
-
   // Custom clipboard serialization to ensure IDE block data is preserved
   addStorage() {
     return {
@@ -605,29 +459,8 @@ export const IDEBlock = Node.create({
       stopEvent: ({ event }) => {
         const target = event.target as HTMLElement;
 
-        // Check if the event is a keyboard event
+        // Stop ALL keyboard events inside IDE editor to prevent page scrolling
         if (event.type.startsWith("key")) {
-          const keyEvent = event as KeyboardEvent;
-
-          // Allow Backspace and Delete to propagate when not focused on an editable element
-          // This enables deleting the IDE block from the editor
-          if (keyEvent.key === "Backspace" || keyEvent.key === "Delete") {
-            // Check if we're focused on an input, textarea, or contenteditable element
-            const isEditableElement =
-              target.tagName === "INPUT" ||
-              target.tagName === "TEXTAREA" ||
-              target.isContentEditable ||
-              target.closest('[contenteditable="true"]') ||
-              target.closest(".monaco-editor") ||
-              target.closest("iframe");
-
-            // If not in an editable element, let the event propagate to ProseMirror
-            if (!isEditableElement) {
-              return false;
-            }
-          }
-
-          // Stop other keyboard events inside IDE editor to prevent page scrolling
           if (target.closest(".ide-editor-wrapper")) {
             return true;
           }
