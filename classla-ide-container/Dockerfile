@@ -651,6 +651,12 @@ RUN echo '#!/usr/bin/env python3' > /usr/local/bin/run-server.py && \
     echo '    except Exception as e:' >> /usr/local/bin/run-server.py && \
     echo '        return jsonify({"error": str(e)}), 500' >> /usr/local/bin/run-server.py && \
     echo '' >> /usr/local/bin/run-server.py && \
+    echo '@app.route("/sync-status", methods=["GET"])' >> /usr/local/bin/run-server.py && \
+    echo 'def sync_status():' >> /usr/local/bin/run-server.py && \
+    echo '    """Check if initial file sync is complete"""' >> /usr/local/bin/run-server.py && \
+    echo '    sync_complete = os.path.exists("/tmp/initial-sync-complete")' >> /usr/local/bin/run-server.py && \
+    echo '    return jsonify({"synced": sync_complete}), 200' >> /usr/local/bin/run-server.py && \
+    echo '' >> /usr/local/bin/run-server.py && \
     echo 'S3_ASSIGNMENT_FILE = "/tmp/s3-assignment.json"' >> /usr/local/bin/run-server.py && \
     echo 'S3_SYNC_TRIGGER_FILE = "/tmp/s3-sync-trigger"' >> /usr/local/bin/run-server.py && \
     echo '' >> /usr/local/bin/run-server.py && \
@@ -686,6 +692,10 @@ RUN echo '#!/usr/bin/env python3' > /usr/local/bin/run-server.py && \
     echo '        if not bucket_id:' >> /usr/local/bin/run-server.py && \
     echo '            print(f"WARNING: bucketId is missing or empty in S3 assignment request! Y.js sync will NOT work.")' >> /usr/local/bin/run-server.py && \
     echo '            print(f"Request data keys: {list(data.keys())}")' >> /usr/local/bin/run-server.py && \
+    echo '        # Reset initial sync marker so health monitor waits for new sync' >> /usr/local/bin/run-server.py && \
+    echo '        if os.path.exists("/tmp/initial-sync-complete"):' >> /usr/local/bin/run-server.py && \
+    echo '            os.remove("/tmp/initial-sync-complete")' >> /usr/local/bin/run-server.py && \
+    echo '            print("Removed /tmp/initial-sync-complete marker for fresh sync")' >> /usr/local/bin/run-server.py && \
     echo '        assignment = {' >> /usr/local/bin/run-server.py && \
     echo '            "bucket": bucket,' >> /usr/local/bin/run-server.py && \
         echo '            "bucketId": bucket_id,' >> /usr/local/bin/run-server.py && \

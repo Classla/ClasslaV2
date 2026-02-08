@@ -47,6 +47,9 @@ class YjsContainerSync {
     this.syncingFromYjs = new Set(); // Track files being synced from Y.js to prevent loops
     this.pendingFileWrites = new Map(); // Track debounced file writes from remote YJS updates
     this.lastRemoteUpdateTime = new Map(); // Track last remote update time per file
+    this.initialSyncComplete = false; // Track whether initial file sync is done
+    this.pendingInitialFiles = new Set(); // Files we're waiting for during initial sync
+    this.isFirstSubscription = true; // Track first vs periodic re-subscription
   }
 
   async start() {
@@ -200,6 +203,11 @@ class YjsContainerSync {
       return;
     }
 
+    const isInitial = this.isFirstSubscription;
+    if (isInitial) {
+      this.isFirstSubscription = false;
+    }
+
     try {
       // First, get list of files from S3 via backend API
       // This ensures we subscribe to files that exist in S3/IDE but not yet in workspace
@@ -221,6 +229,36 @@ class YjsContainerSync {
       const allFiles = new Set([...filesFromBackend, ...workspaceFilePaths]);
 
       console.log(`[YjsContainerSync] 📋 COMBINED ${allFiles.size} unique files to subscribe:`, Array.from(allFiles));
+
+      // For initial subscription, track files we need to sync
+      if (isInitial) {
+        // Collect non-ignored files for initial sync tracking
+        const filesToTrack = [];
+        for (const relativePath of allFiles) {
+          if (!this.shouldIgnoreFile(relativePath)) {
+            filesToTrack.push(relativePath);
+          }
+        }
+
+        if (filesToTrack.length === 0) {
+          // No files to sync - immediately mark sync complete
+          console.log(`[YjsContainerSync] 📋 No files to sync, marking initial sync complete immediately`);
+          this.markInitialSyncComplete();
+        } else {
+          // Track pending files
+          this.pendingInitialFiles = new Set(filesToTrack);
+          console.log(`[YjsContainerSync] 📋 Tracking ${this.pendingInitialFiles.size} files for initial sync`);
+
+          // Safety timeout: mark sync complete after 15 seconds regardless
+          // This prevents infinite wait if a file's document-state never arrives
+          setTimeout(() => {
+            if (!this.initialSyncComplete) {
+              console.warn(`[YjsContainerSync] ⚠️ Initial sync safety timeout (15s) - marking complete with ${this.pendingInitialFiles.size} files still pending:`, Array.from(this.pendingInitialFiles));
+              this.markInitialSyncComplete();
+            }
+          }, 15000);
+        }
+      }
 
       let subscribedCount = 0;
       let skippedCount = 0;
@@ -269,6 +307,12 @@ class YjsContainerSync {
     } catch (error) {
       console.error("[YjsContainerSync] ❌ Failed to subscribe to files:", error);
       console.error("[YjsContainerSync] Error stack:", error.stack);
+
+      // If initial subscription failed, mark sync complete to avoid blocking forever
+      if (isInitial && !this.initialSyncComplete) {
+        console.warn(`[YjsContainerSync] ⚠️ Initial subscription failed, marking sync complete to avoid blocking`);
+        this.markInitialSyncComplete();
+      }
     }
   }
 
@@ -856,6 +900,7 @@ class YjsContainerSync {
         }, "local-file-sync");
 
         console.log(`[YjsContainerSync] ✅ Synced local file content to Y.js (will propagate to server): ${filePath}`);
+        this.checkInitialSyncProgress(filePath);
         return; // Don't write server state to file
       }
 
@@ -876,8 +921,12 @@ class YjsContainerSync {
       } else {
         console.log(`[YjsContainerSync] ⏭️  Skipping file write - both server and local are empty: ${filePath}`);
       }
+
+      this.checkInitialSyncProgress(filePath);
     } catch (error) {
       console.error(`[YjsContainerSync] ❌ Failed to handle document state for ${filePath}:`, error);
+      // Even on error, mark file as processed for initial sync to avoid blocking
+      this.checkInitialSyncProgress(filePath);
     }
   }
 
@@ -995,6 +1044,34 @@ class YjsContainerSync {
 
     this.pendingFileWrites.set(filePath, timeout);
     console.log(`[YjsContainerSync] ⏰ Scheduled batched write for ${filePath} (${debounceMs}ms debounce, significant=${isLikelySignificantChange})`);
+  }
+
+  /**
+   * Mark initial sync as complete and write marker file
+   */
+  markInitialSyncComplete() {
+    if (this.initialSyncComplete) return;
+    this.initialSyncComplete = true;
+    this.pendingInitialFiles.clear();
+    try {
+      require("fs").writeFileSync("/tmp/initial-sync-complete", Date.now().toString());
+      console.log(`[YjsContainerSync] ✅ Initial sync complete - wrote /tmp/initial-sync-complete`);
+    } catch (error) {
+      console.error(`[YjsContainerSync] ❌ Failed to write initial sync marker:`, error);
+    }
+  }
+
+  /**
+   * Called after a file's document-state is processed during initial sync
+   */
+  checkInitialSyncProgress(filePath) {
+    if (this.initialSyncComplete) return;
+    this.pendingInitialFiles.delete(filePath);
+    console.log(`[YjsContainerSync] 📋 Initial sync progress: ${this.pendingInitialFiles.size} files remaining`);
+    if (this.pendingInitialFiles.size === 0) {
+      console.log(`[YjsContainerSync] 📋 All initial files synced!`);
+      this.markInitialSyncComplete();
+    }
   }
 
   getOrCreateDocument(filePath) {
