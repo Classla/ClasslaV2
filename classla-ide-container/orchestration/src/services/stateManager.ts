@@ -28,6 +28,7 @@ interface ContainerRow {
   vnc_url: string;
   code_server_url: string;
   web_server_url: string;
+  terminal_url: string;
   cpu_limit: string;
   memory_limit: string;
   is_pre_warmed: number; // SQLite uses 0/1 for boolean
@@ -49,6 +50,7 @@ export interface ContainerMetadata {
     vnc: string;
     codeServer: string;
     webServer: string;
+    terminal: string;
   };
   resourceLimits: {
     cpuLimit: string;
@@ -97,6 +99,7 @@ export class StateManager {
         vnc_url TEXT NOT NULL,
         code_server_url TEXT NOT NULL,
         web_server_url TEXT NOT NULL,
+        terminal_url TEXT NOT NULL DEFAULT '',
         cpu_limit TEXT NOT NULL,
         memory_limit TEXT NOT NULL,
         is_pre_warmed INTEGER DEFAULT 0
@@ -106,6 +109,13 @@ export class StateManager {
     // Add is_pre_warmed column if it doesn't exist (for existing databases)
     try {
       this.db.exec(`ALTER TABLE containers ADD COLUMN is_pre_warmed INTEGER DEFAULT 0`);
+    } catch (error) {
+      // Column already exists, ignore
+    }
+
+    // Add terminal_url column if it doesn't exist (for existing databases)
+    try {
+      this.db.exec(`ALTER TABLE containers ADD COLUMN terminal_url TEXT NOT NULL DEFAULT ''`);
     } catch (error) {
       // Column already exists, ignore
     }
@@ -129,9 +139,9 @@ export class StateManager {
       INSERT OR REPLACE INTO containers (
         id, service_name, s3_bucket, s3_region, status,
         created_at, started_at, stopped_at, last_activity, shutdown_reason,
-        vnc_url, code_server_url, web_server_url,
+        vnc_url, code_server_url, web_server_url, terminal_url,
         cpu_limit, memory_limit, is_pre_warmed
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     stmt.run(
@@ -148,6 +158,7 @@ export class StateManager {
       container.urls.vnc,
       container.urls.codeServer,
       container.urls.webServer,
+      container.urls.terminal,
       container.resourceLimits.cpuLimit,
       container.resourceLimits.memoryLimit,
       container.isPreWarmed ? 1 : 0
@@ -369,6 +380,7 @@ export class StateManager {
         vnc: row.vnc_url,
         codeServer: row.code_server_url,
         webServer: row.web_server_url,
+        terminal: row.terminal_url,
       },
       resourceLimits: {
         cpuLimit: row.cpu_limit,

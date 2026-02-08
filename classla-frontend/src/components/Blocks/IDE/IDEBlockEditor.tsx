@@ -204,7 +204,7 @@ const IDEBlockEditor: React.FC<IDEBlockEditorProps> = memo(
                 status: container.status,
                 urls: {
                   ...container.urls,
-                  terminal: container.urls.terminal || `${currentIDEBaseUrl}/terminal/${container.id}`,
+                  terminal: container.urls.terminal || `${currentIDEBaseUrl}/terminal/${container.id}/`,
                   vnc: container.urls.vnc || `${currentIDEBaseUrl}/vnc/${container.id}/`,
                 },
               },
@@ -556,7 +556,7 @@ const IDEBlockEditor: React.FC<IDEBlockEditorProps> = memo(
                 status: "running", // Force to running for pre-warmed
                 urls: {
                   ...containerData.urls,
-                  terminal: containerData.urls.terminal || `${IDE_API_BASE_URL}/terminal/${containerId}`,
+                  terminal: containerData.urls.terminal || `${IDE_API_BASE_URL}/terminal/${containerId}/`,
                   vnc: containerData.urls.vnc || `${IDE_API_BASE_URL}/vnc/${containerId}/`,
                 },
               },

@@ -177,7 +177,7 @@ export class TraefikService {
       vnc: `${protocol}://${domain}/vnc/${containerId}`,
       codeServer: `${protocol}://${domain}/code/${containerId}`,
       webServer: `${protocol}://${domain}/web/${containerId}`,
-      terminal: `${protocol}://${domain}/terminal/${containerId}`,
+      terminal: `${protocol}://${domain}/terminal/${containerId}/`,
     };
   }
 

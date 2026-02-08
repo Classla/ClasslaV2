@@ -142,7 +142,21 @@ class YjsContainerSync {
       });
 
       // Subscribe to all files in workspace
-      this.subscribeToAllFiles();
+      this.subscribeToAllFiles().then(() => {
+        // Write marker file to signal that initial sync is complete
+        // This is checked by the /sync-status endpoint so the orchestration
+        // can wait for files to be ready before showing the IDE
+        const markerPath = "/tmp/yjs-initial-sync-complete";
+        fs.writeFile(markerPath, JSON.stringify({
+          completedAt: new Date().toISOString(),
+          bucketId: BUCKET_ID,
+          documentsCount: this.documents.size,
+        }), "utf-8").then(() => {
+          console.log(`[YjsContainerSync] ✅ Initial sync complete marker written to ${markerPath}`);
+        }).catch((err) => {
+          console.error(`[YjsContainerSync] ❌ Failed to write sync marker:`, err);
+        });
+      });
     });
 
     this.socket.on("disconnect", (reason) => {

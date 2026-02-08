@@ -119,7 +119,7 @@ const TestIDE: React.FC = () => {
       
       // Construct terminal URL using the local IDE base URL
       const ideBaseUrl = "http://localhost";
-      setContainerTerminalUrl(`${ideBaseUrl}/terminal/${response.data.id}`);
+      setContainerTerminalUrl(`${ideBaseUrl}/terminal/${response.data.id}/`);
       
       console.log("Container started successfully:", response.data);
     } catch (err: any) {

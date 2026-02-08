@@ -51,25 +51,36 @@ router.post(
       // Check if there's already a running container for this S3 bucket
       const existingContainer = stateManager.getRunningContainerByS3Bucket(s3Bucket);
       if (existingContainer && existingContainer.urls?.codeServer) {
-        console.log(
-          `[Containers] ✅ Found existing running container ${existingContainer.id} for bucket ${s3Bucket}, reusing it`
-        );
+        // Verify the Docker service actually exists before reusing
+        // State manager can have stale records after kill.sh removes Docker services
+        const dockerContainer = await containerService.getContainer(existingContainer.id);
+        if (!dockerContainer) {
+          console.warn(
+            `[Containers] ⚠️ Container ${existingContainer.id} exists in state manager but Docker service is gone. Cleaning up stale record.`
+          );
+          stateManager.updateContainerStatus(existingContainer.id, "stopped");
+          // Fall through to normal container creation flow
+        } else {
+          console.log(
+            `[Containers] ✅ Found existing running container ${existingContainer.id} for bucket ${s3Bucket}, reusing it`
+          );
 
-        // Update last activity timestamp
-        stateManager.updateContainerLifecycle(existingContainer.id, {
-          lastActivity: new Date(),
-        });
+          // Update last activity timestamp
+          stateManager.updateContainerLifecycle(existingContainer.id, {
+            lastActivity: new Date(),
+          });
 
-        res.status(200).json({
-          id: existingContainer.id,
-          serviceName: existingContainer.serviceName,
-          status: existingContainer.status,
-          urls: existingContainer.urls,
-          message: "Container is already running. Reusing existing instance.",
-          isPreWarmed: false,
-          isReused: true,
-        });
-        return;
+          res.status(200).json({
+            id: dockerContainer.id,
+            serviceName: dockerContainer.serviceName,
+            status: dockerContainer.status,
+            urls: dockerContainer.urls,
+            message: "Container is already running. Reusing existing instance.",
+            isPreWarmed: false,
+            isReused: true,
+          });
+          return;
+        }
       }
 
       // Validate S3 bucket accessibility before starting container
@@ -530,11 +541,15 @@ router.get(
       // Get health status if available
       const health = healthMonitor.getContainerHealth(id);
 
+      // Use live container URLs when available (includes terminal from Traefik config)
+      // Fall back to state manager URLs for stopped containers
+      const urls = liveContainer ? liveContainer.urls : container.urls;
+
       res.json({
         id: container.id,
         serviceName: container.serviceName,
         status,
-        urls: container.urls,
+        urls,
         s3Bucket: container.s3Bucket,
         createdAt: container.createdAt.toISOString(),
         startedAt: container.startedAt?.toISOString(),

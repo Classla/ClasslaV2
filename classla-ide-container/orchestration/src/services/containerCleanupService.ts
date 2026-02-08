@@ -33,6 +33,13 @@ export class ContainerCleanupService {
     this.isRunning = true;
     console.log("[ContainerCleanup] Starting container cleanup service...");
 
+    // Reconcile state manager with actual Docker services on startup
+    // This catches ghost containers left behind when kill.sh removes Docker services
+    // but the SQLite DB (in a Docker volume) persists
+    this.reconcileWithDocker().catch((error) => {
+      console.error("[ContainerCleanup] Error in startup reconciliation:", error);
+    });
+
     // Do initial cleanup immediately
     this.cleanupStoppedContainers().catch((error) => {
       console.error("[ContainerCleanup] Error in initial cleanup:", error);
@@ -122,6 +129,55 @@ export class ContainerCleanupService {
       }
     } catch (error) {
       console.error("[ContainerCleanup] Error during cleanup:", error);
+    }
+  }
+
+  /**
+   * Reconcile state manager with actual Docker services.
+   * Marks containers as "stopped" in the DB if their Docker service no longer exists.
+   */
+  private async reconcileWithDocker(): Promise<void> {
+    try {
+      // Get all containers the state manager thinks are running or starting
+      const runningContainers = this.stateManager.listContainers({
+        status: "running",
+      });
+      const startingContainers = this.stateManager.listContainers({
+        status: "starting",
+      });
+      const allActive = [...runningContainers, ...startingContainers];
+
+      if (allActive.length === 0) {
+        return;
+      }
+
+      console.log(
+        `[ContainerCleanup] Reconciling ${allActive.length} active container(s) in state manager with Docker...`
+      );
+
+      let staleCount = 0;
+      for (const container of allActive) {
+        const dockerContainer = await this.containerService.getContainer(container.id);
+        if (!dockerContainer) {
+          console.warn(
+            `[ContainerCleanup] Container ${container.id} marked as "${container.status}" but Docker service doesn't exist. Marking as stopped.`
+          );
+          this.stateManager.updateContainerStatus(container.id, "stopped");
+          staleCount++;
+        }
+      }
+
+      if (staleCount > 0) {
+        console.log(
+          `[ContainerCleanup] Reconciliation complete: ${staleCount} stale container(s) marked as stopped`
+        );
+      } else {
+        console.log(
+          `[ContainerCleanup] Reconciliation complete: all ${allActive.length} container(s) verified in Docker`
+        );
+      }
+    } catch (error) {
+      console.error("[ContainerCleanup] Error during reconciliation:", error);
     }
   }
 

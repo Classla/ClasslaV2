@@ -431,26 +431,22 @@ export class HealthMonitor {
     // 404 means routing isn't working yet
     const checkUrl = isCodeServer ? `${baseUrl}/` : url;
     
-    // For code-server, always use HTTPS for domain-based URLs (not localhost/IP)
-    // This avoids redirect issues and ensures we check the correct endpoint
     // IMPORTANT: For localhost URLs, if we're running in Docker (management-api container),
-    // we need to use the Traefik service name instead of localhost
+    // we need to use the Traefik service name instead of localhost.
+    // "localhost" inside Docker resolves to the management-api container itself, not Traefik.
+    // This applies to ALL service checks (code-server, VNC, web server), not just code-server.
     let finalUrl = checkUrl; // Declare at function scope for use in catch block
-    if (isCodeServer) {
-      // If URL contains localhost, we're checking from within Docker network
-      // Replace localhost with Traefik service name for internal Docker network access
-      if (checkUrl.includes('localhost')) {
-        // Use Traefik service name: ide-local_traefik (from docker-compose stack name + service name)
-        // Port 80 is the internal port Traefik listens on
-        finalUrl = checkUrl.replace('http://localhost', 'http://ide-local_traefik:80');
-      } else if (checkUrl.startsWith('http://') && !checkUrl.match(/http:\/\/\d+\.\d+\.\d+\.\d+/)) {
-        // Domain-based URL - use HTTPS
-        finalUrl = checkUrl.replace('http://', 'https://');
-      } else if (checkUrl.match(/http:\/\/\d+\.\d+\.\d+\.\d+/)) {
-        // IP address - convert to domain if we have one, otherwise use HTTPS
-        // For ide.classla.org, always use HTTPS with domain
-        finalUrl = checkUrl.replace(/http:\/\/\d+\.\d+\.\d+\.\d+/, 'https://ide.classla.org');
-      }
+    if (checkUrl.includes('localhost')) {
+      // Use Traefik service name: ide-local_traefik (from docker-compose stack name + service name)
+      // Port 80 is the internal port Traefik listens on
+      finalUrl = checkUrl.replace('http://localhost', 'http://ide-local_traefik:80');
+    } else if (checkUrl.startsWith('http://') && !checkUrl.match(/http:\/\/\d+\.\d+\.\d+\.\d+/)) {
+      // Domain-based URL - use HTTPS
+      finalUrl = checkUrl.replace('http://', 'https://');
+    } else if (checkUrl.match(/http:\/\/\d+\.\d+\.\d+\.\d+/)) {
+      // IP address - convert to domain if we have one, otherwise use HTTPS
+      // For ide.classla.org, always use HTTPS with domain
+      finalUrl = checkUrl.replace(/http:\/\/\d+\.\d+\.\d+\.\d+/, 'https://ide.classla.org');
     }
     
     try {

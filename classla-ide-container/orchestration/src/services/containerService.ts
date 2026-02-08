@@ -27,6 +27,7 @@ export interface ContainerInfo {
     vnc: string;
     codeServer: string;
     webServer: string;
+    terminal: string;
   };
   s3Bucket: string;
   createdAt: Date;
@@ -611,6 +612,61 @@ export class ContainerService {
       console.log(
         `[ContainerService] Successfully assigned S3 bucket ${s3Config.bucket} to container ${containerId}`
       );
+
+      // Wait for Y.js initial sync to complete before returning
+      // This ensures the container workspace has files before the IDE is shown
+      console.log(
+        `[ContainerService] Waiting for Y.js initial sync to complete for container ${containerId}...`
+      );
+      const syncMaxRetries = 30; // 30 retries * 1s = 30s max wait
+      const syncRetryDelay = 1000;
+      let syncReady = false;
+
+      for (let attempt = 1; attempt <= syncMaxRetries; attempt++) {
+        let syncTimeoutId: NodeJS.Timeout | null = null;
+        try {
+          const controller = new AbortController();
+          syncTimeoutId = setTimeout(() => controller.abort(), 2000);
+
+          const syncResponse = await fetch(`${webServerUrl}/sync-status`, {
+            method: "GET",
+            signal: controller.signal,
+          });
+
+          if (syncTimeoutId) clearTimeout(syncTimeoutId);
+
+          if (syncResponse.ok) {
+            const syncData = (await syncResponse.json()) as {
+              status?: string;
+            };
+            if (syncData.status === "ready") {
+              syncReady = true;
+              console.log(
+                `[ContainerService] ✅ Y.js initial sync complete for container ${containerId} (attempt ${attempt}/${syncMaxRetries})`
+              );
+              break;
+            }
+          }
+
+          if (attempt < syncMaxRetries) {
+            console.log(
+              `[ContainerService] Y.js sync not ready yet for container ${containerId} (attempt ${attempt}/${syncMaxRetries}), waiting...`
+            );
+            await new Promise((resolve) => setTimeout(resolve, syncRetryDelay));
+          }
+        } catch (error: any) {
+          if (syncTimeoutId) clearTimeout(syncTimeoutId);
+          if (attempt < syncMaxRetries) {
+            await new Promise((resolve) => setTimeout(resolve, syncRetryDelay));
+          }
+        }
+      }
+
+      if (!syncReady) {
+        console.warn(
+          `[ContainerService] ⚠️ Y.js sync did not complete within timeout for container ${containerId}, proceeding anyway`
+        );
+      }
     } catch (error) {
       console.error(
         `[ContainerService] Error assigning S3 bucket to container ${containerId}:`,

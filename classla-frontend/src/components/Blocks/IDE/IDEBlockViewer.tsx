@@ -333,7 +333,7 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
             status: "running",
             urls: {
               ...containerData.urls,
-              terminal: containerData.urls.terminal || `${IDE_API_BASE_URL}/terminal/${containerId}`,
+              terminal: containerData.urls.terminal || `${IDE_API_BASE_URL}/terminal/${containerId}/`,
               vnc: containerData.urls.vnc || `${IDE_API_BASE_URL}/vnc/${containerId}/`,
             },
           });
@@ -754,7 +754,7 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
                       <MonacoIDE
                         bucketId={studentBucketId}
                         containerId={container?.id || null}
-                        containerTerminalUrl={container?.urls?.terminal || (container ? `${IDE_API_BASE_URL}/terminal/${container.id}` : undefined)}
+                        containerTerminalUrl={container?.urls?.terminal || (container ? `${IDE_API_BASE_URL}/terminal/${container.id}/` : undefined)}
                         containerVncUrl={container?.urls?.vnc}
                         containerWebServerUrl={container?.urls?.webServer}
                         ideApiBaseUrl={IDE_API_BASE_URL}

@@ -716,6 +716,23 @@ RUN echo '#!/usr/bin/env python3' > /usr/local/bin/run-server.py && \
     echo '    except Exception as e:' >> /usr/local/bin/run-server.py && \
     echo '        return jsonify({"error": str(e)}), 500' >> /usr/local/bin/run-server.py && \
     echo '' >> /usr/local/bin/run-server.py && \
+    echo '@app.route("/sync-status", methods=["GET"])' >> /usr/local/bin/run-server.py && \
+    echo 'def sync_status():' >> /usr/local/bin/run-server.py && \
+    echo '    """Check if Y.js initial sync has completed"""' >> /usr/local/bin/run-server.py && \
+    echo '    marker_file = "/tmp/yjs-initial-sync-complete"' >> /usr/local/bin/run-server.py && \
+    echo '    if os.path.exists(marker_file):' >> /usr/local/bin/run-server.py && \
+    echo '        try:' >> /usr/local/bin/run-server.py && \
+    echo '            import json' >> /usr/local/bin/run-server.py && \
+    echo '            with open(marker_file, "r") as f:' >> /usr/local/bin/run-server.py && \
+    echo '                data = json.load(f)' >> /usr/local/bin/run-server.py && \
+    echo '            return jsonify({"status": "ready", "details": data}), 200' >> /usr/local/bin/run-server.py && \
+    echo '        except Exception:' >> /usr/local/bin/run-server.py && \
+    echo '            return jsonify({"status": "ready"}), 200' >> /usr/local/bin/run-server.py && \
+    echo '    elif os.path.exists(S3_ASSIGNMENT_FILE):' >> /usr/local/bin/run-server.py && \
+    echo '        return jsonify({"status": "syncing"}), 202' >> /usr/local/bin/run-server.py && \
+    echo '    else:' >> /usr/local/bin/run-server.py && \
+    echo '        return jsonify({"status": "waiting_for_assignment"}), 202' >> /usr/local/bin/run-server.py && \
+    echo '' >> /usr/local/bin/run-server.py && \
     echo 'AUTOGRADER_PATH = "/autograder-copy"' >> /usr/local/bin/run-server.py && \
     echo 'WORKSPACE_PATH = "/workspace"' >> /usr/local/bin/run-server.py && \
     echo '' >> /usr/local/bin/run-server.py && \
