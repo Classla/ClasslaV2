@@ -1,0 +1,44 @@
+name: Deploy IDE Container Server
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'classla-ide-container/**'
+  workflow_dispatch: # Allow manual triggering
+
+jobs:
+  deploy:
+    name: Redeploy IDE Container Server
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Validate SSH credentials
+        run: |
+          if [ -z "${{ secrets.IDE_SERVER_SSH_KEY }}" ]; then
+            echo "::error::IDE_SERVER_SSH_KEY secret is not configured. Please add the SSH private key for the IDE server in GitHub repository settings."
+            exit 1
+          fi
+          echo "✓ SSH credentials are configured"
+
+      - name: Deploy to IDE server
+        uses: appleboy/ssh-action@v1
+        with:
+          host: 5.161.59.175
+          username: root
+          key: ${{ secrets.IDE_SERVER_SSH_KEY }}
+          command_timeout: 10m
+          script: |
+            set -e
+            cd ClasslaV2/classla-ide-container
+            echo "=== Pulling latest changes ==="
+            git pull origin main
+            echo "=== Stopping current deployment ==="
+            ./kill.sh --leave-swarm
+            echo "=== Building ==="
+            ./build.sh
+            echo "=== Starting production ==="
+            ./start.sh --production
+            echo "=== Deployment complete ==="
