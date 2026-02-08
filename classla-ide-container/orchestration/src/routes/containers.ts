@@ -247,42 +247,10 @@ router.post(
           if (!assignedContainerInfo) {
             throw new Error("Failed to get container info after S3 assignment");
           }
-          // Pre-warmed containers are already running, but we need to wait for file sync
-          // Poll /sync-status on the container's web server before marking as "running"
-          let syncComplete = false;
-          const syncPollStart = Date.now();
-          const syncPollTimeout = 15000; // 15 seconds max
-          const syncPollInterval = 500; // 500ms between polls
-
-          while (Date.now() - syncPollStart < syncPollTimeout) {
-            try {
-              const syncResponse = await axios.get(
-                `http://ide-${queuedContainer.containerId}:3000/sync-status`,
-                { timeout: 2000, validateStatus: () => true }
-              );
-              if (syncResponse.status === 200 && syncResponse.data?.synced === true) {
-                syncComplete = true;
-                console.log(
-                  `[Containers] ✅ Pre-warmed container ${queuedContainer.containerId} file sync complete (${Date.now() - syncPollStart}ms)`
-                );
-                break;
-              }
-            } catch {
-              // Web server might not be ready yet, continue polling
-            }
-            await new Promise((resolve) => setTimeout(resolve, syncPollInterval));
-          }
-
-          if (!syncComplete) {
-            console.warn(
-              `[Containers] ⚠️ Pre-warmed container ${queuedContainer.containerId} file sync not complete after ${syncPollTimeout}ms, returning as "starting"`
-            );
-          }
-
-          const assignedStatus: "running" | "starting" = syncComplete ? "running" : "starting";
+          // Pre-warmed containers are already running, so mark as running
           containerInfo = {
             ...assignedContainerInfo,
-            status: assignedStatus,
+            status: "running" as const, // Pre-warmed containers are already running
           };
         } catch (error) {
           console.error(
@@ -406,7 +374,8 @@ router.post(
       });
 
       // Return container info with URLs
-      const message = containerInfo.status === "running"
+      // Pre-warmed containers are already running and ready
+      const message = usedQueue
         ? "Container is ready. Services are available."
         : "Container is starting. Services will be available shortly.";
       

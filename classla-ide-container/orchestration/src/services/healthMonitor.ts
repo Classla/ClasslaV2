@@ -339,18 +339,8 @@ export class HealthMonitor {
       // Update container status to "running" if it was "starting"
       const container = this.stateManager.getContainer(containerId);
       if (container && container.status === "starting") {
-        // Also check if initial file sync is complete before marking as running
-        // This prevents "Run" from failing because files haven't been synced yet
-        const syncComplete = await this.checkSyncStatus(containerId);
-        if (!syncComplete) {
-          console.log(
-            `[HealthMonitor] ⏳ Container ${containerId} code-server ready but file sync not complete yet, waiting...`
-          );
-          return; // Don't mark as running yet - keep polling
-        }
-
         console.log(
-          `[HealthMonitor] ✅ Container ${containerId} is ready (code-server: ${checks.codeServer}, vnc: ${checks.vnc}, web: ${checks.webServer}, sync: complete), updating status from "starting" to "running"`
+          `[HealthMonitor] ✅ Container ${containerId} is ready (code-server: ${checks.codeServer}, vnc: ${checks.vnc}, web: ${checks.webServer}), updating status from "starting" to "running"`
         );
         this.stateManager.updateContainerLifecycle(containerId, {
           status: "running",
@@ -563,33 +553,6 @@ export class HealthMonitor {
           `[HealthMonitor] Service at ${url} check failed: ${error}`
         );
       }
-      return false;
-    }
-  }
-
-  /**
-   * Check if the container's initial file sync is complete
-   * Queries the /sync-status endpoint on the container's web server
-   */
-  private async checkSyncStatus(containerId: string): Promise<boolean> {
-    try {
-      const syncUrl = `http://ide-${containerId}:3000/sync-status`;
-      const response = await axios.get(syncUrl, {
-        timeout: 2000,
-        validateStatus: () => true,
-      });
-      if (response.status === 200 && response.data?.synced === true) {
-        return true;
-      }
-      console.log(
-        `[HealthMonitor] ⏳ Sync status for container ${containerId}: synced=${response.data?.synced}, status=${response.status}`
-      );
-      return false;
-    } catch (error) {
-      // Web server might not be ready yet, that's fine
-      console.log(
-        `[HealthMonitor] ⏳ Could not check sync status for container ${containerId}: ${error instanceof Error ? error.message : String(error)}`
-      );
       return false;
     }
   }
