@@ -858,29 +858,15 @@ RUN echo '#!/usr/bin/env python3' > /usr/local/bin/run-server.py && \
     echo '    os.chmod(test_file_path, 0o755)' >> /usr/local/bin/run-server.py && \
     echo '' >> /usr/local/bin/run-server.py && \
     echo 'def execute_test(test_file_path, test_type, framework=None):' >> /usr/local/bin/run-server.py && \
-    echo '    """Execute test file and return results in isolated workspace"""' >> /usr/local/bin/run-server.py && \
-    echo '    import shutil' >> /usr/local/bin/run-server.py && \
-    echo '    import uuid' >> /usr/local/bin/run-server.py && \
-    echo '    ' >> /usr/local/bin/run-server.py && \
-    echo '    # Create isolated test workspace to prevent sync conflicts' >> /usr/local/bin/run-server.py && \
-    echo '    test_workspace_id = str(uuid.uuid4())[:8]' >> /usr/local/bin/run-server.py && \
-    echo '    test_workspace = f"/tmp/test-workspace-{test_workspace_id}"' >> /usr/local/bin/run-server.py && \
-    echo '    ' >> /usr/local/bin/run-server.py && \
+    echo '    """Execute test file and return results. Workspace files must already be in AUTOGRADER_PATH."""' >> /usr/local/bin/run-server.py && \
     echo '    try:' >> /usr/local/bin/run-server.py && \
-    echo '        # Copy workspace to isolated test directory' >> /usr/local/bin/run-server.py && \
-    echo '        print(f"[Test] Creating isolated test workspace at {test_workspace}")' >> /usr/local/bin/run-server.py && \
-    echo '        shutil.copytree(WORKSPACE_PATH, test_workspace, symlinks=True, dirs_exist_ok=False)' >> /usr/local/bin/run-server.py && \
-    echo '        ' >> /usr/local/bin/run-server.py && \
-    echo '        # Use absolute path for test file' >> /usr/local/bin/run-server.py && \
-    echo '        abs_test_path = os.path.abspath(test_file_path)' >> /usr/local/bin/run-server.py && \
-    echo '        ' >> /usr/local/bin/run-server.py && \
     echo '        if test_type == "inputOutput":' >> /usr/local/bin/run-server.py && \
     echo '            result = subprocess.run(' >> /usr/local/bin/run-server.py && \
-    echo '                ["python3", abs_test_path],' >> /usr/local/bin/run-server.py && \
+    echo '                ["python3", test_file_path],' >> /usr/local/bin/run-server.py && \
     echo '                capture_output=True,' >> /usr/local/bin/run-server.py && \
     echo '                text=True,' >> /usr/local/bin/run-server.py && \
     echo '                timeout=30,' >> /usr/local/bin/run-server.py && \
-    echo '                cwd=test_workspace  # Run in isolated workspace' >> /usr/local/bin/run-server.py && \
+    echo '                cwd=AUTOGRADER_PATH' >> /usr/local/bin/run-server.py && \
     echo '            )' >> /usr/local/bin/run-server.py && \
     echo '            return result.returncode == 0, result.stdout + result.stderr, None' >> /usr/local/bin/run-server.py && \
     echo '        elif test_type == "unitTest":' >> /usr/local/bin/run-server.py && \
@@ -888,29 +874,24 @@ RUN echo '#!/usr/bin/env python3' > /usr/local/bin/run-server.py && \
     echo '                # Start Xvfb for headless GUI support (for tkinter/pydraw)' >> /usr/local/bin/run-server.py && \
     echo '                xvfb_process = None' >> /usr/local/bin/run-server.py && \
     echo '                try:' >> /usr/local/bin/run-server.py && \
-    echo '                    # Start Xvfb on display :99' >> /usr/local/bin/run-server.py && \
     echo '                    xvfb_process = subprocess.Popen(' >> /usr/local/bin/run-server.py && \
     echo '                        ["Xvfb", ":99", "-screen", "0", "1024x768x24", "-ac", "+extension", "GLX", "+render", "-noreset"],' >> /usr/local/bin/run-server.py && \
     echo '                        stdout=subprocess.DEVNULL,' >> /usr/local/bin/run-server.py && \
     echo '                        stderr=subprocess.DEVNULL' >> /usr/local/bin/run-server.py && \
     echo '                    )' >> /usr/local/bin/run-server.py && \
-    echo '                    # Wait a moment for Xvfb to start' >> /usr/local/bin/run-server.py && \
     echo '                    time.sleep(0.5)' >> /usr/local/bin/run-server.py && \
-    echo '                    ' >> /usr/local/bin/run-server.py && \
-    echo '                    # Run test with DISPLAY set to Xvfb' >> /usr/local/bin/run-server.py && \
     echo '                    env = os.environ.copy()' >> /usr/local/bin/run-server.py && \
     echo '                    env["DISPLAY"] = ":99"' >> /usr/local/bin/run-server.py && \
     echo '                    result = subprocess.run(' >> /usr/local/bin/run-server.py && \
-    echo '                        ["python3", abs_test_path],' >> /usr/local/bin/run-server.py && \
+    echo '                        ["python3", test_file_path],' >> /usr/local/bin/run-server.py && \
     echo '                        capture_output=True,' >> /usr/local/bin/run-server.py && \
     echo '                        text=True,' >> /usr/local/bin/run-server.py && \
     echo '                        timeout=30,' >> /usr/local/bin/run-server.py && \
-    echo '                        cwd=test_workspace,  # Run in isolated workspace' >> /usr/local/bin/run-server.py && \
+    echo '                        cwd=AUTOGRADER_PATH,' >> /usr/local/bin/run-server.py && \
     echo '                        env=env' >> /usr/local/bin/run-server.py && \
     echo '                    )' >> /usr/local/bin/run-server.py && \
     echo '                    return result.returncode == 0, result.stdout + result.stderr, None' >> /usr/local/bin/run-server.py && \
     echo '                finally:' >> /usr/local/bin/run-server.py && \
-    echo '                    # Clean up Xvfb process' >> /usr/local/bin/run-server.py && \
     echo '                    if xvfb_process:' >> /usr/local/bin/run-server.py && \
     echo '                        try:' >> /usr/local/bin/run-server.py && \
     echo '                            xvfb_process.terminate()' >> /usr/local/bin/run-server.py && \
@@ -919,56 +900,30 @@ RUN echo '#!/usr/bin/env python3' > /usr/local/bin/run-server.py && \
     echo '                            xvfb_process.kill()' >> /usr/local/bin/run-server.py && \
     echo '                            xvfb_process.wait()' >> /usr/local/bin/run-server.py && \
     echo '            elif framework == "junit":' >> /usr/local/bin/run-server.py && \
-    echo '                # Compile test file in isolated test workspace' >> /usr/local/bin/run-server.py && \
-    echo '                # Copy test file to isolated workspace for compilation' >> /usr/local/bin/run-server.py && \
-    echo '                import shutil' >> /usr/local/bin/run-server.py && \
     echo '                test_basename = os.path.basename(test_file_path)' >> /usr/local/bin/run-server.py && \
-    echo '                temp_test_path = os.path.join(test_workspace, test_basename)' >> /usr/local/bin/run-server.py && \
-    echo '                shutil.copy2(test_file_path, temp_test_path)' >> /usr/local/bin/run-server.py && \
-    echo '                ' >> /usr/local/bin/run-server.py && \
-    echo '                try:' >> /usr/local/bin/run-server.py && \
-    echo '                    compile_result = subprocess.run(' >> /usr/local/bin/run-server.py && \
-    echo '                        ["javac", "-cp", ".:/usr/share/java/junit.jar", temp_test_path],' >> /usr/local/bin/run-server.py && \
-    echo '                        capture_output=True,' >> /usr/local/bin/run-server.py && \
-    echo '                        text=True,' >> /usr/local/bin/run-server.py && \
-    echo '                        timeout=30,' >> /usr/local/bin/run-server.py && \
-    echo '                        cwd=test_workspace  # Run in isolated workspace' >> /usr/local/bin/run-server.py && \
-    echo '                    )' >> /usr/local/bin/run-server.py && \
-    echo '                    if compile_result.returncode != 0:' >> /usr/local/bin/run-server.py && \
-    echo '                        return False, compile_result.stdout + compile_result.stderr, "Compilation failed"' >> /usr/local/bin/run-server.py && \
-    echo '                    ' >> /usr/local/bin/run-server.py && \
-    echo '                    test_class = os.path.splitext(test_basename)[0]' >> /usr/local/bin/run-server.py && \
-    echo '                    result = subprocess.run(' >> /usr/local/bin/run-server.py && \
-    echo '                        ["java", "-cp", ".:/usr/share/java/junit.jar:/usr/share/java/hamcrest-core.jar", "org.junit.runner.JUnitCore", test_class],' >> /usr/local/bin/run-server.py && \
-    echo '                        capture_output=True,' >> /usr/local/bin/run-server.py && \
-    echo '                        text=True,' >> /usr/local/bin/run-server.py && \
-    echo '                        timeout=30,' >> /usr/local/bin/run-server.py && \
-    echo '                        cwd=test_workspace  # Run in isolated workspace' >> /usr/local/bin/run-server.py && \
-    echo '                    )' >> /usr/local/bin/run-server.py && \
-    echo '                    return result.returncode == 0, result.stdout + result.stderr, None' >> /usr/local/bin/run-server.py && \
-    echo '                finally:' >> /usr/local/bin/run-server.py && \
-    echo '                    # Clean up temp test file and class files' >> /usr/local/bin/run-server.py && \
-    echo '                    if os.path.exists(temp_test_path):' >> /usr/local/bin/run-server.py && \
-    echo '                        try:' >> /usr/local/bin/run-server.py && \
-    echo '                            os.remove(temp_test_path)' >> /usr/local/bin/run-server.py && \
-    echo '                            class_file = temp_test_path.replace(".java", ".class")' >> /usr/local/bin/run-server.py && \
-    echo '                            if os.path.exists(class_file):' >> /usr/local/bin/run-server.py && \
-    echo '                                os.remove(class_file)' >> /usr/local/bin/run-server.py && \
-    echo '                        except:' >> /usr/local/bin/run-server.py && \
-    echo '                            pass' >> /usr/local/bin/run-server.py && \
+    echo '                compile_result = subprocess.run(' >> /usr/local/bin/run-server.py && \
+    echo '                    ["javac", "-cp", ".:/usr/share/java/junit.jar", test_file_path],' >> /usr/local/bin/run-server.py && \
+    echo '                    capture_output=True,' >> /usr/local/bin/run-server.py && \
+    echo '                    text=True,' >> /usr/local/bin/run-server.py && \
+    echo '                    timeout=30,' >> /usr/local/bin/run-server.py && \
+    echo '                    cwd=AUTOGRADER_PATH' >> /usr/local/bin/run-server.py && \
+    echo '                )' >> /usr/local/bin/run-server.py && \
+    echo '                if compile_result.returncode != 0:' >> /usr/local/bin/run-server.py && \
+    echo '                    return False, compile_result.stdout + compile_result.stderr, "Compilation failed"' >> /usr/local/bin/run-server.py && \
+    echo '                test_class = os.path.splitext(test_basename)[0]' >> /usr/local/bin/run-server.py && \
+    echo '                result = subprocess.run(' >> /usr/local/bin/run-server.py && \
+    echo '                    ["java", "-cp", ".:/usr/share/java/junit.jar:/usr/share/java/hamcrest-core.jar", "org.junit.runner.JUnitCore", test_class],' >> /usr/local/bin/run-server.py && \
+    echo '                    capture_output=True,' >> /usr/local/bin/run-server.py && \
+    echo '                    text=True,' >> /usr/local/bin/run-server.py && \
+    echo '                    timeout=30,' >> /usr/local/bin/run-server.py && \
+    echo '                    cwd=AUTOGRADER_PATH' >> /usr/local/bin/run-server.py && \
+    echo '                )' >> /usr/local/bin/run-server.py && \
+    echo '                return result.returncode == 0, result.stdout + result.stderr, None' >> /usr/local/bin/run-server.py && \
     echo '        return False, "", "Unknown test type"' >> /usr/local/bin/run-server.py && \
     echo '    except subprocess.TimeoutExpired:' >> /usr/local/bin/run-server.py && \
     echo '        return False, "", "Test execution timed out"' >> /usr/local/bin/run-server.py && \
     echo '    except Exception as e:' >> /usr/local/bin/run-server.py && \
     echo '        return False, "", str(e)' >> /usr/local/bin/run-server.py && \
-    echo '    finally:' >> /usr/local/bin/run-server.py && \
-    echo '        # Clean up isolated test workspace' >> /usr/local/bin/run-server.py && \
-    echo '        if test_workspace and os.path.exists(test_workspace):' >> /usr/local/bin/run-server.py && \
-    echo '            try:' >> /usr/local/bin/run-server.py && \
-    echo '                shutil.rmtree(test_workspace)' >> /usr/local/bin/run-server.py && \
-    echo '                print(f"[Test] Cleaned up isolated test workspace: {test_workspace}")' >> /usr/local/bin/run-server.py && \
-    echo '            except Exception as e:' >> /usr/local/bin/run-server.py && \
-    echo '                print(f"[Test] Warning: Failed to clean up test workspace: {e}")' >> /usr/local/bin/run-server.py && \
     echo '' >> /usr/local/bin/run-server.py && \
     echo '@app.route("/sync", methods=["POST"])' >> /usr/local/bin/run-server.py && \
     echo 'def sync_to_s3():' >> /usr/local/bin/run-server.py && \
@@ -1078,6 +1033,11 @@ RUN echo '#!/usr/bin/env python3' > /usr/local/bin/run-server.py && \
     echo '        ' >> /usr/local/bin/run-server.py && \
     echo '        os.makedirs(AUTOGRADER_PATH, exist_ok=True)' >> /usr/local/bin/run-server.py && \
     echo '        ' >> /usr/local/bin/run-server.py && \
+    echo '        # Copy workspace files to autograder-copy so test imports resolve' >> /usr/local/bin/run-server.py && \
+    echo '        import shutil' >> /usr/local/bin/run-server.py && \
+    echo '        print("[Test] Copying workspace files to autograder-copy")' >> /usr/local/bin/run-server.py && \
+    echo '        shutil.copytree(WORKSPACE_PATH, AUTOGRADER_PATH, symlinks=True, dirs_exist_ok=True)' >> /usr/local/bin/run-server.py && \
+    echo '        ' >> /usr/local/bin/run-server.py && \
     echo '        for test_case in tests:' >> /usr/local/bin/run-server.py && \
     echo '            test_id = test_case.get("id", "unknown")' >> /usr/local/bin/run-server.py && \
     echo '            test_name = test_case.get("name", "Unnamed Test")' >> /usr/local/bin/run-server.py && \
@@ -1137,6 +1097,13 @@ RUN echo '#!/usr/bin/env python3' > /usr/local/bin/run-server.py && \
     echo '                    except:' >> /usr/local/bin/run-server.py && \
     echo '                        pass' >> /usr/local/bin/run-server.py && \
     echo '        ' >> /usr/local/bin/run-server.py && \
+    echo '        # Clean up workspace files from autograder-copy' >> /usr/local/bin/run-server.py && \
+    echo '        try:' >> /usr/local/bin/run-server.py && \
+    echo '            shutil.rmtree(AUTOGRADER_PATH)' >> /usr/local/bin/run-server.py && \
+    echo '            print("[Test] Cleaned up autograder-copy")' >> /usr/local/bin/run-server.py && \
+    echo '        except Exception as cleanup_err:' >> /usr/local/bin/run-server.py && \
+    echo '            print(f"[Test] Warning: Failed to clean up autograder-copy: {cleanup_err}")' >> /usr/local/bin/run-server.py && \
+    echo '        ' >> /usr/local/bin/run-server.py && \
     echo '        return jsonify({' >> /usr/local/bin/run-server.py && \
     echo '            "status": "success",' >> /usr/local/bin/run-server.py && \
     echo '            "results": results,' >> /usr/local/bin/run-server.py && \
@@ -1144,6 +1111,12 @@ RUN echo '#!/usr/bin/env python3' > /usr/local/bin/run-server.py && \
     echo '            "pointsEarned": points_earned' >> /usr/local/bin/run-server.py && \
     echo '        }), 200' >> /usr/local/bin/run-server.py && \
     echo '    except Exception as e:' >> /usr/local/bin/run-server.py && \
+    echo '        # Clean up on error too' >> /usr/local/bin/run-server.py && \
+    echo '        try:' >> /usr/local/bin/run-server.py && \
+    echo '            import shutil as _shutil' >> /usr/local/bin/run-server.py && \
+    echo '            _shutil.rmtree(AUTOGRADER_PATH, ignore_errors=True)' >> /usr/local/bin/run-server.py && \
+    echo '        except:' >> /usr/local/bin/run-server.py && \
+    echo '            pass' >> /usr/local/bin/run-server.py && \
     echo '        return jsonify({"error": str(e)}), 500' >> /usr/local/bin/run-server.py && \
     echo '' >> /usr/local/bin/run-server.py && \
     echo '@app.route("/kill", methods=["POST"])' >> /usr/local/bin/run-server.py && \
