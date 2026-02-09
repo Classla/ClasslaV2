@@ -400,28 +400,19 @@ router.get(
   "/queue/stats",
   async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
+      // Use QueueManager's in-memory state which is correctly updated
+      // when containers are assigned S3 buckets (Docker service env vars
+      // are NOT updated on S3 assignment, so reading them always shows empty)
       const queueStats = queueManager.getStats();
-
-      // Get LIVE container data from Docker to count pre-warmed vs with S3
-      const liveContainers = await containerService.listContainers();
-
-      // Filter out management containers
-      const ideContainers = liveContainers.filter(
-        (c) => !c.serviceName.includes("traefik") && !c.serviceName.includes("management-api")
-      );
-
-      // Count containers with and without S3 buckets from live data
-      const containersWithS3 = ideContainers.filter((c) => c.s3Bucket && c.s3Bucket.length > 0).length;
-      const preWarmedCount = ideContainers.filter((c) => !c.s3Bucket || c.s3Bucket.length === 0).length;
 
       res.json({
         timestamp: new Date().toISOString(),
-        preWarmed: preWarmedCount,
+        preWarmed: queueStats.preWarmed,
         assigned: queueStats.assigned,
-        running: ideContainers.length,
-        total: ideContainers.length,
+        running: queueStats.assigned + queueStats.preWarmed,
+        total: queueStats.total,
         targetSize: queueStats.targetSize,
-        withS3Bucket: containersWithS3,
+        withS3Bucket: queueStats.assigned,
       });
     } catch (error) {
       next(error);

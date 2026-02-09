@@ -104,6 +104,7 @@ app.use("/api/health", healthRouter);
 app.use("/health", healthRouter);
 // Dashboard API routes (no authentication for now)
 app.use("/api/dashboard", dashboardApiRouter);
+app.use("/dashboard", dashboardApiRouter); // Also mount at /dashboard for Traefik strip-prefix
 // Dashboard routes (static files, no authentication for now)
 app.use("/dashboard", dashboardRouter);
 // Load test routes (require authentication)

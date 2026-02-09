@@ -454,15 +454,20 @@ router.get(
       const total = ideContainers.length;
 
       res.json({
-        containers: ideContainers.map((c) => ({
-          id: c.id,
-          serviceName: c.serviceName,
-          status: c.status,
-          urls: c.urls,
-          s3Bucket: c.s3Bucket,
-          createdAt: c.createdAt.toISOString(),
-          startedAt: c.createdAt.toISOString(), // Use createdAt as startedAt for live data
-        })),
+        containers: ideContainers.map((c) => {
+          // Docker service env vars don't get updated on S3 assignment,
+          // so fall back to StateManager which tracks the actual assignment
+          const s3Bucket = c.s3Bucket || stateManager.getContainer(c.id)?.s3Bucket || "";
+          return {
+            id: c.id,
+            serviceName: c.serviceName,
+            status: c.status,
+            urls: c.urls,
+            s3Bucket,
+            createdAt: c.createdAt.toISOString(),
+            startedAt: c.createdAt.toISOString(), // Use createdAt as startedAt for live data
+          };
+        }),
         total,
         limit: limit || total,
         offset: offset || 0,
