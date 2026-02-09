@@ -2119,7 +2119,8 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
       isUnloading = true;
       console.log(`[MonacoIDE] Page unloading - saving files...`);
 
-      // Use sendBeacon for reliable unload saves (synchronous, doesn't block)
+      // Use fetch with keepalive: true for reliable unload saves
+      // This supports PUT method (sendBeacon only supports POST, which doesn't match our route)
       const currentTabs = Array.from(openTabs);
       const backendApiUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
       for (const filePath of currentTabs) {
@@ -2127,20 +2128,18 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
           try {
             const { ytext } = yjsDocsRef.current[filePath];
             const content = ytext.toString();
-            
-            // Use sendBeacon for reliable unload save
-            const blob = new Blob([JSON.stringify({
-              bucketId,
-              filePath,
-              content
-            })], { type: 'application/json' });
-            
-            // Try to save via beacon (more reliable than fetch on unload)
-            // Save to backend API, not IDE orchestration API
-            navigator.sendBeacon(
+
+            // Use fetch with keepalive for reliable save during page unload
+            fetch(
               `${backendApiUrl}/api/s3buckets/${bucketId}/files/${encodeURIComponent(filePath)}`,
-              blob
-            );
+              {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ content }),
+                keepalive: true,
+                credentials: 'include',
+              }
+            ).catch(() => {});
           } catch (error) {
             console.error(`[MonacoIDE] Failed to save ${filePath} on unload:`, error);
           }

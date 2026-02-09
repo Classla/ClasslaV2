@@ -26,6 +26,7 @@ import { apiClient } from "../../../lib/api";
 import { useAuth } from "../../../contexts/AuthContext";
 import { useIDEPanel } from "../../../contexts/IDEPanelContext";
 import { useAssignmentContext } from "../../../contexts/AssignmentContext";
+import { yjsProvider } from "../../../lib/yjsProvider";
 
 interface IDEBlockViewerProps {
   node: any;
@@ -67,7 +68,12 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
       null
     );
     // Track student's cloned bucket ID (persisted in localStorage)
-    const [studentBucketId, setStudentBucketId] = useState<string | null>(null);
+    // Initialize from localStorage for faster rendering while API call is in flight
+    const [studentBucketId, setStudentBucketId] = useState<string | null>(() => {
+      if (!assignmentId || !user?.id) return null;
+      const storageKey = `student_bucket_${assignmentId}_${user.id}`;
+      return localStorage.getItem(storageKey);
+    });
 
     // Test results state for autograder
     const [isRunningTests, setIsRunningTests] = useState(false);
@@ -100,7 +106,7 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
             assignment_id: assignmentId,
           });
 
-          const buckets = bucketsResponse.data;
+          const buckets = bucketsResponse.data?.buckets || [];
 
           // Find the first non-template, non-deleted bucket for this student and assignment
           const studentBucket = buckets?.find(
@@ -128,7 +134,15 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
           }
         } catch (error) {
           console.error("Failed to load student bucket:", error);
-          setStudentBucketId(null);
+          // Try localStorage as fallback (e.g., if API call fails)
+          const storageKey = `student_bucket_${assignmentId}_${user.id}`;
+          const cachedBucketId = localStorage.getItem(storageKey);
+          if (cachedBucketId) {
+            console.log("[IDE Student] Using cached bucket from localStorage:", cachedBucketId);
+            setStudentBucketId(cachedBucketId);
+          } else {
+            setStudentBucketId(null);
+          }
         }
       };
 
@@ -396,6 +410,30 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
       const filename = runFilename || "main.py";
       const language = detectLanguage(filename);
 
+      // Write the file directly to the container's filesystem before running
+      // This ensures the container executes the latest code, not stale filesystem content
+      if (studentBucketId && filename) {
+        try {
+          const docs = yjsProvider.getDocumentsForBucket(studentBucketId);
+          const provider = docs.get(filename);
+          if (provider) {
+            const content = provider.ytext.toString();
+            if (content) {
+              console.log("[IDE] Writing file to container filesystem before run:", filename);
+              await fetch(`${IDE_API_BASE_URL}/web/${container.id}/write-file`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ path: filename, content }),
+              });
+              // Also save to S3 for persistence (fire-and-forget)
+              apiClient.saveS3File(studentBucketId, filename, content).catch(() => {});
+            }
+          }
+        } catch (e) {
+          console.warn("[IDE] Failed to write file to container before run:", e);
+        }
+      }
+
       try {
         const response = await fetch(
           `${IDE_API_BASE_URL}/web/${container.id}/run`,
@@ -426,7 +464,7 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
           variant: "destructive",
         });
       }
-    }, [container, runFilename, detectLanguage, toast]);
+    }, [container, runFilename, detectLanguage, toast, studentBucketId]);
 
     // Handle view desktop toggle
     const handleToggleDesktop = useCallback(() => {
@@ -610,6 +648,38 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
 
       setIsRunningTests(true);
 
+      // Write all open files directly to the container's filesystem before running tests
+      // This ensures tests run against the latest code, not stale filesystem content
+      if (studentBucketId && container) {
+        try {
+          const docs = yjsProvider.getDocumentsForBucket(studentBucketId);
+          const writePromises: Promise<any>[] = [];
+          const s3Promises: Promise<any>[] = [];
+          for (const [filePath, provider] of docs.entries()) {
+            const content = provider.ytext.toString();
+            if (content) {
+              console.log("[IDE] Writing file to container before tests:", filePath);
+              writePromises.push(
+                fetch(`${IDE_API_BASE_URL}/web/${container.id}/write-file`, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ path: filePath, content }),
+                })
+              );
+              // Also save to S3 for persistence (fire-and-forget)
+              s3Promises.push(apiClient.saveS3File(studentBucketId, filePath, content));
+            }
+          }
+          if (writePromises.length > 0) {
+            await Promise.allSettled(writePromises);
+          }
+          // S3 saves are fire-and-forget
+          Promise.allSettled(s3Promises).catch(() => {});
+        } catch (e) {
+          console.warn("[IDE] Failed to write files to container before tests:", e);
+        }
+      }
+
       try {
         toast({
           title: "Running tests",
@@ -687,7 +757,7 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
       } finally {
         setIsRunningTests(false);
       }
-    }, [container, ideData.autograder?.tests, ideData.id, assignmentId, courseId, toast]);
+    }, [container, ideData.autograder?.tests, ideData.id, assignmentId, courseId, toast, studentBucketId]);
 
     // Handle tab change
     const handleTabChange = useCallback((value: string) => {

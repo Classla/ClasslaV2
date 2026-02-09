@@ -1170,37 +1170,7 @@ router.put(
         console.error("Failed to broadcast file change:", error);
       }
 
-      // Verify the write by reading it back immediately
-      try {
-        // Small delay to account for S3 eventual consistency
-        await new Promise(resolve => setTimeout(resolve, 500));
-        
-        const verifyCommand = new GetObjectCommand({
-          Bucket: bucket.bucket_name,
-          Key: filePath,
-        });
-        const verifyResponse = await bucketS3Client.send(verifyCommand);
-        const streamToString = (stream: any): Promise<string> =>
-          new Promise((resolve, reject) => {
-            const chunks: Uint8Array[] = [];
-            stream.on("data", (chunk: Uint8Array) => chunks.push(chunk));
-            stream.on("error", reject);
-            stream.on("end", () => resolve(Buffer.concat(chunks).toString("utf-8")));
-          });
-        const verifiedContent = await streamToString(verifyResponse.Body);
-        
-        if (verifiedContent !== content) {
-          return res.status(500).json({
-            error: "File saved but verification failed",
-            details: "Content mismatch after write",
-          });
-        }
-      } catch (verifyError: any) {
-        // Verification failed - could be due to eventual consistency
-        // Continue anyway as the write succeeded
-      }
-
-      return res.json({ message: "File saved successfully", path: filePath });
+      return res.json({ message: "File saved successfully", path: filePath, etag });
     } catch (s3Error: any) {
       console.error("S3 file write failed:", s3Error);
       return res.status(500).json({

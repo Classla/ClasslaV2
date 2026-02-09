@@ -632,6 +632,15 @@ RUN echo '#!/usr/bin/env python3' > /usr/local/bin/run-server.py && \
     echo '                else:' >> /usr/local/bin/run-server.py && \
     echo '                    print("S3 sync before run completed successfully")' >> /usr/local/bin/run-server.py && \
     echo '        ' >> /usr/local/bin/run-server.py && \
+    echo '        # Flush Yjs pending writes to filesystem before running' >> /usr/local/bin/run-server.py && \
+    echo '        try:' >> /usr/local/bin/run-server.py && \
+    echo '            import urllib.request' >> /usr/local/bin/run-server.py && \
+    echo '            flush_req = urllib.request.Request("http://127.0.0.1:3001/flush", method="POST")' >> /usr/local/bin/run-server.py && \
+    echo '            flush_resp = urllib.request.urlopen(flush_req, timeout=5)' >> /usr/local/bin/run-server.py && \
+    echo '            print(f"Flushed Yjs writes before run: {flush_resp.read().decode()}")' >> /usr/local/bin/run-server.py && \
+    echo '        except Exception as e:' >> /usr/local/bin/run-server.py && \
+    echo '            print(f"WARNING: Failed to flush Yjs writes before run: {e}")' >> /usr/local/bin/run-server.py && \
+    echo '        ' >> /usr/local/bin/run-server.py && \
     echo '        # Kill any running process' >> /usr/local/bin/run-server.py && \
     echo '        kill_running_process()' >> /usr/local/bin/run-server.py && \
     echo '        ' >> /usr/local/bin/run-server.py && \
@@ -1030,6 +1039,15 @@ RUN echo '#!/usr/bin/env python3' > /usr/local/bin/run-server.py && \
     echo '        results = []' >> /usr/local/bin/run-server.py && \
     echo '        total_points = 0' >> /usr/local/bin/run-server.py && \
     echo '        points_earned = 0' >> /usr/local/bin/run-server.py && \
+    echo '        ' >> /usr/local/bin/run-server.py && \
+    echo '        # Flush Yjs pending writes to filesystem before running tests' >> /usr/local/bin/run-server.py && \
+    echo '        try:' >> /usr/local/bin/run-server.py && \
+    echo '            import urllib.request' >> /usr/local/bin/run-server.py && \
+    echo '            flush_req = urllib.request.Request("http://127.0.0.1:3001/flush", method="POST")' >> /usr/local/bin/run-server.py && \
+    echo '            flush_resp = urllib.request.urlopen(flush_req, timeout=5)' >> /usr/local/bin/run-server.py && \
+    echo '            print(f"Flushed Yjs writes before tests: {flush_resp.read().decode()}")' >> /usr/local/bin/run-server.py && \
+    echo '        except Exception as e:' >> /usr/local/bin/run-server.py && \
+    echo '            print(f"WARNING: Failed to flush Yjs writes before tests: {e}")' >> /usr/local/bin/run-server.py && \
     echo '        ' >> /usr/local/bin/run-server.py && \
     echo '        os.makedirs(AUTOGRADER_PATH, exist_ok=True)' >> /usr/local/bin/run-server.py && \
     echo '        ' >> /usr/local/bin/run-server.py && \

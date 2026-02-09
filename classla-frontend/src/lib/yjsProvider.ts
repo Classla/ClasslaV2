@@ -421,6 +421,24 @@ class YjsProvider {
   }
 
   /**
+   * Get all documents for a given bucket.
+   * Returns a map of filePath -> { doc, ytext, awareness }
+   */
+  getDocumentsForBucket(bucketId: string): Map<string, { doc: Y.Doc; ytext: Y.Text; awareness: Awareness }> {
+    const result = new Map<string, { doc: Y.Doc; ytext: Y.Text; awareness: Awareness }>();
+    const prefix = `${YJS_ENV_PREFIX}:${bucketId}:`;
+
+    for (const [docId, provider] of this.providers.entries()) {
+      if (docId.startsWith(prefix)) {
+        const filePath = docId.slice(prefix.length);
+        result.set(filePath, provider);
+      }
+    }
+
+    return result;
+  }
+
+  /**
    * Check if connected
    */
   get connected(): boolean {

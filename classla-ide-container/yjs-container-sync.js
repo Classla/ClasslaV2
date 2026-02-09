@@ -68,6 +68,9 @@ class YjsContainerSync {
     // Start filesystem watcher
     await this.startFileWatcher();
 
+    // Start HTTP flush server (localhost only, port 3001)
+    await this.startFlushServer();
+
     console.log("[YjsContainerSync] Service started successfully");
 
     // Log status every 60 seconds to confirm service is still running
@@ -1009,6 +1012,68 @@ class YjsContainerSync {
 
     this.pendingFileWrites.set(filePath, timeout);
     console.log(`[YjsContainerSync] ⏰ Scheduled batched write for ${filePath} (${debounceMs}ms debounce, significant=${isLikelySignificantChange})`);
+  }
+
+  /**
+   * Start HTTP server for flush endpoint (localhost only, port 3001)
+   * This allows run-server.py to trigger an immediate filesystem sync
+   * before executing code, ensuring the latest Yjs content is on disk.
+   */
+  async startFlushServer() {
+    const flushServer = http.createServer(async (req, res) => {
+      if (req.method === 'POST' && req.url === '/flush') {
+        try {
+          console.log(`[YjsContainerSync] 🔄 Flush requested - syncing all pending writes to filesystem`);
+          const flushedCount = await this.flushAllPendingWrites();
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ status: 'flushed', fileCount: flushedCount, documentsTotal: this.documents.size }));
+        } catch (error) {
+          console.error(`[YjsContainerSync] ❌ Flush failed:`, error);
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ status: 'error', message: error.message }));
+        }
+      } else {
+        res.writeHead(404);
+        res.end();
+      }
+    });
+
+    flushServer.listen(3001, '127.0.0.1', () => {
+      console.log(`[YjsContainerSync] 🌐 Flush HTTP server listening on 127.0.0.1:3001`);
+    });
+
+    flushServer.on('error', (err) => {
+      console.error(`[YjsContainerSync] ❌ Flush server error:`, err);
+    });
+  }
+
+  /**
+   * Immediately flush all pending debounced file writes to the filesystem.
+   * Cancels all pending timeouts and writes every document with pending changes.
+   * Returns the number of files flushed.
+   */
+  async flushAllPendingWrites() {
+    const promises = [];
+    const filePaths = [];
+
+    for (const [filePath, timeout] of this.pendingFileWrites.entries()) {
+      clearTimeout(timeout);
+      this.pendingFileWrites.delete(filePath);
+      const doc = this.documents.get(filePath);
+      if (doc) {
+        filePaths.push(filePath);
+        promises.push(this.syncYjsToFile(filePath, doc, true));
+      }
+    }
+
+    if (promises.length > 0) {
+      console.log(`[YjsContainerSync] 💾 Flushing ${promises.length} pending writes: ${filePaths.join(', ')}`);
+      await Promise.allSettled(promises);
+    } else {
+      console.log(`[YjsContainerSync] ✅ No pending writes to flush`);
+    }
+
+    return promises.length;
   }
 
   getOrCreateDocument(filePath) {

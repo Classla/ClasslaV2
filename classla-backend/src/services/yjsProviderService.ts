@@ -541,7 +541,7 @@ export function setupYjsWebSocket(io: SocketIOServer): void {
           // Check if user is enrolled in the course
           if (bucket.course_id) {
             const { data: enrollment } = await supabase
-              .from("enrollments")
+              .from("course_enrollments")
               .select("id")
               .eq("course_id", bucket.course_id)
               .eq("user_id", socket.userId)
