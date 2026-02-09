@@ -28,6 +28,113 @@ interface MCQBlock {
 }
 
 /**
+ * IDE Block info - represents an IDE block with autograder tests
+ */
+interface IDEBlockInfo {
+  id: string;
+  executablePoints: number; // sum of inputOutput + unitTest test points
+  manualPoints: number; // sum of manualGrading test points
+  hasExecutableTests: boolean;
+}
+
+/**
+ * Extract IDE blocks with autograder tests from assignment content
+ * Recursively traverses TipTap document structure to find all IDE blocks that have tests
+ */
+function extractIDEBlocks(assignmentContent: string): IDEBlockInfo[] {
+  try {
+    const content = JSON.parse(assignmentContent);
+    const ideBlocks: IDEBlockInfo[] = [];
+
+    function traverse(node: any) {
+      if (node.type === "ideBlock" && node.attrs?.ideData) {
+        const ideData = node.attrs.ideData;
+        const tests = ideData.autograder?.tests;
+
+        if (ideData.id && Array.isArray(tests) && tests.length > 0) {
+          let executablePoints = 0;
+          let manualPoints = 0;
+
+          for (const test of tests) {
+            const pts = typeof test.points === "number" ? test.points : 0;
+            if (test.type === "manualGrading") {
+              manualPoints += pts;
+            } else {
+              executablePoints += pts;
+            }
+          }
+
+          ideBlocks.push({
+            id: ideData.id,
+            executablePoints,
+            manualPoints,
+            hasExecutableTests: executablePoints > 0,
+          });
+        }
+      }
+
+      if (node.content && Array.isArray(node.content)) {
+        node.content.forEach(traverse);
+      }
+    }
+
+    traverse(content);
+    return ideBlocks;
+  } catch (error) {
+    console.error("Failed to parse assignment content for IDE blocks:", error);
+    return [];
+  }
+}
+
+/**
+ * Fetch the best IDE test run (highest points_earned) per block for a student
+ * Uses idx_ide_test_runs_assignment_block_student index
+ */
+async function fetchBestIDETestRuns(
+  assignmentId: string,
+  studentId: string,
+  blockIds: string[]
+): Promise<Record<string, { points_earned: number; total_points: number }>> {
+  const results: Record<
+    string,
+    { points_earned: number; total_points: number }
+  > = {};
+
+  if (blockIds.length === 0) return results;
+
+  try {
+    const { data, error } = await supabase
+      .from("ide_test_runs")
+      .select("block_id, points_earned, total_points")
+      .eq("assignment_id", assignmentId)
+      .eq("student_id", studentId)
+      .in("block_id", blockIds)
+      .order("points_earned", { ascending: false });
+
+    if (error) {
+      console.error("Failed to fetch IDE test runs:", error);
+      return results;
+    }
+
+    if (data) {
+      for (const row of data) {
+        // First occurrence per block_id is the best (highest points_earned)
+        if (!results[row.block_id]) {
+          results[row.block_id] = {
+            points_earned: Number(row.points_earned),
+            total_points: Number(row.total_points),
+          };
+        }
+      }
+    }
+  } catch (error) {
+    console.error("Error fetching IDE test runs:", error);
+  }
+
+  return results;
+}
+
+/**
  * Extract MCQ blocks from assignment content
  * Recursively traverses TipTap document structure to find all MCQ blocks
  * Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 10.1, 10.2, 10.3, 10.4, 10.5, 10.6, 10.7, 10.8
@@ -166,6 +273,30 @@ export async function autogradeSubmission(submissionId: string): Promise<{
     totalRawScore += score;
   }
 
+  // 4b. Calculate scores for IDE blocks
+  const ideBlocks = extractIDEBlocks(assignment.content);
+  const executableBlockIds = ideBlocks
+    .filter((b) => b.hasExecutableTests)
+    .map((b) => b.id);
+
+  const bestRuns = await fetchBestIDETestRuns(
+    submission.assignment_id,
+    submission.student_id,
+    executableBlockIds
+  );
+
+  for (const block of ideBlocks) {
+    const bestRun = bestRuns[block.id];
+    const awarded = bestRun ? bestRun.points_earned : 0;
+
+    blockScores[block.id] = {
+      awarded,
+      possible: block.executablePoints + block.manualPoints,
+    };
+
+    totalRawScore += awarded;
+  }
+
   // 5. Create or update grader object using upsert to handle race conditions
   // The unique constraint on submission_id ensures only one grader per submission
   const { data: grader, error: upsertError } = await supabase
@@ -206,7 +337,15 @@ export async function autogradeSubmission(submissionId: string): Promise<{
     throw new Error("Failed to update submission status");
   }
 
-  return { grader, totalPossiblePoints: calculateTotalPoints(mcqBlocks) };
+  const ideTotalPoints = ideBlocks.reduce(
+    (sum, b) => sum + b.executablePoints + b.manualPoints,
+    0
+  );
+
+  return {
+    grader,
+    totalPossiblePoints: calculateTotalPoints(mcqBlocks) + ideTotalPoints,
+  };
 }
 
 /**
