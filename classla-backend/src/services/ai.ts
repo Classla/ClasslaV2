@@ -2134,8 +2134,326 @@ function findMatchingBrace(text: string, start: number): number {
   return -1; // Not found
 }
 
+/**
+ * Generate unit tests for an IDE block using AI
+ */
+export const generateUnitTests = async (options: {
+  assignmentId: string;
+  ideBlockId: string;
+  userId: string;
+  userEmail?: string;
+  courseId: string;
+}): Promise<{ tests: any[] }> => {
+  const { assignmentId, ideBlockId, userId, userEmail, courseId } = options;
+
+  // Fetch assignment content
+  const { data: assignment, error: assignmentError } = await supabase
+    .from("assignments")
+    .select("name, content")
+    .eq("id", assignmentId)
+    .single();
+
+  if (assignmentError || !assignment) {
+    throw new Error("Assignment not found");
+  }
+
+  // Find the IDE block in the assignment content
+  const content = typeof assignment.content === "string"
+    ? JSON.parse(assignment.content)
+    : assignment.content;
+  let ideBlock: any = null;
+
+  const findIdeBlock = (nodes: any[]) => {
+    for (const node of nodes) {
+      if (node.type === "ideBlock" && node.attrs?.ideData?.id === ideBlockId) {
+        ideBlock = node;
+        return;
+      }
+      if (node.content) {
+        findIdeBlock(node.content);
+        if (ideBlock) return;
+      }
+    }
+  };
+
+  if (content?.content) {
+    findIdeBlock(content.content);
+  }
+
+  if (!ideBlock) {
+    throw new Error("IDE block not found in assignment");
+  }
+
+  const ideData = ideBlock.attrs.ideData;
+
+  // Get template files from S3 if they exist
+  let templateFiles: IdeBlockFile[] = [];
+  if (ideData.template?.s3_bucket_id) {
+    const { data: templateBucket } = await supabase
+      .from("s3_buckets")
+      .select("bucket_name")
+      .eq("id", ideData.template.s3_bucket_id)
+      .single();
+
+    if (templateBucket) {
+      try {
+        templateFiles = await readBucketFiles(templateBucket.bucket_name);
+      } catch (err) {
+        logger.warn("Failed to read template files from S3", {
+          bucketId: ideData.template.s3_bucket_id,
+          error: err instanceof Error ? err.message : "Unknown",
+        });
+      }
+    }
+  }
+
+  // Get model solution files from S3 if they exist
+  let modelSolutionFiles: IdeBlockFile[] = [];
+  if (ideData.modelSolution?.s3_bucket_id) {
+    const { data: modelSolutionBucket } = await supabase
+      .from("s3_buckets")
+      .select("bucket_name")
+      .eq("id", ideData.modelSolution.s3_bucket_id)
+      .single();
+
+    if (modelSolutionBucket) {
+      try {
+        modelSolutionFiles = await readBucketFiles(modelSolutionBucket.bucket_name);
+      } catch (err) {
+        logger.warn("Failed to read model solution files from S3", {
+          bucketId: ideData.modelSolution.s3_bucket_id,
+          error: err instanceof Error ? err.message : "Unknown",
+        });
+      }
+    }
+  }
+
+  // Get existing tests and language
+  const existingTests = ideData.autograder?.tests || [];
+  const language = ideData.settings?.language || "python";
+
+  // Extract assignment instructions
+  let instructions = "";
+  const extractText = (nodes: any[]) => {
+    for (const node of nodes) {
+      if (node.type === "text" && node.text) {
+        instructions += node.text;
+      } else if (node.type === "paragraph" || node.type === "heading") {
+        if (node.content) extractText(node.content);
+        instructions += "\n";
+      } else if (node.content) {
+        extractText(node.content);
+      }
+    }
+  };
+  if (content?.content) {
+    extractText(content.content);
+  }
+  instructions = instructions.trim();
+
+  // Format template files for the prompt
+  let templateContext = "No template files provided.";
+  if (templateFiles.length > 0) {
+    templateContext = templateFiles
+      .map((f) => `### ${f.path}\n\`\`\`\n${f.content}\n\`\`\``)
+      .join("\n\n");
+  }
+
+  // Format model solution files for the prompt
+  let modelSolutionContext = "No model solution available.";
+  if (modelSolutionFiles.length > 0) {
+    modelSolutionContext = modelSolutionFiles
+      .map((f) => `### ${f.path}\n\`\`\`\n${f.content}\n\`\`\``)
+      .join("\n\n");
+  }
+
+  // Format existing tests for the prompt
+  let existingTestsContext = "No existing tests.";
+  if (existingTests.length > 0) {
+    existingTestsContext = existingTests
+      .map((t: any) => {
+        if (t.type === "inputOutput") {
+          return `### ${t.name} (${t.points} pts, inputOutput)\nInput: ${t.input}\nExpected Output: ${t.expectedOutput}`;
+        } else if (t.type === "unitTest") {
+          return `### ${t.name} (${t.points} pts, unitTest)\n\`\`\`\n${t.code}\n\`\`\``;
+        } else {
+          return `### ${t.name} (${t.points} pts, manualGrading)`;
+        }
+      })
+      .join("\n\n");
+  }
+
+  // Determine framework
+  const framework = language === "java" ? "junit" : "unittest";
+
+  // Build the prompt
+  const prompt = `You are a coding assistant. Generate unit tests for this programming exercise.
+
+## Assignment: ${assignment.name}
+
+## Instructions
+${instructions || "No specific instructions provided."}
+
+## Template Code (student starting point)
+${templateContext}
+
+## Model Solution
+${modelSolutionContext}
+
+## Existing Tests (DO NOT duplicate these)
+${existingTestsContext}
+
+## Requirements
+- Language: ${language}
+- Framework: ${framework}
+- Generate 3-5 meaningful unit tests with descriptive names
+- Each test should test a different aspect of the solution
+- Tests should be appropriate for the template code structure
+- ${language === "python" ? "Each test must be a COMPLETE unittest file with imports, a TestCase class, and test methods. Import from the main module file (e.g., 'from main import function_name'). Include 'if __name__ == \"__main__\": unittest.main()' at the end." : "Each test must be a COMPLETE JUnit test file with imports and a test class."}
+- Do NOT duplicate any existing tests
+- Assign reasonable point values (2-5 points each)
+
+## Output Format
+Return a JSON object. Your ENTIRE response must be valid JSON starting with { and ending with }.
+{
+  "tests": [
+    {
+      "name": "Descriptive test name",
+      "code": "complete test file code as a string",
+      "points": 3,
+      "framework": "${framework}"
+    }
+  ]
+}`;
+
+  // Create LLM call log entry
+  let llmCallId: string | null = null;
+  try {
+    const { data: llmCall } = await supabase
+      .from("llm_calls")
+      .insert({
+        assignment_id: assignmentId,
+        user_id: userId,
+        course_id: courseId,
+        prompt: prompt.substring(0, 10000),
+        success: false,
+      })
+      .select("id")
+      .single();
+
+    if (llmCall) llmCallId = llmCall.id;
+  } catch (logError) {
+    logger.error("Error creating LLM call log entry", {
+      error: logError instanceof Error ? logError.message : "Unknown",
+    });
+  }
+
+  try {
+    const client = getBedrockClient();
+
+    const requestBody = {
+      anthropic_version: "bedrock-2023-05-31",
+      max_tokens: 8192,
+      system: "You are a coding assistant that generates unit tests for programming exercises. Your response must be ONLY valid JSON. Do NOT include any conversational text, markdown formatting, or code blocks. Your ENTIRE response must start with { and end with }.",
+      messages: [{ role: "user", content: prompt }],
+    };
+
+    const command = new InvokeModelCommand({
+      modelId: CLAUDE_MODEL_ID,
+      contentType: "application/json",
+      accept: "application/json",
+      body: JSON.stringify(requestBody),
+    });
+
+    logger.info("Generating unit tests", {
+      assignmentId,
+      ideBlockId,
+      language,
+      templateFileCount: templateFiles.length,
+      modelSolutionFileCount: modelSolutionFiles.length,
+      existingTestCount: existingTests.length,
+    });
+
+    const response = await client.send(command);
+    const responseBody = JSON.parse(new TextDecoder().decode(response.body));
+
+    if (!responseBody.content?.[0]?.text) {
+      throw new Error("Unexpected response format from AI model");
+    }
+
+    let generatedText = responseBody.content[0].text.trim();
+
+    // Remove markdown code blocks if present
+    const jsonMatch = generatedText.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+    if (jsonMatch) {
+      generatedText = jsonMatch[1];
+    }
+
+    const parsed = JSON.parse(generatedText);
+
+    if (!parsed.tests || !Array.isArray(parsed.tests) || parsed.tests.length === 0) {
+      throw new Error("AI did not return valid unit tests");
+    }
+
+    // Add id and type to each test server-side
+    const tests = parsed.tests.map((test: any) => ({
+      id: uuidv4(),
+      type: "unitTest" as const,
+      name: test.name,
+      code: test.code,
+      points: test.points || 3,
+      framework: test.framework || framework,
+    }));
+
+    // Update LLM call log with success
+    if (llmCallId) {
+      try {
+        await supabase
+          .from("llm_calls")
+          .update({
+            success: true,
+            llm_response: generatedText.substring(0, 100000),
+          })
+          .eq("id", llmCallId);
+      } catch (updateError) {
+        logger.error("Failed to update LLM call log", {
+          error: updateError instanceof Error ? updateError.message : "Unknown",
+        });
+      }
+    }
+
+    logger.info("Unit tests generated successfully", {
+      assignmentId,
+      ideBlockId,
+      testCount: tests.length,
+    });
+
+    return { tests };
+  } catch (error: any) {
+    // Update LLM call log with error
+    if (llmCallId) {
+      try {
+        await supabase
+          .from("llm_calls")
+          .update({
+            success: false,
+            error: error.message || "Unknown error",
+          })
+          .eq("id", llmCallId);
+      } catch (updateError) {
+        logger.error("Failed to update LLM call log with error", {
+          error: updateError instanceof Error ? updateError.message : "Unknown",
+        });
+      }
+    }
+
+    throw error;
+  }
+};
+
 export default {
   generateContent,
   generateContentStream,
   generateModelSolution,
+  generateUnitTests,
 };

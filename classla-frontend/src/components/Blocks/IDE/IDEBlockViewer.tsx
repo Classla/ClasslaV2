@@ -4,6 +4,7 @@ import React, {
   useEffect,
   memo,
   useRef,
+  useMemo,
 } from "react";
 import { NodeViewWrapper } from "@tiptap/react";
 import { IDEBlockData } from "../../extensions/IDEBlock";
@@ -26,7 +27,20 @@ import { apiClient } from "../../../lib/api";
 import { useAuth } from "../../../contexts/AuthContext";
 import { useIDEPanel } from "../../../contexts/IDEPanelContext";
 import { useAssignmentContext } from "../../../contexts/AssignmentContext";
-import { yjsProvider } from "../../../lib/yjsProvider";
+import { otProvider } from "../../../lib/otClient";
+
+// Deterministic color from user ID for cursor sharing
+const CURSOR_COLORS = [
+  "#FF6B6B", "#4ECDC4", "#45B7D1", "#96CEB4", "#FFEAA7",
+  "#DDA0DD", "#98D8C8", "#F7DC6F", "#BB8FCE", "#85C1E9",
+];
+function userIdToColor(userId: string): string {
+  let hash = 0;
+  for (let i = 0; i < userId.length; i++) {
+    hash = ((hash << 5) - hash + userId.charCodeAt(i)) | 0;
+  }
+  return CURSOR_COLORS[Math.abs(hash) % CURSOR_COLORS.length];
+}
 
 interface IDEBlockViewerProps {
   node: any;
@@ -54,7 +68,7 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
     const ideData = node.attrs.ideData as IDEBlockData;
     const { toast } = useToast();
     const { user } = useAuth();
-    const { openSidePanel, openFullscreen } = useIDEPanel();
+    const { openSidePanel, openFullscreen, updatePanelState, panelMode } = useIDEPanel();
     const { courseId, assignmentId } = useAssignmentContext();
 
     const [activeTab, setActiveTab] = useState<TabType>("code");
@@ -86,7 +100,26 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
     const [testRunHistory, setTestRunHistory] = useState<any[]>([]);
     const [isLoadingHistory, setIsLoadingHistory] = useState(false);
 
+    const currentUser = useMemo(() => {
+      if (!user) return undefined;
+      return {
+        id: user.id,
+        name: user.firstName || user.email || "User",
+        color: userIdToColor(user.id),
+      };
+    }, [user]);
+
     const pollingAttemptsRef = useRef(0);
+
+    // Track whether THIS instance owns the side panel relationship.
+    // Only the owner pushes state updates to prevent dual-instance overwrites.
+    const isSidePanelOwnerRef = useRef(false);
+
+    // Wrap openSidePanel to claim ownership when this instance opens it
+    const openSidePanelWithOwnership = useCallback((...args: Parameters<typeof openSidePanel>) => {
+      isSidePanelOwnerRef.current = true;
+      openSidePanel(...args);
+    }, [openSidePanel]);
 
     // Load student's cloned bucket on mount - query database for existing bucket
     useEffect(() => {
@@ -414,10 +447,9 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
       // This ensures the container executes the latest code, not stale filesystem content
       if (studentBucketId && filename) {
         try {
-          const docs = yjsProvider.getDocumentsForBucket(studentBucketId);
-          const provider = docs.get(filename);
-          if (provider) {
-            const content = provider.ytext.toString();
+          const doc = otProvider.getDocument(studentBucketId, filename);
+          if (doc) {
+            const content = doc.content;
             if (content) {
               console.log("[IDE] Writing file to container filesystem before run:", filename);
               await fetch(`${IDE_API_BASE_URL}/web/${container.id}/write-file`, {
@@ -465,6 +497,89 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
         });
       }
     }, [container, runFilename, detectLanguage, toast, studentBucketId]);
+
+    // Reset ownership when panel closes
+    useEffect(() => {
+      if (panelMode === 'none') {
+        isSidePanelOwnerRef.current = false;
+      }
+    }, [panelMode]);
+
+    // Push state updates to the side panel whenever container/isStarting/etc change
+    useEffect(() => {
+      if (panelMode !== 'side-panel') return;
+      if (!isSidePanelOwnerRef.current) return;
+      updatePanelState({
+        container,
+        isStarting,
+        bucketId: studentBucketId,
+        showDesktop,
+        runFilename,
+      });
+    }, [container, isStarting, studentBucketId, showDesktop, runFilename, panelMode, updatePanelState]);
+
+    // Cross-tab container sync via BroadcastChannel (fullscreen IDE in another tab)
+    const broadcastChannelRef = useRef<BroadcastChannel | null>(null);
+    const isSyncingFromPeerRef = useRef(false);
+
+    useEffect(() => {
+      const channel = new BroadcastChannel(`ide-container-${ideData.id}`);
+      broadcastChannelRef.current = channel;
+
+      channel.onmessage = (event: MessageEvent) => {
+        const msg = event.data;
+        if (msg.type === "container-update" && msg.blockId === ideData.id) {
+          isSyncingFromPeerRef.current = true;
+          if (msg.container) {
+            setContainer(msg.container);
+          }
+          setIsStarting(msg.isStarting);
+        }
+      };
+
+      return () => {
+        channel.close();
+        broadcastChannelRef.current = null;
+      };
+    }, [ideData.id]);
+
+    // Broadcast container state changes to other tabs
+    useEffect(() => {
+      if (isSyncingFromPeerRef.current) {
+        isSyncingFromPeerRef.current = false;
+        return;
+      }
+      try {
+        broadcastChannelRef.current?.postMessage({
+          type: "container-update",
+          blockId: ideData.id,
+          container,
+          isStarting,
+        });
+      } catch {
+        // Channel may be closed
+      }
+    }, [container, isStarting, ideData.id]);
+
+    // Listen for side panel actions (start container, run code) via custom events
+    // This avoids passing function references through React state which can have timing issues
+    // stopImmediatePropagation prevents duplicate handlers (React StrictMode / TipTap node views)
+    useEffect(() => {
+      const handler = (e: Event) => {
+        const detail = (e as CustomEvent).detail;
+        if (detail?.ideDataId !== ideData.id) return;
+        e.stopImmediatePropagation();
+        // This instance handled the event, so it owns the side panel relationship
+        isSidePanelOwnerRef.current = true;
+        if (detail.action === 'start') {
+          startContainer();
+        } else if (detail.action === 'run') {
+          handleRun();
+        }
+      };
+      window.addEventListener('ide-panel-action', handler);
+      return () => window.removeEventListener('ide-panel-action', handler);
+    }, [ideData.id, startContainer, handleRun]);
 
     // Handle view desktop toggle
     const handleToggleDesktop = useCallback(() => {
@@ -652,11 +767,11 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
       // This ensures tests run against the latest code, not stale filesystem content
       if (studentBucketId && container) {
         try {
-          const docs = yjsProvider.getDocumentsForBucket(studentBucketId);
+          const docs = otProvider.getDocumentsForBucket(studentBucketId);
           const writePromises: Promise<any>[] = [];
           const s3Promises: Promise<any>[] = [];
-          for (const [filePath, provider] of docs.entries()) {
-            const content = provider.ytext.toString();
+          for (const [filePath, doc] of docs.entries()) {
+            const content = doc.content;
             if (content) {
               console.log("[IDE] Writing file to container before tests:", filePath);
               writePromises.push(
@@ -837,7 +952,8 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
                         showDesktop={showDesktop}
                         onContainerKilled={clearContainer}
                         showPanelButtons={true}
-                        onOpenSidePanel={() => openSidePanel({
+                        currentUser={currentUser}
+                        onOpenSidePanel={() => openSidePanelWithOwnership({
                           ideData,
                           container,
                           bucketId: studentBucketId,

@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Pencil, Trash2, ChevronDown, ChevronUp } from "lucide-react";
+import { Pencil, Trash2, ChevronDown, ChevronUp, Loader2, Sparkles } from "lucide-react";
 import { Button } from "../../ui/button";
 import { Badge } from "../../ui/badge";
 import { TestCase } from "../../extensions/IDEBlock";
@@ -10,6 +10,8 @@ interface AutograderTestListProps {
   onEditTest: (test: TestCase) => void;
   onDeleteTest: (testId: string) => void;
   onTestModelSolution?: () => void;
+  onGenerateUnitTests?: () => void;
+  isGeneratingUnitTests?: boolean;
 }
 
 const AutograderTestList: React.FC<AutograderTestListProps> = ({
@@ -18,6 +20,8 @@ const AutograderTestList: React.FC<AutograderTestListProps> = ({
   onEditTest,
   onDeleteTest,
   onTestModelSolution,
+  onGenerateUnitTests,
+  isGeneratingUnitTests,
 }) => {
   const [expandedTests, setExpandedTests] = useState<Set<string>>(new Set());
 
@@ -180,14 +184,29 @@ const AutograderTestList: React.FC<AutograderTestListProps> = ({
         )}
       </div>
 
-      {/* Add Test Button */}
-      <div className="flex justify-center pt-2">
+      {/* Add Test / Generate Buttons */}
+      <div className="flex justify-center gap-2 pt-2">
         <Button
           onClick={onAddTest}
           className="bg-purple-600 hover:bg-purple-700 text-white"
         >
           + Add Test
         </Button>
+        {onGenerateUnitTests && (
+          <Button
+            onClick={onGenerateUnitTests}
+            disabled={isGeneratingUnitTests}
+            variant="outline"
+            className="border-purple-300 text-purple-700 hover:bg-purple-50 hover:border-purple-400"
+          >
+            {isGeneratingUnitTests ? (
+              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+            ) : (
+              <Sparkles className="w-4 h-4 mr-2" />
+            )}
+            {isGeneratingUnitTests ? "Generating..." : "Generate with AI"}
+          </Button>
+        )}
       </div>
     </div>
   );

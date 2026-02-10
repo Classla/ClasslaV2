@@ -465,6 +465,8 @@ export const apiClient = {
     aiApi.post("/ai/generate", { prompt, assignmentId }),
   generateModelSolution: (assignmentId: string, ideBlockId: string) =>
     aiApi.post("/ai/generate-model-solution", { assignmentId, ideBlockId }),
+  generateUnitTests: (assignmentId: string, ideBlockId: string) =>
+    aiApi.post("/ai/generate-unit-tests", { assignmentId, ideBlockId }),
 
   // IDE Block endpoints
   startIDEContainer: (data: {

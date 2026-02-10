@@ -25,6 +25,19 @@ import { useIDEPanel } from "../../contexts/IDEPanelContext";
 import { AssignmentProvider } from "../../contexts/AssignmentContext";
 import MonacoIDE from "../../components/Blocks/IDE/MonacoIDE";
 
+// Deterministic color from user ID for cursor sharing
+const CURSOR_COLORS = [
+  "#FF6B6B", "#4ECDC4", "#45B7D1", "#96CEB4", "#FFEAA7",
+  "#DDA0DD", "#98D8C8", "#F7DC6F", "#BB8FCE", "#85C1E9",
+];
+function userIdToColor(userId: string): string {
+  let hash = 0;
+  for (let i = 0; i < userId.length; i++) {
+    hash = ((hash << 5) - hash + userId.charCodeAt(i)) | 0;
+  }
+  return CURSOR_COLORS[Math.abs(hash) % CURSOR_COLORS.length];
+}
+
 interface AssignmentPageProps {
   course?: Course;
   userRole?: UserRole;
@@ -51,7 +64,16 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
   const { user } = useAuth();
   const { toast } = useToast();
   const navigate = useNavigate();
-  const { panelMode, activePanelState, closeSidePanel } = useIDEPanel();
+  const { panelMode, activePanelState, closeSidePanel, updatePanelState } = useIDEPanel();
+
+  const currentUser = useMemo(() => {
+    if (!user) return undefined;
+    return {
+      id: user.id,
+      name: user.firstName || user.email || "User",
+      color: userIdToColor(user.id),
+    };
+  }, [user]);
 
   const [assignment, setAssignment] = useState<Assignment | null>(null);
   const [loading, setLoading] = useState(true);
@@ -729,49 +751,21 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
                   isStarting={activePanelState.isStarting}
                   showDesktop={activePanelState.showDesktop}
                   layoutMode="side-panel"
+                  currentUser={currentUser}
                   onRun={async () => {
-                    // Run code in the container
-                    if (!activePanelState.container) return;
-                    
-                    const filename = activePanelState.runFilename || "main.py";
-                    const ext = filename.split(".").pop()?.toLowerCase();
-                    const languageMap: Record<string, string> = {
-                      py: "python",
-                      js: "node",
-                      java: "java",
-                      sh: "bash",
-                      ts: "node",
-                    };
-                    const language = languageMap[ext || ""] || "python";
-
-                    try {
-                      const response = await fetch(
-                        `${activePanelState.ideApiBaseUrl}/web/${activePanelState.container.id}/run`,
-                        {
-                          method: "POST",
-                          headers: {
-                            "Content-Type": "application/json",
-                          },
-                          body: JSON.stringify({
-                            filename,
-                            language,
-                          }),
-                        }
-                      );
-
-                      const data = await response.json();
-
-                      if (!response.ok) {
-                        throw new Error(data.error || "Failed to execute code");
-                      }
-                    } catch (error: any) {
-                      console.error("Failed to execute code:", error);
-                      toast({
-                        title: "Execution failed",
-                        description: error.message || "Failed to execute code.",
-                        variant: "destructive",
-                      });
+                    const ideDataId = activePanelState.ideData?.id;
+                    if (!activePanelState.container) {
+                      // No container yet — dispatch event to IDEBlockViewer to start container
+                      console.log("[IDE Side Panel] Dispatching start container event");
+                      window.dispatchEvent(new CustomEvent('ide-panel-action', {
+                        detail: { ideDataId, action: 'start' }
+                      }));
+                      return;
                     }
+                    // Dispatch run event to IDEBlockViewer (handles file writing + execution)
+                    window.dispatchEvent(new CustomEvent('ide-panel-action', {
+                      detail: { ideDataId, action: 'run' }
+                    }));
                   }}
                   onFilenameChange={(filename) => {
                     // Update the filename in panel state
@@ -783,8 +777,8 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
                     // We'd need to manage this in local state if needed
                   }}
                   onContainerKilled={() => {
-                    // Container was killed, close the side panel
-                    closeSidePanel();
+                    // Container was killed — clear container state so user can restart
+                    updatePanelState({ container: null, isStarting: false });
                   }}
                 />
               </div>

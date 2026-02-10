@@ -184,16 +184,11 @@ const io = initializeWebSocket(server, sessionMiddleware);
 // Set up AI WebSocket namespace
 setupAIWebSocket(io);
 
-// Set up Y.js WebSocket namespace (replaces old file sync WebSocket)
-const { setupYjsWebSocket, saveAllDocumentsToS3 } = require("./services/yjsProviderService");
-setupYjsWebSocket(io);
+// Set up OT WebSocket namespace
+const { setupOTWebSocket, saveAllDocuments: saveAllOTDocuments } = require("./services/otProviderService");
+setupOTWebSocket(io);
 
-// Old file sync WebSocket (deprecated - kept for backward compatibility during migration)
-// const { setupFileSyncWebSocket } = require("./services/fileSyncService");
-// setupFileSyncWebSocket(io);
-
-// Graceful shutdown - CRITICAL: Save all Y.js documents to S3 before exiting
-// This prevents data loss when the server restarts
+// Graceful shutdown - Save all OT documents before exiting
 let isShuttingDown = false;
 
 async function gracefulShutdown(signal: string) {
@@ -206,13 +201,11 @@ async function gracefulShutdown(signal: string) {
   logger.info(`[Shutdown] Received ${signal}, starting graceful shutdown...`);
 
   try {
-    // CRITICAL: Save all Y.js documents to S3 before shutting down
-    // This prevents data loss from pending debounced saves
-    logger.info('[Shutdown] Saving all Y.js documents to S3...');
-    await saveAllDocumentsToS3();
-    logger.info('[Shutdown] ✅ All Y.js documents saved successfully');
+    logger.info('[Shutdown] Saving all OT documents...');
+    await saveAllOTDocuments();
+    logger.info('[Shutdown] All OT documents saved successfully');
   } catch (error) {
-    logger.error('[Shutdown] ❌ Failed to save Y.js documents:', error);
+    logger.error('[Shutdown] Failed to save OT documents:', error);
   }
 
   // Close HTTP server (stop accepting new connections)
@@ -240,7 +233,7 @@ process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 process.on('uncaughtException', async (error) => {
   logger.error('[Fatal] Uncaught exception:', error);
   try {
-    await saveAllDocumentsToS3();
+    await saveAllOTDocuments();
     logger.info('[Fatal] Emergency save completed');
   } catch (saveError) {
     logger.error('[Fatal] Emergency save failed:', saveError);

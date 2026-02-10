@@ -4,6 +4,7 @@ import React, {
   useEffect,
   memo,
   useRef,
+  useMemo,
 } from "react";
 import { NodeViewWrapper } from "@tiptap/react";
 import { IDEBlockData, TestCase, IDELanguage } from "../../extensions/IDEBlock";
@@ -46,6 +47,20 @@ import { apiClient } from "../../../lib/api";
 import { useAuth } from "../../../contexts/AuthContext";
 import { useIDEPanel } from "../../../contexts/IDEPanelContext";
 import { useAssignmentContext } from "../../../contexts/AssignmentContext";
+import { otProvider } from "../../../lib/otClient";
+
+// Deterministic color from user ID for cursor sharing
+const CURSOR_COLORS = [
+  "#FF6B6B", "#4ECDC4", "#45B7D1", "#96CEB4", "#FFEAA7",
+  "#DDA0DD", "#98D8C8", "#F7DC6F", "#BB8FCE", "#85C1E9",
+];
+function userIdToColor(userId: string): string {
+  let hash = 0;
+  for (let i = 0; i < userId.length; i++) {
+    hash = ((hash << 5) - hash + userId.charCodeAt(i)) | 0;
+  }
+  return CURSOR_COLORS[Math.abs(hash) % CURSOR_COLORS.length];
+}
 
 interface IDEBlockEditorProps {
   node: any;
@@ -88,13 +103,22 @@ const IDEBlockEditor: React.FC<IDEBlockEditorProps> = memo(
     const ideData = node.attrs.ideData as IDEBlockData;
     const { toast } = useToast();
     const { user } = useAuth();
-    const { openSidePanel, openFullscreen } = useIDEPanel();
+    const { openSidePanel, openFullscreen, updatePanelState, panelMode } = useIDEPanel();
     const { courseId, assignmentId } = useAssignmentContext();
 
     // Admin toggle for local vs production IDE API
     const [useLocalIDE, setUseLocalIDE] = useState(false);
     const isAdmin = user?.isAdmin || false;
     const IDE_API_BASE_URL = useLocalIDE ? LOCAL_IDE_API_BASE_URL : PRODUCTION_IDE_API_BASE_URL;
+
+    const currentUser = useMemo(() => {
+      if (!user) return undefined;
+      return {
+        id: user.id,
+        name: user.firstName || user.email || "Instructor",
+        color: userIdToColor(user.id),
+      };
+    }, [user]);
 
     const [activeTab, setActiveTab] = useState<TabType>("template");
     const [containers, setContainers] = useState<
@@ -143,8 +167,24 @@ const IDEBlockEditor: React.FC<IDEBlockEditorProps> = memo(
     // Track ongoing status checks to prevent duplicate requests
     const statusCheckInProgress = useRef<Set<string>>(new Set());
 
+    // Track whether THIS instance owns the side panel relationship.
+    // Only the owner pushes state updates to prevent dual-instance overwrites
+    // (React StrictMode / TipTap creates duplicate instances).
+    const isSidePanelOwnerRef = useRef(false);
+
+    // Unique instance ID for cross-instance container state sync
+    const instanceIdRef = useRef(`ide-editor-${Math.random().toString(36).slice(2, 8)}`);
+
+    // Wrap openSidePanel to claim ownership when this instance opens it
+    const openSidePanelWithOwnership = useCallback((...args: Parameters<typeof openSidePanel>) => {
+      isSidePanelOwnerRef.current = true;
+      openSidePanel(...args);
+    }, [openSidePanel]);
+
     // AI model solution generation
     const [isGeneratingModelSolution, setIsGeneratingModelSolution] = useState(false);
+    // AI unit test generation
+    const [isGeneratingUnitTests, setIsGeneratingUnitTests] = useState(false);
 
     // Autograder test case management
     const [testModalOpen, setTestModalOpen] = useState(false);
@@ -649,6 +689,30 @@ const IDEBlockEditor: React.FC<IDEBlockEditorProps> = memo(
 
         const filename = runFilename[tab] || "main.py";
         const language = detectLanguage(filename);
+        const bucketId = ideData[tab].s3_bucket_id;
+
+        // Write OT document content to the container filesystem before running
+        // This ensures the container runs the latest code, not stale filesystem content
+        if (bucketId && filename) {
+          try {
+            const doc = otProvider.getDocument(bucketId, filename);
+            if (doc) {
+              const content = doc.content;
+              if (content) {
+                console.log("[IDE Editor] Writing file to container before run:", filename);
+                await fetch(`${IDE_API_BASE_URL}/web/${container.id}/write-file`, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ path: filename, content }),
+                });
+                // Also save to S3 for persistence (fire-and-forget)
+                apiClient.saveS3File(bucketId, filename, content).catch(() => {});
+              }
+            }
+          } catch (e) {
+            console.warn("[IDE Editor] Failed to write file to container before run:", e);
+          }
+        }
 
         try {
           const response = await fetch(
@@ -681,7 +745,7 @@ const IDEBlockEditor: React.FC<IDEBlockEditorProps> = memo(
           });
         }
       },
-      [containers, runFilename, detectLanguage, toast, IDE_API_BASE_URL]
+      [containers, runFilename, detectLanguage, toast, IDE_API_BASE_URL, ideData]
     );
 
     // Handle view desktop toggle
@@ -1006,6 +1070,55 @@ const IDEBlockEditor: React.FC<IDEBlockEditorProps> = memo(
       }
     }, [assignmentId, ideData, updateAttributes, toast]);
 
+    const handleGenerateUnitTests = useCallback(async () => {
+      if (!assignmentId) {
+        toast({
+          title: "No assignment",
+          description: "Save the assignment first before generating unit tests.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      setIsGeneratingUnitTests(true);
+      try {
+        const response = await apiClient.generateUnitTests(assignmentId, ideData.id);
+        const { tests: generatedTests } = response.data;
+
+        if (generatedTests && generatedTests.length > 0) {
+          const existingTests = ideData.autograder?.tests || [];
+          const mergedTests = [...existingTests, ...generatedTests];
+          const totalPoints = mergedTests.reduce((sum: number, test: TestCase) => sum + test.points, 0);
+
+          updateAttributes({
+            ideData: {
+              ...ideData,
+              autograder: {
+                ...ideData.autograder,
+                tests: mergedTests,
+              },
+              points: totalPoints,
+            },
+          });
+
+          toast({
+            title: "Unit tests generated",
+            description: `AI generated ${generatedTests.length} unit test${generatedTests.length === 1 ? "" : "s"}.`,
+          });
+        }
+      } catch (error: any) {
+        console.error("Failed to generate unit tests:", error);
+        const message = error.response?.data?.error?.message || error.message || "Failed to generate unit tests.";
+        toast({
+          title: "Generation failed",
+          description: message,
+          variant: "destructive",
+        });
+      } finally {
+        setIsGeneratingUnitTests(false);
+      }
+    }, [assignmentId, ideData, updateAttributes, toast]);
+
     const handleRefreshInstance = useCallback(async (tab: TabType) => {
       const container = containers[tab];
       
@@ -1077,6 +1190,126 @@ const IDEBlockEditor: React.FC<IDEBlockEditorProps> = memo(
       await startContainer(tab);
     }, [containers, ideData, updateAttributes, startContainer, toast, IDE_API_BASE_URL]);
 
+    // Push state updates to the side panel for the active tab
+    // Reset ownership when panel closes
+    useEffect(() => {
+      if (panelMode === 'none') {
+        isSidePanelOwnerRef.current = false;
+      }
+    }, [panelMode]);
+
+    useEffect(() => {
+      if (panelMode !== 'side-panel') return;
+      if (!isSidePanelOwnerRef.current) return;
+      const tabContainer = containers[activeTab];
+      const tabIsStarting = isStarting[activeTab];
+      const tabShowDesktop = showDesktop[activeTab];
+      const tabFilename = runFilename[activeTab];
+      const tabBucketId = ideData[activeTab].s3_bucket_id;
+      updatePanelState({
+        container: tabContainer,
+        isStarting: tabIsStarting,
+        bucketId: tabBucketId,
+        showDesktop: tabShowDesktop,
+        runFilename: tabFilename,
+      });
+    }, [containers, isStarting, showDesktop, runFilename, activeTab, panelMode, updatePanelState, ideData]);
+
+    // Broadcast container/isStarting state to other instances of the same IDE block
+    // CustomEvent: same-tab sync (React StrictMode / TipTap duplicate instances)
+    // BroadcastChannel: cross-tab sync (fullscreen IDE in another tab)
+    const isSyncingFromPeerRef = useRef(false);
+    const broadcastChannelRef = useRef<BroadcastChannel | null>(null);
+
+    // Set up BroadcastChannel for cross-tab container sync
+    useEffect(() => {
+      const channel = new BroadcastChannel(`ide-container-${ideData.id}`);
+      broadcastChannelRef.current = channel;
+
+      channel.onmessage = (event: MessageEvent) => {
+        const msg = event.data;
+        if (msg.type === "container-update" && msg.blockId === ideData.id) {
+          isSyncingFromPeerRef.current = true;
+          if (msg.container) {
+            setContainers((prev) => ({ ...prev, [activeTab]: msg.container }));
+          }
+          setIsStarting((prev) => ({ ...prev, [activeTab]: msg.isStarting }));
+        }
+      };
+
+      return () => {
+        channel.close();
+        broadcastChannelRef.current = null;
+      };
+    }, [ideData.id, activeTab]);
+
+    useEffect(() => {
+      // Don't broadcast if we just received this state from a peer (avoids infinite loop)
+      if (isSyncingFromPeerRef.current) {
+        isSyncingFromPeerRef.current = false;
+        return;
+      }
+      // Same-tab sync via CustomEvent
+      window.dispatchEvent(new CustomEvent('ide-container-sync', {
+        detail: {
+          ideDataId: ideData.id,
+          sourceInstanceId: instanceIdRef.current,
+          containers,
+          isStarting,
+        },
+      }));
+      // Cross-tab sync via BroadcastChannel
+      const tabContainer = containers[activeTab];
+      const tabIsStarting = isStarting[activeTab];
+      try {
+        broadcastChannelRef.current?.postMessage({
+          type: "container-update",
+          blockId: ideData.id,
+          container: tabContainer,
+          isStarting: tabIsStarting,
+        });
+      } catch {
+        // Channel may be closed
+      }
+    }, [containers, isStarting, ideData.id, activeTab]);
+
+    // Listen for container state broadcasts from sibling instances (same tab)
+    useEffect(() => {
+      const handler = (e: Event) => {
+        const detail = (e as CustomEvent).detail;
+        if (detail?.ideDataId !== ideData.id) return;
+        if (detail.sourceInstanceId === instanceIdRef.current) return;
+        // Sync container state from the sibling instance
+        isSyncingFromPeerRef.current = true;
+        if (detail.containers) {
+          setContainers(detail.containers);
+        }
+        if (detail.isStarting) {
+          setIsStarting(detail.isStarting);
+        }
+      };
+      window.addEventListener('ide-container-sync', handler);
+      return () => window.removeEventListener('ide-container-sync', handler);
+    }, [ideData.id]);
+
+    // Listen for side panel actions (start container, run code) via custom events
+    // stopImmediatePropagation prevents duplicate handlers (React StrictMode / TipTap node views)
+    useEffect(() => {
+      const handler = (e: Event) => {
+        const detail = (e as CustomEvent).detail;
+        if (detail?.ideDataId !== ideData.id) return;
+        e.stopImmediatePropagation();
+        // This instance handled the event, so it owns the side panel relationship
+        isSidePanelOwnerRef.current = true;
+        if (detail.action === 'start') {
+          startContainer(activeTab);
+        } else if (detail.action === 'run') {
+          handleRun(activeTab);
+        }
+      };
+      window.addEventListener('ide-panel-action', handler);
+      return () => window.removeEventListener('ide-panel-action', handler);
+    }, [ideData.id, activeTab, startContainer, handleRun]);
 
     return (
       <NodeViewWrapper
@@ -1224,8 +1457,9 @@ const IDEBlockEditor: React.FC<IDEBlockEditorProps> = memo(
                 onToggleDesktop={() => handleToggleDesktop("template")}
                 onClearContainer={() => clearContainer("template")}
                 onRefreshInstance={containers.template ? () => handleRefreshInstance("template") : undefined}
-                onOpenSidePanel={openSidePanel}
+                onOpenSidePanel={openSidePanelWithOwnership}
                 onOpenFullscreen={openFullscreen}
+                currentUser={currentUser}
                 onLanguageSelect={(language: IDELanguage) => {
                   const newRunFile = language === "java" ? "Main.java" : "main.py";
                   updateAttributes({
@@ -1333,8 +1567,9 @@ const IDEBlockEditor: React.FC<IDEBlockEditorProps> = memo(
                 onGenerateModelSolution={handleGenerateModelSolution}
                 isGeneratingModelSolution={isGeneratingModelSolution}
                 onRefreshInstance={containers.modelSolution ? () => handleRefreshInstance("modelSolution") : undefined}
-                onOpenSidePanel={openSidePanel}
+                onOpenSidePanel={openSidePanelWithOwnership}
                 onOpenFullscreen={openFullscreen}
+                currentUser={currentUser}
                 onLanguageSelect={(language: IDELanguage) => {
                   const newRunFile = language === "java" ? "Main.java" : "main.py";
                   updateAttributes({
@@ -1367,6 +1602,8 @@ const IDEBlockEditor: React.FC<IDEBlockEditorProps> = memo(
                   onEditTest={handleEditTest}
                   onDeleteTest={handleDeleteTest}
                   onTestModelSolution={handleTestModelSolution}
+                  onGenerateUnitTests={handleGenerateUnitTests}
+                  isGeneratingUnitTests={isGeneratingUnitTests}
                 />
 
                 {/* Allow Student Check Answer Checkbox */}
@@ -1522,6 +1759,7 @@ interface IDETabContentProps {
   onOpenSidePanel: (state: any) => void;
   onOpenFullscreen: (state: any) => void;
   onLanguageSelect: (language: IDELanguage) => void; // Sets language AND starts container
+  currentUser?: { id: string; name: string; color: string };
 }
 
 const IDETabContent: React.FC<IDETabContentProps> = memo(
@@ -1550,6 +1788,7 @@ const IDETabContent: React.FC<IDETabContentProps> = memo(
     onOpenSidePanel,
     onOpenFullscreen,
     onLanguageSelect,
+    currentUser,
   }) => {
 
 
@@ -1624,6 +1863,7 @@ const IDETabContent: React.FC<IDETabContentProps> = memo(
                   onClearContainer();
                 }}
                 showPanelButtons={true}
+                currentUser={currentUser}
                 onOpenSidePanel={() => onOpenSidePanel({
                   ideData,
                   container,

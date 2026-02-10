@@ -30,6 +30,7 @@ interface IDEPanelContextType {
   openSidePanel: (state: IDEPanelState) => void;
   closeSidePanel: () => void;
   openFullscreen: (state: IDEPanelState) => void;
+  updatePanelState: (update: Partial<IDEPanelState>) => void;
 }
 
 const IDEPanelContext = createContext<IDEPanelContextType | undefined>(undefined);
@@ -63,6 +64,10 @@ export const IDEPanelProvider: React.FC<IDEPanelProviderProps> = ({ children }) 
     }, 300);
   }, []);
 
+  const updatePanelState = useCallback((update: Partial<IDEPanelState>) => {
+    setActivePanelState(prev => prev ? { ...prev, ...update } : prev);
+  }, []);
+
   const openFullscreen = useCallback((state: IDEPanelState) => {
     // Store full IDE panel state in localStorage for the new tab
     localStorage.setItem(`ide-panel-state-${state.ideData.id}`, JSON.stringify(state));
@@ -77,6 +82,7 @@ export const IDEPanelProvider: React.FC<IDEPanelProviderProps> = ({ children }) 
     openSidePanel,
     closeSidePanel,
     openFullscreen,
+    updatePanelState,
   };
 
   return (

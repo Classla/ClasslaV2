@@ -847,14 +847,19 @@ router.get(
       return res.status(400).json({ error: "File path is required" });
     }
 
+    // Allow container service token auth (for container file sync)
+    const serviceToken = req.headers["x-container-service-token"] as string;
+    const expectedToken = process.env.CONTAINER_SERVICE_TOKEN;
+    const isContainerRequest = !!(expectedToken && serviceToken === expectedToken);
+
     // Allow test bucket without authentication in development
     const isTestBucket = process.env.NODE_ENV === 'development' &&
                          bucketId === '00000000-0000-0000-0000-000000000001';
 
     let userId: string | undefined;
     let isAdmin: boolean = false;
-    if (!isTestBucket) {
-      // For non-test buckets, require authentication
+    if (!isTestBucket && !isContainerRequest) {
+      // For non-test/non-container requests, require authentication
       try {
         const sessionData = await sessionManagementService.validateSession(req);
         if (!sessionData) {
@@ -901,8 +906,8 @@ router.get(
     }
 
     // Check if user has permission to access this bucket
-    // Reading file content requires read permission
-    if (!isTestBucket) {
+    // Reading file content requires read permission (skip for container requests)
+    if (!isTestBucket && !isContainerRequest) {
       const hasAccess = await canAccessBucket(userId, bucket, isAdmin, 'read');
       if (!hasAccess) {
         return res.status(403).json({
@@ -1285,54 +1290,13 @@ router.delete(
 
       await bucketS3Client.send(deleteCommand);
 
-      // CRITICAL: Also delete Y.js document state from S3
-      // This prevents the file from being recreated when the page reloads
-      // Y.js state is stored in .yjs/ folder
-      const { getSnapshotKey, getUpdatesKey } = await import("../services/yjsPersistenceService");
-      const snapshotKey = getSnapshotKey(filePath);
-      const updatesKey = getUpdatesKey(filePath);
-
+      // Clean up OT document
       try {
-        // Delete Y.js snapshot
-        await bucketS3Client.send(
-          new DeleteObjectCommand({
-            Bucket: bucket.bucket_name,
-            Key: snapshotKey,
-          })
-        );
-        logger.info(`[File Delete] Deleted Y.js snapshot: ${snapshotKey}`);
-      } catch (snapshotError: any) {
-        // Ignore if snapshot doesn't exist
-        if (snapshotError.name !== "NoSuchKey") {
-          logger.warn(`[File Delete] Failed to delete Y.js snapshot ${snapshotKey}:`, snapshotError);
-        }
-      }
-
-      try {
-        // Delete Y.js updates
-        await bucketS3Client.send(
-          new DeleteObjectCommand({
-            Bucket: bucket.bucket_name,
-            Key: updatesKey,
-          })
-        );
-        logger.info(`[File Delete] Deleted Y.js updates: ${updatesKey}`);
-      } catch (updatesError: any) {
-        // Ignore if updates don't exist
-        if (updatesError.name !== "NoSuchKey") {
-          logger.warn(`[File Delete] Failed to delete Y.js updates ${updatesKey}:`, updatesError);
-        }
-      }
-
-      // Also clean up the in-memory Y.js document if it exists
-      // CRITICAL: Pass skipSave=true to prevent saving the document state (which would recreate the file)
-      try {
-        const yjsProviderService = await import("../services/yjsProviderService");
-        const docId = yjsProviderService.getDocumentId(bucketId, filePath);
-        yjsProviderService.cleanupDocument(docId, true); // skipSave=true to prevent recreating the file
-        logger.info(`[File Delete] Cleaned up in-memory Y.js document: ${docId}`);
-      } catch (yjsError: any) {
-        logger.warn(`[File Delete] Failed to clean up Y.js document:`, yjsError);
+        const { cleanupDocument: cleanupOTDocument, getDocumentId: getOTDocumentId } = await import("../services/otProviderService");
+        cleanupOTDocument(getOTDocumentId(bucketId, filePath), true);
+        logger.info(`[File Delete] Cleaned up OT document for: ${filePath}`);
+      } catch (otError: any) {
+        logger.warn(`[File Delete] Failed to clean up OT document:`, otError);
       }
 
       return res.json({ message: "File deleted successfully", path: filePath });
@@ -1425,125 +1389,14 @@ router.post(
       const putResult = await bucketS3Client.send(putCommand);
       const etag = putResult.ETag;
 
-      // Update Y.js document so web clients see the change immediately
-      // This ensures bidirectional sync: container → Y.js → web clients
+      // Update OT documents so web clients see the change immediately
       try {
-        const { getYjsDocument, getOrCreateDocument } = await import("../services/yjsProviderService");
+        const { applyContainerContent } = await import("../services/otProviderService");
         const { getIO } = await import("../services/websocket");
-        const Y = await import("yjs");
-        
-        const doc = getYjsDocument(bucketId, filePath);
-        let isNewFile = false;
-        
-        if (doc) {
-          const ytext = doc.getText("content");
-          const currentContent = ytext.toString();
-          const newContent = typeof content === "string" ? content : content.toString("utf-8");
-          
-          // Check if this is a new file (Y.js document is empty)
-          isNewFile = currentContent.length === 0 && newContent.length > 0;
-          
-          // Only update if content is different
-          if (currentContent !== newContent) {
-            // Capture update by temporarily listening to update events
-            let capturedUpdate: Uint8Array | null = null;
-            const updateHandler = (update: Uint8Array, origin: any) => {
-              if (origin !== "container-sync") {
-                capturedUpdate = update;
-              }
-            };
-            
-            doc.on("update", updateHandler);
-            
-            // Update Y.js document with "container-sync" origin (this will trigger the update handler)
-            doc.transact(() => {
-              ytext.delete(0, ytext.length);
-              ytext.insert(0, newContent);
-            }, "container-sync");
-            
-            // Remove the update handler
-            doc.off("update", updateHandler);
-            
-            // Broadcast to all connected clients via WebSocket if we captured an update
-            if (capturedUpdate) {
-              const io = getIO();
-              const yjsNamespace = io.of("/yjs");
-              const docId = `${bucketId}:${filePath}`;
-              const updateBase64 = Buffer.from(capturedUpdate).toString("base64");
-              
-              // Broadcast to all clients subscribed to this document
-              yjsNamespace.to(docId).emit("yjs-update", {
-                bucketId,
-                filePath,
-                update: updateBase64,
-              });
-              
-              logger.info(`[Container Sync] Updated and broadcasted Y.js document from container: ${filePath}`, {
-                contentLength: newContent.length,
-                previousLength: currentContent.length
-              });
-            } else {
-              // Fallback: send full document state if update wasn't captured
-              const state = Y.encodeStateAsUpdate(doc);
-              const stateBase64 = Buffer.from(state).toString("base64");
-              
-              const io = getIO();
-              const yjsNamespace = io.of("/yjs");
-              const docId = `${bucketId}:${filePath}`;
-              
-              yjsNamespace.to(docId).emit("document-state", {
-                bucketId,
-                filePath,
-                state: stateBase64,
-              });
-              
-              logger.info(`[Container Sync] Updated Y.js document (sent full state) from container: ${filePath}`);
-            }
-            
-            // The Y.js document's update handler will automatically save to S3
-          } else {
-            logger.debug(`[Container Sync] Y.js document already in sync: ${filePath}`);
-          }
-        } else {
-          // Document doesn't exist yet - create it now
-          logger.info(`[Container Sync] Y.js document not found for ${filePath}, creating it.`);
-          const newDoc = await getOrCreateDocument(bucketId, filePath, {
-            bucket_name: bucket.bucket_name,
-            region: bucketRegion,
-          });
-          const ytext = newDoc.getText("content");
-          const newContent = typeof content === "string" ? content : content.toString("utf-8");
-          ytext.insert(0, newContent);
-          
-          // Force a save to S3
-          const { forceSaveDocument } = await import("../services/yjsProviderService");
-          await forceSaveDocument(bucketId, filePath);
-          
-          logger.info(`[Container Sync] Created new Y.js document from container: ${filePath}`);
-          isNewFile = true; // This is definitely a new file
-        }
-        
-        // Broadcast file-tree-change event if this is a new file
-        if (isNewFile) {
-          const io = getIO();
-          const yjsNamespace = io.of("/yjs");
-          const bucketRoom = `bucket:${bucketId}`;
-          
-          // Broadcast to all clients subscribed to this bucket
-          yjsNamespace.to(bucketRoom).emit("file-tree-change", {
-            bucketId,
-            filePath,
-            action: "create",
-          });
-          
-          logger.info(`[Container Sync] 📢 Broadcasted file-tree-change (create) for new file: ${filePath}`, {
-            bucketId,
-            bucketRoom
-          });
-        }
+        const newContent = typeof content === "string" ? content : content.toString("utf-8");
+        await applyContainerContent(bucketId, filePath, newContent, getIO());
       } catch (error: any) {
-        // Don't fail the request - S3 save succeeded
-        logger.error(`[Container Sync] Failed to update Y.js document from container sync:`, error);
+        logger.error(`[Container Sync] Failed to update OT document from container sync:`, error);
       }
 
       return res.json({

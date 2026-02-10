@@ -94,7 +94,7 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # ============================================================================
-# INSTALL NODE.JS 18 LTS (from NodeSource - required for yjs which uses modern JS)
+# INSTALL NODE.JS 18 LTS (from NodeSource - required for container file sync)
 # ============================================================================
 RUN curl -fsSL https://deb.nodesource.com/setup_18.x | bash - && \
     apt-get install -y nodejs && \
@@ -586,60 +586,22 @@ RUN echo '#!/usr/bin/env python3' > /usr/local/bin/run-server.py && \
     echo '        ' >> /usr/local/bin/run-server.py && \
     echo '        # Build full path' >> /usr/local/bin/run-server.py && \
     echo '        filepath = os.path.join("/workspace", filename)' >> /usr/local/bin/run-server.py && \
+    echo '        ' >> /usr/local/bin/run-server.py && \
+    echo '        # Flush pending writes and pull latest files BEFORE checking file existence' >> /usr/local/bin/run-server.py && \
+    echo '        try:' >> /usr/local/bin/run-server.py && \
+    echo '            import urllib.request' >> /usr/local/bin/run-server.py && \
+    echo '            flush_req = urllib.request.Request("http://127.0.0.1:3001/flush", method="POST")' >> /usr/local/bin/run-server.py && \
+    echo '            flush_resp = urllib.request.urlopen(flush_req, timeout=10)' >> /usr/local/bin/run-server.py && \
+    echo '            print(f"Flushed and pulled files before run: {flush_resp.read().decode()}")' >> /usr/local/bin/run-server.py && \
+    echo '        except Exception as e:' >> /usr/local/bin/run-server.py && \
+    echo '            print(f"WARNING: Failed to flush/pull files before run: {e}")' >> /usr/local/bin/run-server.py && \
+    echo '        ' >> /usr/local/bin/run-server.py && \
+    echo '        # Check file exists after flush (file may have been pulled from backend)' >> /usr/local/bin/run-server.py && \
     echo '        if not os.path.exists(filepath):' >> /usr/local/bin/run-server.py && \
     echo '            return jsonify({"error": f"File not found: {filename}"}), 404' >> /usr/local/bin/run-server.py && \
     echo '        ' >> /usr/local/bin/run-server.py && \
     echo '        # Ensure tmux session exists' >> /usr/local/bin/run-server.py && \
     echo '        ensure_tmux_session()' >> /usr/local/bin/run-server.py && \
-    echo '        ' >> /usr/local/bin/run-server.py && \
-        echo '        # Sync from S3 before running code to get latest changes (skip if file exists locally)' >> /usr/local/bin/run-server.py && \
-        echo '        S3_ASSIGNMENT_FILE = "/tmp/s3-assignment.json"' >> /usr/local/bin/run-server.py && \
-        echo '        WORKSPACE_PATH = "/workspace"' >> /usr/local/bin/run-server.py && \
-        echo '        # Only sync if file does not exist locally (allows testing without S3)' >> /usr/local/bin/run-server.py && \
-        echo '        if not os.path.exists(filepath) and os.path.exists(S3_ASSIGNMENT_FILE):' >> /usr/local/bin/run-server.py && \
-    echo '            import json' >> /usr/local/bin/run-server.py && \
-    echo '            with open(S3_ASSIGNMENT_FILE, "r") as f:' >> /usr/local/bin/run-server.py && \
-    echo '                s3_config = json.load(f)' >> /usr/local/bin/run-server.py && \
-    echo '            S3_BUCKET = s3_config.get("bucket")' >> /usr/local/bin/run-server.py && \
-    echo '            S3_REGION = s3_config.get("region", "us-east-1")' >> /usr/local/bin/run-server.py && \
-    echo '            AWS_ACCESS_KEY_ID = s3_config.get("accessKeyId")' >> /usr/local/bin/run-server.py && \
-    echo '            AWS_SECRET_ACCESS_KEY = s3_config.get("secretAccessKey")' >> /usr/local/bin/run-server.py && \
-    echo '            if S3_BUCKET:' >> /usr/local/bin/run-server.py && \
-    echo '                env = os.environ.copy()' >> /usr/local/bin/run-server.py && \
-    echo '                env["S3_BUCKET"] = S3_BUCKET' >> /usr/local/bin/run-server.py && \
-    echo '                env["S3_REGION"] = S3_REGION' >> /usr/local/bin/run-server.py && \
-    echo '                if AWS_ACCESS_KEY_ID:' >> /usr/local/bin/run-server.py && \
-    echo '                    env["AWS_ACCESS_KEY_ID"] = AWS_ACCESS_KEY_ID' >> /usr/local/bin/run-server.py && \
-    echo '                if AWS_SECRET_ACCESS_KEY:' >> /usr/local/bin/run-server.py && \
-    echo '                    env["AWS_SECRET_ACCESS_KEY"] = AWS_SECRET_ACCESS_KEY' >> /usr/local/bin/run-server.py && \
-    echo '                env["HOME"] = "/home/user"' >> /usr/local/bin/run-server.py && \
-    echo '                S3_PATH = f"s3:{S3_BUCKET}"' >> /usr/local/bin/run-server.py && \
-    echo '                sync_result = subprocess.run(' >> /usr/local/bin/run-server.py && \
-    echo '                    ["rclone", "sync", S3_PATH, WORKSPACE_PATH,' >> /usr/local/bin/run-server.py && \
-    echo '                     "--update", "--transfers", "4", "--checkers", "8",' >> /usr/local/bin/run-server.py && \
-    echo '                     "--exclude", ".git/**",' >> /usr/local/bin/run-server.py && \
-    echo '                     "--exclude", "node_modules/**",' >> /usr/local/bin/run-server.py && \
-    echo '                     "--exclude", "__pycache__/**",' >> /usr/local/bin/run-server.py && \
-    echo '                     "--exclude", ".vscode/**",' >> /usr/local/bin/run-server.py && \
-    echo '                     "--exclude", ".idea/**"],' >> /usr/local/bin/run-server.py && \
-    echo '                    capture_output=True,' >> /usr/local/bin/run-server.py && \
-    echo '                    text=True,' >> /usr/local/bin/run-server.py && \
-    echo '                    env=env,' >> /usr/local/bin/run-server.py && \
-    echo '                    timeout=30' >> /usr/local/bin/run-server.py && \
-    echo '                )' >> /usr/local/bin/run-server.py && \
-    echo '                if sync_result.returncode != 0:' >> /usr/local/bin/run-server.py && \
-    echo '                    print(f"WARNING: S3 sync before run failed: {sync_result.stderr}")' >> /usr/local/bin/run-server.py && \
-    echo '                else:' >> /usr/local/bin/run-server.py && \
-    echo '                    print("S3 sync before run completed successfully")' >> /usr/local/bin/run-server.py && \
-    echo '        ' >> /usr/local/bin/run-server.py && \
-    echo '        # Flush Yjs pending writes to filesystem before running' >> /usr/local/bin/run-server.py && \
-    echo '        try:' >> /usr/local/bin/run-server.py && \
-    echo '            import urllib.request' >> /usr/local/bin/run-server.py && \
-    echo '            flush_req = urllib.request.Request("http://127.0.0.1:3001/flush", method="POST")' >> /usr/local/bin/run-server.py && \
-    echo '            flush_resp = urllib.request.urlopen(flush_req, timeout=5)' >> /usr/local/bin/run-server.py && \
-    echo '            print(f"Flushed Yjs writes before run: {flush_resp.read().decode()}")' >> /usr/local/bin/run-server.py && \
-    echo '        except Exception as e:' >> /usr/local/bin/run-server.py && \
-    echo '            print(f"WARNING: Failed to flush Yjs writes before run: {e}")' >> /usr/local/bin/run-server.py && \
     echo '        ' >> /usr/local/bin/run-server.py && \
     echo '        # Kill any running process' >> /usr/local/bin/run-server.py && \
     echo '        kill_running_process()' >> /usr/local/bin/run-server.py && \
@@ -693,7 +655,7 @@ RUN echo '#!/usr/bin/env python3' > /usr/local/bin/run-server.py && \
     echo '        import json' >> /usr/local/bin/run-server.py && \
     echo '        bucket_id = data.get("bucketId")' >> /usr/local/bin/run-server.py && \
     echo '        if not bucket_id:' >> /usr/local/bin/run-server.py && \
-    echo '            print(f"WARNING: bucketId is missing or empty in S3 assignment request! Y.js sync will NOT work.")' >> /usr/local/bin/run-server.py && \
+    echo '            print(f"WARNING: bucketId is missing or empty in S3 assignment request! File sync will NOT work.")' >> /usr/local/bin/run-server.py && \
     echo '            print(f"Request data keys: {list(data.keys())}")' >> /usr/local/bin/run-server.py && \
     echo '        assignment = {' >> /usr/local/bin/run-server.py && \
     echo '            "bucket": bucket,' >> /usr/local/bin/run-server.py && \
@@ -709,25 +671,25 @@ RUN echo '#!/usr/bin/env python3' > /usr/local/bin/run-server.py && \
     echo '        # Touch the file to set its modification time (for inactivity monitor grace period)' >> /usr/local/bin/run-server.py && \
     echo '        os.utime(S3_ASSIGNMENT_FILE, None)' >> /usr/local/bin/run-server.py && \
     echo '        ' >> /usr/local/bin/run-server.py && \
-    echo '        # CRITICAL: DO NOT clear workspace - Y.js handles all syncing' >> /usr/local/bin/run-server.py && \
-    echo '        # The Y.js sync service will pull files from Y.js/S3 to workspace automatically' >> /usr/local/bin/run-server.py && \
-    echo '        # Clearing the workspace would cause Y.js to sync empty content back to the IDE' >> /usr/local/bin/run-server.py && \
+    echo '        # CRITICAL: DO NOT clear workspace - file sync handles all syncing' >> /usr/local/bin/run-server.py && \
+    echo '        # The file sync service will push changes to the backend automatically' >> /usr/local/bin/run-server.py && \
+    echo '        # Clearing the workspace would cause empty content to sync back to the IDE' >> /usr/local/bin/run-server.py && \
     echo '        bucket_name = assignment.get("bucket", "")' >> /usr/local/bin/run-server.py && \
-    echo '        print(f"Y.js will handle syncing files from S3/Y.js to workspace for bucket: {bucket_name} (ID: {bucket_id})")' >> /usr/local/bin/run-server.py && \
+    echo '        print(f"File sync service will handle syncing files from S3 to workspace for bucket: {bucket_name} (ID: {bucket_id})")' >> /usr/local/bin/run-server.py && \
     echo '        ' >> /usr/local/bin/run-server.py && \
     echo '        return jsonify({' >> /usr/local/bin/run-server.py && \
     echo '            "status": "success",' >> /usr/local/bin/run-server.py && \
     echo '            "message": f"S3 bucket {bucket} assigned successfully",' >> /usr/local/bin/run-server.py && \
     echo '            "bucket": bucket,' >> /usr/local/bin/run-server.py && \
     echo '            "bucketId": bucket_id,' >> /usr/local/bin/run-server.py && \
-    echo '            "warning": "bucketId is missing - Y.js sync will not work" if not bucket_id else None' >> /usr/local/bin/run-server.py && \
+    echo '            "warning": "bucketId is missing - File sync will not work" if not bucket_id else None' >> /usr/local/bin/run-server.py && \
     echo '        }), 200' >> /usr/local/bin/run-server.py && \
     echo '    except Exception as e:' >> /usr/local/bin/run-server.py && \
     echo '        return jsonify({"error": str(e)}), 500' >> /usr/local/bin/run-server.py && \
     echo '' >> /usr/local/bin/run-server.py && \
     echo '@app.route("/sync-status", methods=["GET"])' >> /usr/local/bin/run-server.py && \
     echo 'def sync_status():' >> /usr/local/bin/run-server.py && \
-    echo '    """Check if Y.js initial sync has completed"""' >> /usr/local/bin/run-server.py && \
+    echo '    """Check if initial sync has completed"""' >> /usr/local/bin/run-server.py && \
     echo '    marker_file = "/tmp/yjs-initial-sync-complete"' >> /usr/local/bin/run-server.py && \
     echo '    if os.path.exists(marker_file):' >> /usr/local/bin/run-server.py && \
     echo '        try:' >> /usr/local/bin/run-server.py && \
@@ -1040,14 +1002,14 @@ RUN echo '#!/usr/bin/env python3' > /usr/local/bin/run-server.py && \
     echo '        total_points = 0' >> /usr/local/bin/run-server.py && \
     echo '        points_earned = 0' >> /usr/local/bin/run-server.py && \
     echo '        ' >> /usr/local/bin/run-server.py && \
-    echo '        # Flush Yjs pending writes to filesystem before running tests' >> /usr/local/bin/run-server.py && \
+    echo '        # Flush pending writes and pull latest files before running tests' >> /usr/local/bin/run-server.py && \
     echo '        try:' >> /usr/local/bin/run-server.py && \
     echo '            import urllib.request' >> /usr/local/bin/run-server.py && \
     echo '            flush_req = urllib.request.Request("http://127.0.0.1:3001/flush", method="POST")' >> /usr/local/bin/run-server.py && \
-    echo '            flush_resp = urllib.request.urlopen(flush_req, timeout=5)' >> /usr/local/bin/run-server.py && \
-    echo '            print(f"Flushed Yjs writes before tests: {flush_resp.read().decode()}")' >> /usr/local/bin/run-server.py && \
+    echo '            flush_resp = urllib.request.urlopen(flush_req, timeout=10)' >> /usr/local/bin/run-server.py && \
+    echo '            print(f"Flushed and pulled files before tests: {flush_resp.read().decode()}")' >> /usr/local/bin/run-server.py && \
     echo '        except Exception as e:' >> /usr/local/bin/run-server.py && \
-    echo '            print(f"WARNING: Failed to flush Yjs writes before tests: {e}")' >> /usr/local/bin/run-server.py && \
+    echo '            print(f"WARNING: Failed to flush/pull files before tests: {e}")' >> /usr/local/bin/run-server.py && \
     echo '        ' >> /usr/local/bin/run-server.py && \
     echo '        os.makedirs(AUTOGRADER_PATH, exist_ok=True)' >> /usr/local/bin/run-server.py && \
     echo '        ' >> /usr/local/bin/run-server.py && \
@@ -1284,20 +1246,17 @@ RUN echo '#!/bin/bash' > /usr/local/bin/rclone-sync-loop.sh && \
 COPY file-watcher.sh /usr/local/bin/file-watcher.sh
 RUN chmod +x /usr/local/bin/file-watcher.sh
 
-# Install Node.js packages for Y.js container sync
-# Install globally and ensure they're accessible to all users
-RUN npm install -g yjs socket.io-client chokidar && \
-    # Set NODE_PATH for all users (npm prefix is /usr, so packages are in /usr/lib/node_modules/)
+# Install Node.js packages for container file sync
+RUN npm install -g chokidar && \
     echo 'export NODE_PATH=/usr/lib/node_modules' >> /etc/profile && \
     echo 'export NODE_PATH=/usr/lib/node_modules' >> /home/user/.bashrc && \
-    # Verify installation by checking package directories exist
-    ls -la /usr/lib/node_modules/ | grep -E "(yjs|socket.io-client|chokidar)" && \
-    echo "✅ All Y.js packages installed successfully" && \
+    ls -la /usr/lib/node_modules/ | grep chokidar && \
+    echo "Container sync packages installed" && \
     node --version
 
-# Y.js Container Sync - syncs filesystem with Y.js documents
-COPY yjs-container-sync.js /usr/local/bin/yjs-container-sync.js
-RUN chmod +x /usr/local/bin/yjs-container-sync.js
+# Container File Sync - watches filesystem and pushes changes via REST
+COPY container-file-sync.js /usr/local/bin/container-file-sync.js
+RUN chmod +x /usr/local/bin/container-file-sync.js
 
 # Autograder Copy Loop (copies directly from workspace, no S3 needed)
 RUN echo '#!/bin/bash' > /usr/local/bin/rclone-autograder-sync.sh && \
@@ -1525,12 +1484,12 @@ RUN echo '#!/bin/bash' > /usr/local/bin/entrypoint.sh && \
     echo 'with open("/tmp/s3-assignment.json", "w") as f:' >> /usr/local/bin/entrypoint.sh && \
     echo '    json.dump(assignment, f)' >> /usr/local/bin/entrypoint.sh && \
     echo 'EOF' >> /usr/local/bin/entrypoint.sh && \
-    echo '    # OLD S3 SYNC LOOPS REMOVED - Y.js now handles all syncing' >> /usr/local/bin/entrypoint.sh && \
+    echo '    # OLD S3 SYNC LOOPS REMOVED - container file sync handles all syncing' >> /usr/local/bin/entrypoint.sh && \
     echo '    # rclone-sync-loop.sh and file-watcher.sh are no longer needed' >> /usr/local/bin/entrypoint.sh && \
-    echo '    # Y.js syncs container changes -> backend -> S3 automatically' >> /usr/local/bin/entrypoint.sh && \
-    echo '    # Start Y.js container sync service (this handles all file syncing)' >> /usr/local/bin/entrypoint.sh && \
+    echo '    # Container file sync pushes changes -> backend -> S3/OT automatically' >> /usr/local/bin/entrypoint.sh && \
+    echo '    # Start container file sync service (this handles all file syncing)' >> /usr/local/bin/entrypoint.sh && \
     echo '    if [ -n "$S3_BUCKET_ID" ]; then' >> /usr/local/bin/entrypoint.sh && \
-    echo '        su user -c "NODE_PATH=/usr/lib/node_modules BACKEND_API_URL=${BACKEND_API_URL:-http://localhost:8000/api} S3_BUCKET_ID=$S3_BUCKET_ID CONTAINER_ID=${CONTAINER_ID:-} CONTAINER_SERVICE_TOKEN=${CONTAINER_SERVICE_TOKEN:-} WORKSPACE_PATH=/workspace /usr/local/bin/yjs-container-sync.js" &' >> /usr/local/bin/entrypoint.sh && \
+    echo '        su user -c "NODE_PATH=/usr/lib/node_modules BACKEND_API_URL=${BACKEND_API_URL:-http://localhost:8000/api} S3_BUCKET_ID=$S3_BUCKET_ID CONTAINER_ID=${CONTAINER_ID:-} CONTAINER_SERVICE_TOKEN=${CONTAINER_SERVICE_TOKEN:-} WORKSPACE_PATH=/workspace /usr/local/bin/container-file-sync.js" &' >> /usr/local/bin/entrypoint.sh && \
     echo '    fi' >> /usr/local/bin/entrypoint.sh && \
     echo 'else' >> /usr/local/bin/entrypoint.sh && \
     echo '    echo "S3_BUCKET not set - container is pre-warmed, waiting for S3 assignment..."' >> /usr/local/bin/entrypoint.sh && \
@@ -1542,7 +1501,7 @@ RUN echo '#!/bin/bash' > /usr/local/bin/entrypoint.sh && \
     echo '        # Function to start sync loops if not already started' >> /usr/local/bin/entrypoint.sh && \
         echo '        start_sync_loops() {' >> /usr/local/bin/entrypoint.sh && \
         echo '            if [ "$SYNC_STARTED" = "false" ] && [ -f "$S3_ASSIGNMENT_FILE" ]; then' >> /usr/local/bin/entrypoint.sh && \
-        echo '                echo "S3 bucket assignment detected, starting Y.js sync..."' >> /usr/local/bin/entrypoint.sh && \
+        echo '                echo "S3 bucket assignment detected, starting file sync..."' >> /usr/local/bin/entrypoint.sh && \
         echo '                # Wait a moment to ensure file is fully written' >> /usr/local/bin/entrypoint.sh && \
         echo '                sleep 1' >> /usr/local/bin/entrypoint.sh && \
         echo '                # Read credentials from assignment file and pass as env vars' >> /usr/local/bin/entrypoint.sh && \
@@ -1551,17 +1510,17 @@ RUN echo '#!/bin/bash' > /usr/local/bin/entrypoint.sh && \
         echo '                AWS_ACCESS_KEY_ID_VAL=$(python3 -c "import json; f=open(\"$S3_ASSIGNMENT_FILE\"); d=json.load(f); print(d.get(\"accessKeyId\", \"\") or \"\")" 2>/dev/null || echo "")' >> /usr/local/bin/entrypoint.sh && \
         echo '                AWS_SECRET_ACCESS_KEY_VAL=$(python3 -c "import json; f=open(\"$S3_ASSIGNMENT_FILE\"); d=json.load(f); print(d.get(\"secretAccessKey\", \"\") or \"\")" 2>/dev/null || echo "")' >> /usr/local/bin/entrypoint.sh && \
         echo '                if [ -n "$S3_BUCKET_VAL" ]; then' >> /usr/local/bin/entrypoint.sh && \
-        echo '                    # OLD S3 SYNC LOOPS REMOVED - Y.js now handles all syncing' >> /usr/local/bin/entrypoint.sh && \
-                    echo '                    # Start Y.js container sync service (this handles all file syncing)' >> /usr/local/bin/entrypoint.sh && \
+        echo '                    # OLD S3 SYNC LOOPS REMOVED - container file sync handles all syncing' >> /usr/local/bin/entrypoint.sh && \
+                    echo '                    # Start container file sync service (this handles all file syncing)' >> /usr/local/bin/entrypoint.sh && \
                     echo '                    S3_BUCKET_ID_VAL=$(python3 -c "import json; f=open(\"$S3_ASSIGNMENT_FILE\"); d=json.load(f); v=d.get(\"bucketId\"); print(v if v else \"\")" 2>/dev/null || echo "")' >> /usr/local/bin/entrypoint.sh && \
                     echo '                    echo "DEBUG: S3_BUCKET_ID_VAL=$S3_BUCKET_ID_VAL"' >> /usr/local/bin/entrypoint.sh && \
                     echo '                    if [ -n "$S3_BUCKET_ID_VAL" ]; then' >> /usr/local/bin/entrypoint.sh && \
-                    echo '                        echo "Starting Y.js container sync with bucket ID: $S3_BUCKET_ID_VAL"' >> /usr/local/bin/entrypoint.sh && \
-                    echo '                        su user -c "NODE_PATH=/usr/lib/node_modules BACKEND_API_URL=${BACKEND_API_URL:-http://localhost:8000/api} S3_BUCKET_ID=$S3_BUCKET_ID_VAL CONTAINER_ID=${CONTAINER_ID:-} CONTAINER_SERVICE_TOKEN=${CONTAINER_SERVICE_TOKEN:-} WORKSPACE_PATH=/workspace /usr/local/bin/yjs-container-sync.js" &' >> /usr/local/bin/entrypoint.sh && \
+                    echo '                        echo "Starting container file sync with bucket ID: $S3_BUCKET_ID_VAL"' >> /usr/local/bin/entrypoint.sh && \
+                    echo '                        su user -c "NODE_PATH=/usr/lib/node_modules BACKEND_API_URL=${BACKEND_API_URL:-http://localhost:8000/api} S3_BUCKET_ID=$S3_BUCKET_ID_VAL CONTAINER_ID=${CONTAINER_ID:-} CONTAINER_SERVICE_TOKEN=${CONTAINER_SERVICE_TOKEN:-} WORKSPACE_PATH=/workspace /usr/local/bin/container-file-sync.js" &' >> /usr/local/bin/entrypoint.sh && \
                     echo '                        SYNC_STARTED=true' >> /usr/local/bin/entrypoint.sh && \
-                    echo '                        echo "Y.js container sync started with bucket: $S3_BUCKET_VAL (ID: $S3_BUCKET_ID_VAL)"' >> /usr/local/bin/entrypoint.sh && \
+                    echo '                        echo "Container file sync started with bucket: $S3_BUCKET_VAL (ID: $S3_BUCKET_ID_VAL)"' >> /usr/local/bin/entrypoint.sh && \
                     echo '                    else' >> /usr/local/bin/entrypoint.sh && \
-                    echo '                        echo "ERROR: S3_BUCKET_ID is empty or null in assignment file - Y.js sync NOT started"' >> /usr/local/bin/entrypoint.sh && \
+                    echo '                        echo "ERROR: S3_BUCKET_ID is empty or null in assignment file - file sync NOT started"' >> /usr/local/bin/entrypoint.sh && \
                     echo '                        echo "DEBUG: Assignment file contents:"' >> /usr/local/bin/entrypoint.sh && \
                     echo '                        cat "$S3_ASSIGNMENT_FILE" 2>/dev/null || echo "Could not read file"' >> /usr/local/bin/entrypoint.sh && \
                     echo '                    fi' >> /usr/local/bin/entrypoint.sh && \
@@ -1581,7 +1540,7 @@ RUN echo '#!/bin/bash' > /usr/local/bin/entrypoint.sh && \
     echo '                start_sync_loops' >> /usr/local/bin/entrypoint.sh && \
     echo '                # Verify sync loops actually started by checking for running processes' >> /usr/local/bin/entrypoint.sh && \
     echo '                sleep 2' >> /usr/local/bin/entrypoint.sh && \
-    echo '                SYNC_RUNNING=$(pgrep -f "yjs-container-sync" | wc -l)' >> /usr/local/bin/entrypoint.sh && \
+    echo '                SYNC_RUNNING=$(pgrep -f "container-file-sync" | wc -l)' >> /usr/local/bin/entrypoint.sh && \
     echo '                if [ "$SYNC_RUNNING" -gt 0 ]; then' >> /usr/local/bin/entrypoint.sh && \
     echo '                    echo "Sync loops verified running ($SYNC_RUNNING processes)"' >> /usr/local/bin/entrypoint.sh && \
     echo '                else' >> /usr/local/bin/entrypoint.sh && \

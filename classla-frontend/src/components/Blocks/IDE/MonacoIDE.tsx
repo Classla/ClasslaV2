@@ -5,9 +5,8 @@ import FileExplorer, { FileNode } from "./FileExplorer";
 import { apiClient } from "../../../lib/api";
 import { useToast } from "../../../hooks/use-toast";
 import { Button } from "../../ui/button";
-import { yjsProvider } from "../../../lib/yjsProvider";
-import * as Y from "yjs";
-import { Awareness } from "y-protocols/awareness";
+import { otProvider, OTDocumentClient } from "../../../lib/otClient";
+import { MonacoOTBinding, CursorData } from "../../../lib/monacoOTBinding";
 import * as monaco from "monaco-editor";
 import {
   Select,
@@ -18,27 +17,7 @@ import {
 } from "../../ui/select";
 // Custom resize implementation - no Allotment needed
 
-// Generate a unique client ID for this IDE instance
-// CRITICAL: Each MonacoIDE component instance needs a unique ID (side panel + main view = 2 instances)
-const generateClientId = () => {
-  // Use crypto.randomUUID if available, fallback to timestamp + random
-  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
-    return `monaco-${crypto.randomUUID()}`;
-  }
-  // Fallback: timestamp + high-precision random + performance.now for uniqueness
-  return `monaco-${Date.now()}-${performance.now()}-${Math.random().toString(36).substr(2, 9)}-${Math.random().toString(36).substr(2, 9)}`;
-};
-
-// Quick hash function for content comparison (used for echo detection)
-const quickHash = (str: string): number => {
-  let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    const char = str.charCodeAt(i);
-    hash = ((hash << 5) - hash) + char;
-    hash = hash & hash; // Convert to 32bit integer
-  }
-  return hash;
-};
+// (Client ID and echo detection removed - OT protocol handles this)
 
 interface MonacoIDEProps {
   bucketId: string | null;
@@ -59,6 +38,7 @@ interface MonacoIDEProps {
   onOpenSidePanel?: () => void;
   onOpenFullscreen?: () => void;
   showPanelButtons?: boolean;
+  currentUser?: { id: string; name: string; color: string };
 }
 
 const MonacoIDE: React.FC<MonacoIDEProps> = ({
@@ -80,6 +60,7 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
   onOpenSidePanel,
   onOpenFullscreen,
   showPanelButtons = false,
+  currentUser,
 }) => {
   const { toast } = useToast();
   const [files, setFiles] = useState<FileNode[]>([]);
@@ -92,25 +73,15 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
   const [saveStatus, setSaveStatus] = useState<Record<string, "saving" | "saved" | "error">>({}); // Track save status per file
   const editorRef = useRef<any>(null);
   const editorReadyRef = useRef<boolean>(false); // Track if editor is mounted and ready
-  const yjsBindingsRef = useRef<Record<string, { dispose: () => void }>>({}); // Track Y.js bindings per file
-  const yjsDocsRef = useRef<Record<string, { doc: Y.Doc; ytext: Y.Text; awareness: Awareness }>>({}); // Track Y.js documents
+  const otBindingsRef = useRef<Record<string, MonacoOTBinding>>({}); // Track OT bindings per file
   const containerRef = useRef<HTMLDivElement>(null);
   const terminalSplitRef = useRef<HTMLDivElement>(null); // Ref for terminal/VNC split container
   const pendingSavesRef = useRef<Set<string>>(new Set()); // Track files with pending saves
   const selectedFileRef = useRef<string | null>(null); // Track selected file in ref for binding checks
   const containerHealthCheckRef = useRef<NodeJS.Timeout | null>(null); // Track health check interval
   const disconnectionDetectedRef = useRef<boolean>(false); // Track if disconnection was already detected
-  const clientIdRef = useRef<string>(generateClientId()); // Unique client ID for this IDE instance
-  const lastMonacoChangeRef = useRef<{ filePath: string; content: string; timestamp: number } | null>(null); // Track last change from Monaco
-  const recentMonacoChangesRef = useRef<Array<{ filePath: string; content: string; timestamp: number }>>([]); // Track last 5 changes for better echo detection
-  const isTypingRef = useRef<boolean>(false); // Track if user is actively typing
-  const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null); // Timeout to clear typing state
-  const yjsUpdateLogRef = useRef<Array<{timestamp: number; filePath: string; origin: string; content: string; skipped: boolean; reason?: string}>>([]); // Log all YJS updates for debugging
-  const isApplyingYjsUpdateRef = useRef<Record<string, boolean>>({}); // Track YJS updates per file using refs
-  const isApplyingMonacoUpdateRef = useRef<Record<string, boolean>>({}); // Track Monaco updates per file using refs
-  const lastMonacoContentRef = useRef<Record<string, string>>({}); // Track last Monaco content per file to detect our own changes
   const saveStatusTimeoutRef = useRef<Record<string, NodeJS.Timeout>>({}); // Track debounced save status updates per file
-  const recentContentHashesRef = useRef<Map<string, Set<number>>>(new Map()); // Track content hashes for echo detection
+  const instanceIdRef = useRef(`ide_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`); // Unique ID per MonacoIDE instance for local cursor dispatch
   // Min and max constraints for side panel
   const SIDE_PANEL_MIN = 150;
   const SIDE_PANEL_MAX = 500;
@@ -465,52 +436,31 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
     }
   }, [bucketId, toast, getAllFilePaths]);
 
-  // Load file content - Y.js is the source of truth, server handles S3 loading
+  // Load file content - OT server is the source of truth
   const loadFile = useCallback(
     async (filePath: string, forceReload: boolean = false) => {
       if (!bucketId) return;
 
-      // Set loading state
       setLoadingFiles((prev) => new Set(prev).add(filePath));
 
       try {
-        // CRITICAL: Subscribe to Y.js document and let the SERVER handle loading from S3
-        // The server will send document-state which contains the latest content
-        // DO NOT load from S3 on the client - this causes race conditions where
-        // old S3 content overwrites newer Y.js state
-        yjsProvider.subscribeToDocument(bucketId, filePath);
+        // Subscribe to OT document - server handles S3 loading and sends document-state
+        otProvider.subscribeToDocument(bucketId, filePath);
 
-        // Get or create Y.js document
-        const { ytext } = yjsProvider.getDocument(bucketId, filePath);
-
-        // Check if Y.js already has content (might have been loaded from a previous subscription)
-        const yjsContent = ytext.toString();
+        // Check if OT already has content (previous subscription)
+        const doc = otProvider.getDocument(bucketId, filePath);
+        const content = doc?.content || "";
 
         console.log(`[MonacoIDE] Loading file ${filePath}`, {
-          yjsContentLength: yjsContent.length,
+          contentLength: content.length,
           forceReload,
-          docId: `${bucketId}:${filePath}`
         });
 
-        // If Y.js has content, use it immediately
-        // If empty, the server will send document-state which will trigger the ytext observer
-        if (yjsContent) {
-          console.log(`[MonacoIDE] Using existing Y.js content: ${filePath}`, {
-            contentLength: yjsContent.length
-          });
-          setFileContent((prev) => ({ ...prev, [filePath]: yjsContent }));
-        } else {
-          // Y.js is empty - this is normal on first load
-          // The server will send document-state shortly which will populate the content
-          // For now, set empty content (will be updated when document-state arrives)
-          console.log(`[MonacoIDE] Y.js empty, waiting for server document-state: ${filePath}`);
-          setFileContent((prev) => ({ ...prev, [filePath]: "" }));
-        }
+        setFileContent((prev) => ({ ...prev, [filePath]: content }));
       } catch (error: any) {
         console.error(`[MonacoIDE] Failed to load file ${filePath}:`, error);
         setFileContent((prev) => ({ ...prev, [filePath]: "" }));
       } finally {
-        // Clear loading state
         setLoadingFiles((prev) => {
           const next = new Set(prev);
           next.delete(filePath);
@@ -521,7 +471,7 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
     [bucketId]
   );
 
-  // Save file to S3 (Y.js handles real-time sync, this is for explicit saves)
+  // Save file to S3 (OT handles real-time sync, this is for explicit saves)
   const saveFile = useCallback(
     async (filePath: string, content: string) => {
       if (!bucketId) {
@@ -533,26 +483,13 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
         console.log(`[MonacoIDE] Explicit save requested for ${filePath}`, {
           contentLength: content.length
         });
-        
-        // Get Y.js document and update it
-        const { doc, ytext } = yjsProvider.getDocument(bucketId, filePath);
-        const currentContent = ytext.toString();
-        
-        // Update Y.js document if content differs (this will sync to other tabs)
-        if (currentContent !== content) {
-          doc.transact(() => {
-          ytext.delete(0, ytext.length);
-          ytext.insert(0, content);
-          }, "explicit-save");
-          console.log(`[MonacoIDE] Updated Y.js document for ${filePath}`);
-        }
-        
-        // Also save directly to S3 for persistence (Y.js will sync, but this ensures it's saved)
+
+        // Save directly to S3 for persistence (OT handles sync automatically)
         await apiClient.saveS3File(bucketId, filePath, content);
-        console.log(`[MonacoIDE] ✅ Saved ${filePath} to S3`);
+        console.log(`[MonacoIDE] Saved ${filePath} to S3`);
         setFileContent((prev) => ({ ...prev, [filePath]: content }));
       } catch (error: any) {
-        console.error(`[MonacoIDE] ❌ Failed to save file ${filePath}:`, error);
+        console.error(`[MonacoIDE] Failed to save file ${filePath}:`, error);
         toast({
           title: "Failed to save file",
           description: error.message || `Could not save ${filePath}`,
@@ -566,15 +503,12 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
   // Handle file selection - opens file in a new tab if not already open
   const handleFileSelect = useCallback(
     (path: string) => {
-      // CRITICAL: Clean up bindings for the previously selected file BEFORE switching
-      // This prevents stale bindings from syncing wrong content
-      if (selectedFile && selectedFile !== path && yjsBindingsRef.current[selectedFile]) {
-        console.log(`[MonacoIDE] 🧹 Cleaning up binding for previous file: ${selectedFile}`);
-        yjsBindingsRef.current[selectedFile].dispose();
-        delete yjsBindingsRef.current[selectedFile];
+      // Clean up binding for previously selected file before switching
+      if (selectedFile && selectedFile !== path && otBindingsRef.current[selectedFile]) {
+        otBindingsRef.current[selectedFile].destroy();
+        delete otBindingsRef.current[selectedFile];
       }
-      
-      // Add to open tabs if not already open
+
       setOpenTabs((prev) => {
         if (!prev.includes(path)) {
           return [...prev, path];
@@ -582,20 +516,17 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
         return prev;
       });
       setSelectedFile(path);
-      selectedFileRef.current = path; // Update ref immediately
-      
-      // Subscribe to Y.js document immediately to start syncing
-      if (bucketId) {
-        yjsProvider.subscribeToDocument(bucketId, path);
-        const { ytext } = yjsProvider.getDocument(bucketId, path);
-        const yjsContent = ytext.toString();
+      selectedFileRef.current = path;
 
-        // If Y.js has content, use it (it's the source of truth)
-        if (yjsContent) {
-          setFileContent((prev) => ({ ...prev, [path]: yjsContent }));
+      // Subscribe to OT document
+      if (bucketId) {
+        otProvider.subscribeToDocument(bucketId, path);
+        const doc = otProvider.getDocument(bucketId, path);
+        const content = doc?.content || "";
+
+        if (content) {
+          setFileContent((prev) => ({ ...prev, [path]: content }));
         } else {
-          // If Y.js is empty, subscribe and wait for server to send document-state
-          // Server handles loading from S3 - client should NOT load from S3 directly
           loadFile(path, false);
         }
       }
@@ -608,7 +539,6 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
     (path: string, e?: React.MouseEvent) => {
       e?.stopPropagation();
       setOpenTabs((prev) => prev.filter((p) => p !== path));
-      // If closing the selected file, switch to another tab or clear selection
       if (selectedFile === path) {
         const remainingTabs = openTabs.filter((p) => p !== path);
         if (remainingTabs.length > 0) {
@@ -619,26 +549,15 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
           selectedFileRef.current = null;
         }
       }
-      // Clean up Y.js binding for closed file
-      if (yjsBindingsRef.current[path]) {
-        yjsBindingsRef.current[path].dispose();
-        delete yjsBindingsRef.current[path];
+      // Clean up OT binding
+      if (otBindingsRef.current[path]) {
+        otBindingsRef.current[path].destroy();
+        delete otBindingsRef.current[path];
       }
-      
-      // Clean up state refs for closed file
-      delete isApplyingYjsUpdateRef.current[path];
-      delete isApplyingMonacoUpdateRef.current[path];
-      if (yjsDocsRef.current[path]) {
-        // Clear connection check interval
-        const connectionCheckInterval = (yjsDocsRef.current[path] as any)?._connectionCheckInterval;
-        if (connectionCheckInterval) {
-          clearInterval(connectionCheckInterval);
-        }
-        
-        yjsProvider.unsubscribeDocument(bucketId || "", path);
-        delete yjsDocsRef.current[path];
+      // Unsubscribe from OT document
+      if (bucketId) {
+        otProvider.unsubscribeDocument(bucketId, path);
       }
-      
       // Clear save status
       setSaveStatus((prev) => {
         const next = { ...prev };
@@ -649,12 +568,10 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
     [selectedFile, openTabs, bucketId]
   );
 
-  // Handle editor change - Y.js handles sync automatically
+  // Handle editor change - OT binding handles sync automatically
   const handleEditorChange = useCallback(
     (value: string | undefined) => {
-      // Note: This handler is called by Monaco, but the MonacoBinding
-      // should be handling the actual sync to Y.js
-      // We only update local state here for UI consistency
+      // OT binding handles actual sync; we only update local state for UI
       if (selectedFile && value !== undefined) {
         // Only update if different to avoid unnecessary re-renders
         setFileContent((prev) => {
@@ -717,9 +634,9 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
         }
       });
 
-      // Broadcast file creation to other tabs via Y.js WebSocket
-      const socket = (yjsProvider as any).socketInstance;
-      if (yjsProvider.connected && socket) {
+      // Broadcast file creation to other tabs via OT WebSocket
+      const socket = otProvider.socketInstance;
+      if (otProvider.connected && socket) {
         try {
           socket.emit("file-tree-change", {
             bucketId,
@@ -732,7 +649,7 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
       }
 
       // Open and select the new file using the standard file selection flow
-      // This properly handles Y.js subscription and binding setup without duplication
+      // This properly handles OT subscription and binding setup without duplication
       setFileContent((prev) => ({ ...prev, [path]: "" }));
       handleFileSelect(path);
 
@@ -754,7 +671,7 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
         recentlyCreatedFilesRef.current.delete(path);
       }, 15000);
       
-      // Don't reload file tree immediately - let Y.js handle the sync
+      // Don't reload file tree immediately - let OT handle the sync
       // The file tree will be updated via WebSocket events from the backend
       // Only reload after a longer delay to catch any missed updates
       setTimeout(() => {
@@ -797,14 +714,13 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
           return next;
         });
 
-      // Clean up Y.js resources (backend handles document cleanup via file-tree-change delete event)
-      if (yjsBindingsRef.current[path]) {
-        yjsBindingsRef.current[path].dispose();
-        delete yjsBindingsRef.current[path];
+      // Clean up OT resources
+      if (otBindingsRef.current[path]) {
+        otBindingsRef.current[path].destroy();
+        delete otBindingsRef.current[path];
       }
-      if (yjsDocsRef.current[path]) {
-        yjsProvider.unsubscribeDocument(bucketId, path);
-        delete yjsDocsRef.current[path];
+      if (bucketId) {
+        otProvider.unsubscribeDocument(bucketId, path);
       }
 
         // Clear selection if deleted file was selected
@@ -819,9 +735,9 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
         }
       }
 
-      // Broadcast file deletion to other tabs via Y.js WebSocket
-      const socket = (yjsProvider as any).socketInstance;
-      if (yjsProvider.connected && socket) {
+      // Broadcast file deletion to other tabs via OT WebSocket
+      const socket = otProvider.socketInstance;
+      if (otProvider.connected && socket) {
         try {
           socket.emit("file-tree-change", {
             bucketId,
@@ -879,11 +795,11 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
         return;
       }
 
-      // Get content from old Y.js document (if available)
+      // Get content from OT document (if available)
       let content = "";
-      if (yjsDocsRef.current[oldPath]) {
-        const { ytext } = yjsDocsRef.current[oldPath];
-        content = ytext.toString();
+      const doc = otProvider.getDocument(bucketId, oldPath);
+      if (doc) {
+        content = doc.content;
       } else if (fileContent[oldPath] !== undefined) {
         content = fileContent[oldPath];
       }
@@ -924,31 +840,20 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
         return next;
       });
 
-      // Clean up old Y.js binding + unsubscribe
-      if (yjsBindingsRef.current[oldPath]) {
-        yjsBindingsRef.current[oldPath].dispose();
-        delete yjsBindingsRef.current[oldPath];
+      // Clean up old OT binding + unsubscribe
+      if (otBindingsRef.current[oldPath]) {
+        otBindingsRef.current[oldPath].destroy();
+        delete otBindingsRef.current[oldPath];
       }
-      if (yjsDocsRef.current[oldPath]) {
-        yjsProvider.unsubscribeDocument(bucketId, oldPath);
-        delete yjsDocsRef.current[oldPath];
-      }
+      otProvider.unsubscribeDocument(bucketId, oldPath);
 
-      // Create new Y.js document with content + subscribe
-      try {
-        yjsProvider.subscribeToDocument(bucketId, newPath);
-        const { ytext } = yjsProvider.getDocument(bucketId, newPath);
-        if (content && ytext.length === 0) {
-          ytext.insert(0, content);
-        }
-        setFileContent((prev) => ({ ...prev, [newPath]: ytext.toString() }));
-      } catch (error) {
-        console.warn(`[MonacoIDE] Failed to initialize Y.js for renamed file ${newPath}:`, error);
-      }
+      // Subscribe to new path
+      otProvider.subscribeToDocument(bucketId, newPath);
+      setFileContent((prev) => ({ ...prev, [newPath]: content }));
 
       // Broadcast file-tree-change events (delete old + create new)
-      const socket = (yjsProvider as any).socketInstance;
-      if (yjsProvider.connected && socket) {
+      const socket = otProvider.socketInstance;
+      if (otProvider.connected && socket) {
         try {
           socket.emit("file-tree-change", {
             bucketId,
@@ -965,7 +870,7 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
         }
       }
 
-      // Save new file to S3 (use PUT, not POST - Y.js subscription may have already created it)
+      // Save new file to S3 (use PUT, not POST - OT subscription may have already created it)
       // Then delete old file
       try {
         await apiClient.saveS3File(bucketId, newPath, content);
@@ -994,852 +899,118 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
     [bucketId, files, fileContent, selectedFile, toast, loadFileTree]
   );
 
-  // Connect to Y.js provider
+  // Connect to OT provider
   useEffect(() => {
     if (!bucketId) {
-      yjsProvider.disconnect();
+      otProvider.disconnect();
       return;
     }
-
-    // Connect to Y.js provider with bucketId for test authentication
-    // CRITICAL: Y.js always connects to the backend API (port 8000 in dev),
-    // NOT the IDE orchestration API. These are separate services.
-    // Backend API URL is determined by VITE_API_BASE_URL env var
     const backendApiUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
-    yjsProvider.connect(backendApiUrl, bucketId);
+    otProvider.connect(backendApiUrl, bucketId);
   }, [bucketId]);
 
-  // Extract binding setup into a reusable function
-  const setupYjsBinding = useCallback((filePath: string) => {
-    if (!bucketId || !filePath || !editorRef.current) {
-      console.log(`[MonacoIDE] ⏳ Cannot setup binding:`, {
-        hasBucketId: !!bucketId,
-        hasFilePath: !!filePath,
-        hasEditor: !!editorRef.current
-      });
-        return;
-      }
+  // Setup OT binding for a file
+  const setupOTBinding = useCallback((filePath: string) => {
+    if (!bucketId || !filePath || !editorRef.current) return;
 
     const editor = editorRef.current;
     const model = editor.getModel();
-    
-    if (!model) {
-      console.warn(`[MonacoIDE] ⚠️  Model not ready for ${filePath}, will retry...`);
-      // Retry after a short delay
-      setTimeout(() => {
-        const retryModel = editor.getModel();
-        if (retryModel && bucketId && filePath) {
-          setupYjsBinding(filePath);
-        }
-      }, 200);
+    if (!model) return;
+
+    // Clean up existing binding for this file
+    if (otBindingsRef.current[filePath]) {
+      otBindingsRef.current[filePath].destroy();
+      delete otBindingsRef.current[filePath];
+    }
+
+    // Get OT document client
+    const doc = otProvider.getDocument(bucketId, filePath);
+    if (!doc) {
+      console.log(`[MonacoIDE] OT document not ready for ${filePath}, waiting for server...`);
+      // Register a callback to set up the binding when the document arrives
+      const cleanup = otProvider.onDocumentReady(bucketId, filePath, () => {
+        console.log(`[MonacoIDE] Document ready callback for ${filePath}`);
+        setupOTBinding(filePath);
+      });
+      // Store cleanup so it can be cancelled if needed
+      if (!otBindingsRef.current[`__pending_${filePath}`]) {
+        (otBindingsRef.current as any)[`__pending_${filePath}`] = { destroy: cleanup };
+      }
       return;
     }
-
-    // DIRECT binding setup - no setTimeout, no nested functions
-    console.log(`[MonacoIDE] 🔧🔧🔧 STARTING binding setup for ${filePath}`, {
-      hasEditor: !!editor,
-      hasModel: !!model,
-      modelUri: model?.uri?.toString()
-    });
-
-      // Clean up old binding for this file if it exists
-      if (yjsBindingsRef.current[filePath]) {
-      console.log(`[MonacoIDE] Cleaning up old binding for ${filePath}`);
-      yjsBindingsRef.current[filePath].dispose();
-        delete yjsBindingsRef.current[filePath];
-      }
-      
-      // Get or create Y.js document and subscribe
-      yjsProvider.subscribeToDocument(bucketId, filePath);
-      const { doc, ytext, awareness } = yjsProvider.getDocument(bucketId, filePath);
-      yjsDocsRef.current[filePath] = { doc, ytext, awareness };
-
-    const yjsContent = ytext.toString();
-    const modelContent = model.getValue();
-    
-    // CRITICAL: Check if this model is actually for the file we're setting up
-    // Monaco Editor reuses the same model instance, so when switching tabs,
-    // the model might still have the old file's content. We need to verify
-    // the model content matches what we expect for this file.
-    const expectedContent = fileContent[filePath] || "";
-    
-    // Check if model matches expected content for this file
-    // If expectedContent is empty, we'll trust Y.js
-    const modelMatchesExpected = expectedContent === "" || modelContent === expectedContent;
-    const yjsMatchesExpected = expectedContent === "" || yjsContent === expectedContent;
-
-    console.log(`[MonacoIDE] Initial state for ${filePath}:`, {
-      yjsLength: yjsContent.length,
-      modelLength: modelContent.length,
-      expectedLength: expectedContent.length,
-      yjsMatchesModel: yjsContent === modelContent,
-      modelMatchesExpected,
-      yjsMatchesExpected
-    });
-
-    // Determine what content to use:
-    // 1. If model matches expected content, it's correct - use Y.js if different
-    // 2. If model doesn't match expected, it's stale - use expected content
-    // 3. If expected is empty, use Y.js
-    let contentToUse = yjsContent;
-    if (!modelMatchesExpected && expectedContent) {
-      // Model has stale content from previous file, use expected content
-      contentToUse = expectedContent;
-      console.log(`[MonacoIDE] 🔄 Model has stale content, using expected content for ${filePath}`);
-    } else if (yjsContent && yjsMatchesExpected) {
-      // Y.js matches expected, use Y.js
-      contentToUse = yjsContent;
+    // Clean up pending callback if we got here directly
+    if ((otBindingsRef.current as any)[`__pending_${filePath}`]) {
+      delete (otBindingsRef.current as any)[`__pending_${filePath}`];
     }
 
-    // Only update if content differs
-    if (modelContent !== contentToUse) {
-      console.log(`[MonacoIDE] 🔄 Syncing Monaco model with content for ${filePath}`, {
-        fromLength: modelContent.length,
-        toLength: contentToUse.length,
-        source: contentToUse === expectedContent ? 'expected' : 'yjs'
-      });
-      
-      // Save cursor position before updating model
-      const editor = editorRef.current;
-      const savedPosition = editor?.getPosition();
-      const savedSelection = editor?.getSelection();
-      const hadFocus = editor?.hasTextFocus() || false;
-      
-      // For initial sync, use full replacement (model might be empty or completely different)
-      // For subsequent updates, the YJS observer will handle incremental updates
+    // Set initial content if model is empty but OT has content
+    const modelContent = model.getValue();
+    if (doc.content && modelContent !== doc.content) {
       model.pushEditOperations(
         [],
-        [{
-          range: model.getFullModelRange(),
-          text: contentToUse
-        }],
+        [{ range: model.getFullModelRange(), text: doc.content }],
         () => null
       );
-      
-      // Restore cursor position after initial sync (synchronously)
-      if (editor && savedPosition) {
-        const lineCount = model.getLineCount();
-        const validPosition = {
-          lineNumber: Math.min(savedPosition.lineNumber, lineCount),
-          column: savedPosition.lineNumber <= lineCount 
-            ? Math.min(savedPosition.column, model.getLineLength(savedPosition.lineNumber) + 1)
-            : model.getLineLength(lineCount) + 1
-        };
-        
-        editor.setPosition(validPosition);
-        if (savedSelection) {
-          editor.setSelection(savedSelection);
-        }
-        
-        // Only restore focus if we had it (avoid unnecessary focus calls)
-        if (hadFocus) {
-        editor.focus();
-        }
-      }
-      
-      setFileContent((prev) => ({ ...prev, [filePath]: contentToUse }));
     }
 
-    // Create Y.js binding - IMMEDIATE, no setTimeout
-    console.log(`[MonacoIDE] 🔧 Creating Y.js binding for ${filePath}`);
-    
-    // Use refs for state flags to prevent race conditions
-    // Initialize refs for this file if not already set
-    if (!isApplyingYjsUpdateRef.current[filePath]) {
-      isApplyingYjsUpdateRef.current[filePath] = false;
-    }
-    if (!isApplyingMonacoUpdateRef.current[filePath]) {
-      isApplyingMonacoUpdateRef.current[filePath] = false;
-    }
-    
-    // 1. Sync Y.js -> Monaco: When Y.js changes, update Monaco
-    // CRITICAL: Capture filePath and clientId in closure to verify we're still bound to the correct file
-    const capturedFilePathForYjs = filePath;
-    const capturedClientId = clientIdRef.current;
-    const yjsObserver = (event: Y.YTextEvent, transaction: Y.Transaction) => {
-      const timestamp = Date.now();
-      const originStr = String(transaction.origin || '');
-      const yjsContent = ytext.toString();
-      
-      // DETAILED LOGGING: Track all YJS updates
-      const logEntry = {
-        timestamp,
-        filePath: capturedFilePathForYjs,
-        origin: originStr,
-        content: yjsContent.substring(0, 100), // First 100 chars for logging
-        skipped: false,
-        reason: undefined as string | undefined
-      };
-      
-      const isApplyingYjs = isApplyingYjsUpdateRef.current[capturedFilePathForYjs] || false;
-      const isApplyingMonaco = isApplyingMonacoUpdateRef.current[capturedFilePathForYjs] || false;
-      
-      console.log(`[MonacoIDE] 🔍 YJS Observer triggered for ${capturedFilePathForYjs}`, {
-        origin: originStr,
-        clientId: capturedClientId,
-        isTyping: isTypingRef.current,
-        isApplyingYjsUpdate: isApplyingYjs,
-        isApplyingMonacoUpdate: isApplyingMonaco,
-        selectedFile: selectedFileRef.current,
-        yjsLength: yjsContent.length,
-        hasBinding: !!yjsBindingsRef.current[capturedFilePathForYjs]
-      });
-      
-      // CRITICAL: Verify we're still bound to the correct file using ref (always current)
-      if (selectedFileRef.current !== capturedFilePathForYjs) {
-        logEntry.skipped = true;
-        logEntry.reason = `file changed from ${capturedFilePathForYjs} to ${selectedFileRef.current}`;
-        console.log(`[MonacoIDE] ⏭️  Skipping Y.js update - ${logEntry.reason}`);
-        yjsUpdateLogRef.current.push(logEntry);
-        if (yjsUpdateLogRef.current.length > 50) yjsUpdateLogRef.current.shift(); // Keep last 50
-        return;
-      }
-      
-      // Also verify the binding still exists for this file
-      if (!yjsBindingsRef.current[capturedFilePathForYjs]) {
-        logEntry.skipped = true;
-        logEntry.reason = `binding disposed for ${capturedFilePathForYjs}`;
-        console.log(`[MonacoIDE] ⏭️  Skipping Y.js update - ${logEntry.reason}`);
-        yjsUpdateLogRef.current.push(logEntry);
-        if (yjsUpdateLogRef.current.length > 50) yjsUpdateLogRef.current.shift();
-        return;
-      }
-      
-      // Get content and editor state early (yjsContent already declared above)
-      const monacoContent = model.getValue();
-      const editor = editorRef.current;
-      const editorHasFocus = editor?.hasTextFocus() || false;
-      
-      // CRITICAL: Check recent changes for echo detection (define early)
-      const recentChanges = recentMonacoChangesRef.current.filter(
-        (c: { filePath: string; content: string; timestamp: number }) =>
-          c.filePath === capturedFilePathForYjs && Date.now() - c.timestamp < 5000
-      );
+    // Create binding
+    const binding = new MonacoOTBinding(model, editor, doc);
+    otBindingsRef.current[filePath] = binding;
 
-      // CRITICAL: Check content hash for reliable echo detection
-      // If the incoming YJS content matches a hash we recently sent, it's definitely an echo
-      const incomingHash = quickHash(yjsContent);
-      const recentHashes = recentContentHashesRef.current.get(capturedFilePathForYjs);
-      if (recentHashes?.has(incomingHash)) {
-        logEntry.skipped = true;
-        logEntry.reason = `content hash matches recent local change - BLOCKING echo`;
-        console.log(`[MonacoIDE] ⏭️  BLOCKING Y.js update - ${logEntry.reason}`, {
-          hash: incomingHash,
-          yjsLength: yjsContent.length
-        });
-        yjsUpdateLogRef.current.push(logEntry);
-        if (yjsUpdateLogRef.current.length > 50) yjsUpdateLogRef.current.shift();
-        return;
-      }
-
-      // CRITICAL: Block ALL server-origin updates if we have recent changes (container echoes)
-      // Server origin means it came from the container, which echoes our changes back
-      // This check happens BEFORE typing flag check because echoes can arrive after typing flag expires
-      // Be VERY aggressive - block ANY server update if we have recent changes within 5 seconds
-      if (originStr === 'server' && recentChanges.length > 0) {
-        // Check if ANY recent change happened within 5 seconds
-        const hasVeryRecentChange = recentChanges.some((c: { filePath: string; content: string; timestamp: number }) => {
-          const timeSinceChange = Date.now() - c.timestamp;
-          return timeSinceChange < 5000;
-        });
-        
-        if (hasVeryRecentChange) {
-          // Check if server update is similar to ANY recent change (within 5 chars length difference)
-          // This catches echoes even if content is slightly different
-          const isSimilarToRecent = recentChanges.some((c: { filePath: string; content: string; timestamp: number }) => {
-            const timeSinceChange = Date.now() - c.timestamp;
-            if (timeSinceChange >= 5000) return false;
-            
-            // Compare against the recent change content (what user typed)
-            const lengthDiff = Math.abs(yjsContent.length - c.content.length);
-            const lengthSimilar = lengthDiff <= 5;
-            
-            // Also compare against current Monaco content (in case it was already updated)
-            const monacoDiff = Math.abs(yjsContent.length - monacoContent.length);
-            const monacoSimilar = monacoDiff <= 5;
-            
-            return lengthSimilar || monacoSimilar;
-          });
-
-          if (isSimilarToRecent) {
-            logEntry.skipped = true;
-            logEntry.reason = `server update similar to recent change - BLOCKING container echo`;
-            console.log(`[MonacoIDE] ⏭️  BLOCKING Y.js update - ${logEntry.reason}`, {
-              origin: originStr,
-              recentChangesCount: recentChanges.length,
-              yjsLength: yjsContent.length,
-              monacoLength: monacoContent.length,
-              isTyping: isTypingRef.current
-            });
-            yjsUpdateLogRef.current.push(logEntry);
-            if (yjsUpdateLogRef.current.length > 50) yjsUpdateLogRef.current.shift();
-            return;
-          }
-        }
-      }
-      
-      // CRITICAL: If user is actively typing, BLOCK ALL updates immediately
-      // This is the FIRST and MOST IMPORTANT check - do it before anything else
-      // The typing flag is set synchronously on keydown, so this should catch echoes
-      if (isTypingRef.current) {
-        logEntry.skipped = true;
-        logEntry.reason = `user is actively typing - BLOCKING ALL updates`;
-        console.log(`[MonacoIDE] ⏭️  BLOCKING Y.js update - ${logEntry.reason}`, {
-          isTyping: isTypingRef.current,
-          timestamp: Date.now(),
-          yjsContent: yjsContent.substring(0, 50),
-          monacoContent: monacoContent.substring(0, 50)
-        });
-        yjsUpdateLogRef.current.push(logEntry);
-        if (yjsUpdateLogRef.current.length > 50) yjsUpdateLogRef.current.shift();
-        return;
-      }
-      
-      // CRITICAL: If editor has focus, be EXTREMELY conservative
-      // Only apply updates if they're CLEARLY from another source (not echoes)
-      if (editorHasFocus) {
-        // Check if this matches any of our recent changes (echo detection)
-        const matchesRecentChange = recentChanges.some((c: { filePath: string; content: string; timestamp: number }) => {
-          return yjsContent === c.content || Math.abs(yjsContent.length - c.content.length) <= 2;
-        });
-        
-        // Also check if content is very similar to current Monaco content (likely echo)
-        const contentSimilarity = Math.abs(yjsContent.length - monacoContent.length);
-        const isLikelyEcho = matchesRecentChange || contentSimilarity <= 3;
-        
-        if (isLikelyEcho) {
-          logEntry.skipped = true;
-          logEntry.reason = `editor has focus and update looks like echo - BLOCKING (similarity: ${contentSimilarity} chars)`;
-          console.log(`[MonacoIDE] ⏭️  BLOCKING Y.js update - ${logEntry.reason}`, {
-            editorHasFocus,
-            matchesRecentChange,
-            contentSimilarity,
-            yjsLength: yjsContent.length,
-            monacoLength: monacoContent.length
-          });
-          yjsUpdateLogRef.current.push(logEntry);
-          if (yjsUpdateLogRef.current.length > 50) yjsUpdateLogRef.current.shift();
-          return;
-        }
-      }
-      
-      // Also check if we're currently applying a Monaco update (double protection)
-      if (isApplyingMonaco) {
-        logEntry.skipped = true;
-        logEntry.reason = `Monaco update in progress`;
-        console.log(`[MonacoIDE] ⏭️  Skipping Y.js update - ${logEntry.reason}`);
-        yjsUpdateLogRef.current.push(logEntry);
-        if (yjsUpdateLogRef.current.length > 50) yjsUpdateLogRef.current.shift();
-        return;
-      }
-      
-      // Skip if this update came from this Monaco instance (to prevent loops)
-      // Check if origin matches our client ID or is the generic 'monaco' origin
-      const isOurUpdate = originStr === capturedClientId || 
-                          originStr === 'monaco' || 
-                          isApplyingMonaco;
-      
-      if (isOurUpdate) {
-        logEntry.skipped = true;
-        logEntry.reason = `our own update (origin: ${originStr})`;
-        console.log(`[MonacoIDE] ⏭️  Skipping Y.js update - ${logEntry.reason}`);
-        yjsUpdateLogRef.current.push(logEntry);
-        if (yjsUpdateLogRef.current.length > 50) yjsUpdateLogRef.current.shift();
-        return;
-      }
-      if (isApplyingYjs) {
-        logEntry.skipped = true;
-        logEntry.reason = `already applying YJS update`;
-        console.log(`[MonacoIDE] ⏭️  Skipping Y.js update - ${logEntry.reason}`);
-        yjsUpdateLogRef.current.push(logEntry);
-        if (yjsUpdateLogRef.current.length > 50) yjsUpdateLogRef.current.shift();
-        return;
-      }
-
-      // Set flag BEFORE any operations
-      isApplyingYjsUpdateRef.current[capturedFilePathForYjs] = true;
-      try {
-        const yjsContent = ytext.toString();
-        const monacoContent = model.getValue();
-        
-        // CRITICAL: Double-check we're still on the correct file before syncing
-        if (selectedFileRef.current !== capturedFilePathForYjs) {
-          console.log(`[MonacoIDE] ⏭️  Aborting Y.js sync - file changed during update from ${capturedFilePathForYjs} to ${selectedFileRef.current}`);
-          return;
-        }
-        
-        // CRITICAL: Check if this update matches our last Monaco change
-        // This catches updates that are echoed back from the server with origin "server"
-        const lastChange = lastMonacoChangeRef.current;
-        if (lastChange && 
-            lastChange.filePath === capturedFilePathForYjs) {
-          const timeSinceChange = Date.now() - lastChange.timestamp;
-          // Check if content matches (exact match) OR if it's very close (within a few chars)
-          const contentMatches = lastChange.content === yjsContent;
-          const isRecentChange = timeSinceChange < 3000; // Within 3 seconds
-          
-          if (contentMatches && isRecentChange) {
-            logEntry.skipped = true;
-            logEntry.reason = `matches our recent Monaco change (${timeSinceChange}ms ago, exact match)`;
-            console.log(`[MonacoIDE] ⏭️  Skipping Y.js update - ${logEntry.reason}`);
-            yjsUpdateLogRef.current.push(logEntry);
-            if (yjsUpdateLogRef.current.length > 50) yjsUpdateLogRef.current.shift();
-            return;
-          }
-          
-          // Also check if this is a very small change that might be an echo
-          // (e.g., we typed one char, and this update has one char difference)
-          const lengthDiff = Math.abs(yjsContent.length - lastChange.content.length);
-          if (isRecentChange && lengthDiff <= 2 && Math.abs(yjsContent.length - monacoContent.length) <= 2) {
-            logEntry.skipped = true;
-            logEntry.reason = `likely echo of recent change (${timeSinceChange}ms ago, ${lengthDiff} char diff)`;
-            console.log(`[MonacoIDE] ⏭️  Skipping Y.js update - ${logEntry.reason}`);
-            yjsUpdateLogRef.current.push(logEntry);
-            if (yjsUpdateLogRef.current.length > 50) yjsUpdateLogRef.current.shift();
-            return;
-          }
-        }
-        
-        // CRITICAL: Check recent changes for echo detection (define before use)
-        const recentChanges = recentMonacoChangesRef.current.filter(
-          (c: { filePath: string; content: string; timestamp: number }) => 
-            c.filePath === capturedFilePathForYjs && Date.now() - c.timestamp < 5000
+    // Set up cursor change tracking (send local cursor to other clients)
+    if (currentUser) {
+      const documentId = `${bucketId}:${filePath}`;
+      binding.onCursorChange = (data: CursorData) => {
+        // Send to server for remote clients (different sockets)
+        otProvider.sendCursorUpdate(
+          documentId,
+          data.cursor,
+          data.selection,
+          { name: currentUser.name, color: currentUser.color }
         );
-        
-        // CRITICAL: Double-check content still differs (might have changed during checks above)
-        if (yjsContent === monacoContent) {
-          logEntry.skipped = true;
-          logEntry.reason = `content already matches (no update needed)`;
-          yjsUpdateLogRef.current.push(logEntry);
-          if (yjsUpdateLogRef.current.length > 50) yjsUpdateLogRef.current.shift();
-          console.log(`[MonacoIDE] ⏭️  Skipping Y.js update - ${logEntry.reason}`);
-        } else {
-          // CRITICAL: Save cursor position and selection to prevent focus loss
-          const savedPosition = editor?.getPosition();
-          const savedSelection = editor?.getSelection();
-        const hadFocus = editorHasFocus;
-
-          console.log(`[MonacoIDE] 📥 APPLYING Y.js update to Monaco for ${capturedFilePathForYjs}`, {
-              origin: originStr,
-              yjsLength: yjsContent.length,
-              monacoLength: monacoContent.length,
-              diff: yjsContent.length - monacoContent.length,
-              hadFocus,
-              isTyping: isTypingRef.current,
-              savedPosition: savedPosition ? `${savedPosition.lineNumber}:${savedPosition.column}` : null
-            });
-            
-              // CRITICAL: Use Y.Text delta/changes to apply incremental updates
-            // This is the proper way to sync YJS with Monaco - YJS already tracks deltas
-            try {
-            // Get the Y.Text delta (what actually changed)
-            // Y.Text maintains the content as a sequence of items, we need to compute the diff
-            // For now, use a simpler approach: only update if content is significantly different
-            // or use Monaco's built-in diff
-            
-              // Simple heuristic: if lengths are very different, use full replacement
-              // Otherwise, try to find the minimal edit
-              const lengthDiff = Math.abs(yjsContent.length - monacoContent.length);
-              const isLargeChange = lengthDiff > 100 || 
-                                    (yjsContent.length === 0 && monacoContent.length > 0) ||
-                                    (monacoContent.length === 0 && yjsContent.length > 0);
-              
-              if (isLargeChange) {
-                // Large change - use full replacement
-                model.pushEditOperations(
-                  [],
-                  [{
-            range: model.getFullModelRange(),
-            text: yjsContent
-                  }],
-                  () => null
-                );
-              } else {
-                // Small change - try to find and apply only the diff
-                // Find first difference
-                let start = 0;
-                while (start < monacoContent.length && 
-                       start < yjsContent.length && 
-                       monacoContent[start] === yjsContent[start]) {
-                  start++;
-                }
-                
-                // Find last difference
-                let endMonaco = monacoContent.length;
-                let endYjs = yjsContent.length;
-                while (endMonaco > start && endYjs > start &&
-                       monacoContent[endMonaco - 1] === yjsContent[endYjs - 1]) {
-                  endMonaco--;
-                  endYjs--;
-                }
-                
-                // Apply the change
-                if (start < endMonaco || start < endYjs) {
-                  const startPos = model.getPositionAt(start);
-                  const endPos = model.getPositionAt(endMonaco);
-                  const newText = yjsContent.substring(start, endYjs);
-                  
-                  model.pushEditOperations(
-                    [],
-                    [{
-                      range: {
-                        startLineNumber: startPos.lineNumber,
-                        startColumn: startPos.column,
-                        endLineNumber: endPos.lineNumber,
-                        endColumn: endPos.column
-                      },
-                      text: newText
-                    }],
-                    () => null
-                  );
-                }
-              }
-            } catch (error) {
-              // Fallback to full replacement if anything fails
-              console.warn(`[MonacoIDE] Update failed, using full replacement:`, error);
-              model.pushEditOperations(
-                [],
-                [{
-                  range: model.getFullModelRange(),
-                  text: yjsContent
-                }],
-                () => null
-              );
-            }
-            
-            // Restore cursor position and selection after Y.js update (synchronously)
-            // Only restore if we had focus before the update to avoid stealing focus
-            if (editor && savedPosition && hadFocus) {
-            // Validate position is still within bounds after update
-            const lineCount = model.getLineCount();
-            const lastLineLength = model.getLineLength(lineCount);
-            
-            const validPosition = {
-              lineNumber: Math.min(savedPosition.lineNumber, lineCount),
-              column: savedPosition.lineNumber <= lineCount 
-                ? Math.min(savedPosition.column, model.getLineLength(savedPosition.lineNumber) + 1)
-                : lastLineLength + 1
-            };
-            
-              // Check if cursor actually moved during the update
-              const currentPosition = editor.getPosition();
-              const cursorMoved = !currentPosition || 
-                                  currentPosition.lineNumber !== validPosition.lineNumber || 
-                                  currentPosition.column !== validPosition.column;
-              
-              // CRITICAL: Restore cursor synchronously, not asynchronously
-              // requestAnimationFrame causes focus loss because it delays the restoration
-              if (cursorMoved) {
-                // Restore immediately to prevent focus loss
-                editor.setPosition(validPosition);
-                if (savedSelection) {
-                  editor.setSelection(savedSelection);
-                }
-
-                // CRITICAL: Restore focus immediately if we had it before
-                // Don't use setTimeout - restore focus synchronously to prevent focus loss
-                if (hadFocus) {
-                  // Restore focus immediately, not in setTimeout
-                  // This prevents other code from stealing focus
-                  editor.focus();
-                }
-              } else if (savedSelection) {
-                // Cursor didn't move but restore selection if we had one
-                editor.setSelection(savedSelection);
-              }
-          
-          // Log the source of the update for debugging
-              const finalOriginStr = transaction.origin === 'server' ? 'server (container/other client)' : 
-                           transaction.origin === 'monaco' ? 'monaco' : 
-                           String(transaction.origin || 'unknown');
-          
-              logEntry.skipped = false;
-              yjsUpdateLogRef.current.push(logEntry);
-              if (yjsUpdateLogRef.current.length > 50) yjsUpdateLogRef.current.shift();
-              
-              console.log(`[MonacoIDE] ✅ Y.js -> Monaco: Successfully updated ${capturedFilePathForYjs} from ${finalOriginStr}`, {
-            yjsLength: yjsContent.length,
-            monacoLength: monacoContent.length,
-                origin: finalOriginStr,
-                cursorRestored: !!savedPosition,
-                hadFocus,
-                cursorMoved
-              });
-            }
+        // Also dispatch locally for same-page editors (server excludes sender socket)
+        window.dispatchEvent(new CustomEvent("ot-remote-cursor", {
+          detail: {
+            documentId,
+            clientId: instanceIdRef.current,
+            cursor: data.cursor,
+            selection: data.selection,
+            user: { name: currentUser.name, color: currentUser.color },
+            sourceInstanceId: instanceIdRef.current,
           }
-      } finally {
-        // CRITICAL: Clear flag AFTER all operations complete
-        isApplyingYjsUpdateRef.current[capturedFilePathForYjs] = false;
-      }
-    };
-    
-    ytext.observe(yjsObserver);
-    
-    // 2. Sync Monaco -> Y.js: When Monaco changes, update Y.js
-    // CRITICAL: Capture filePath and clientId in closure to verify we're still bound to the correct file
-    const capturedFilePath = filePath;
-    const monacoDisposable = model.onDidChangeContent((e: monaco.editor.IModelContentChangedEvent) => {
-      // CRITICAL: Verify we're still bound to the correct file using ref (always current)
-      // If selectedFile changed, this binding is stale and should not sync
-      if (selectedFileRef.current !== capturedFilePath) {
-        console.log(`[MonacoIDE] ⏭️  Skipping Monaco update - file changed from ${capturedFilePath} to ${selectedFileRef.current}`);
-          return;
-        }
-
-      // Also verify the binding still exists for this file
-      if (!yjsBindingsRef.current[capturedFilePath]) {
-        console.log(`[MonacoIDE] ⏭️  Skipping Monaco update - binding disposed for ${capturedFilePath}`);
-        return;
-      }
-      
-      // CRITICAL: Mark that user is typing IMMEDIATELY and SYNCHRONOUSLY
-      // This must happen FIRST, before any other operations, to block YJS updates
-      isTypingRef.current = true;
-      
-      // Also update last known content immediately to catch echoes
-      const currentContent = model.getValue();
-      lastMonacoContentRef.current[capturedFilePath] = currentContent;
-      
-      if (typingTimeoutRef.current) {
-        clearTimeout(typingTimeoutRef.current);
-      }
-      // Clear typing state after 2 seconds of no typing (longer to catch fast echoes from container)
-      typingTimeoutRef.current = setTimeout(() => {
-        isTypingRef.current = false;
-        console.log(`[MonacoIDE] ⌨️  Typing state cleared (2000ms idle)`);
-      }, 2000);
-      
-      const isApplyingYjs = isApplyingYjsUpdateRef.current[capturedFilePath] || false;
-      const isApplyingMonaco = isApplyingMonacoUpdateRef.current[capturedFilePath] || false;
-      
-      console.log(`[MonacoIDE] 🔔 Monaco content changed for ${capturedFilePath}!`, {
-        changesCount: e.changes.length,
-        isApplyingYjsUpdate: isApplyingYjs,
-        isApplyingMonacoUpdate: isApplyingMonaco,
-        currentSelectedFile: selectedFileRef.current,
-        isTyping: isTypingRef.current,
-        changes: e.changes.map(c => ({
-          range: `${c.range.startLineNumber}:${c.range.startColumn}-${c.range.endLineNumber}:${c.range.endColumn}`,
-          textLength: c.text.length
-        }))
-      });
-      
-      // CRITICAL: If this change came from YJS, don't sync back (prevents ping-pong)
-      if (isApplyingYjs) {
-        console.log(`[MonacoIDE] ⏭️  Skipping Monaco -> YJS sync - update from Y.js`);
-        return;
-      }
-      
-      // CRITICAL: If we're already syncing Monaco, skip to prevent loops
-      if (isApplyingMonaco) {
-        console.log(`[MonacoIDE] ⏭️  Skipping Monaco -> YJS sync - already applying Monaco update`);
-        return;
-      }
-      
-      // Set flag BEFORE any operations
-      isApplyingMonacoUpdateRef.current[capturedFilePath] = true;
-      try {
-        const monacoContent = model.getValue();
-        const yjsContent = ytext.toString();
-        
-        // CRITICAL: Double-check we're still on the correct file before syncing
-        if (selectedFileRef.current !== capturedFilePath) {
-          console.log(`[MonacoIDE] ⏭️  Aborting Monaco -> YJS sync - file changed during update from ${capturedFilePath} to ${selectedFileRef.current}`);
-          return;
-        }
-        
-        if (monacoContent !== yjsContent) {
-          // Track this change so we can skip it when it echoes back from server
-          const changeTimestamp = Date.now();
-          lastMonacoChangeRef.current = {
-            filePath: capturedFilePath,
-            content: monacoContent,
-            timestamp: changeTimestamp
-          };
-          
-          // CRITICAL: Add to recent changes array for echo detection
-          recentMonacoChangesRef.current.push({
-            filePath: capturedFilePath,
-            content: monacoContent,
-            timestamp: changeTimestamp
-          });
-          // Keep only last 5 changes
-          if (recentMonacoChangesRef.current.length > 5) {
-            recentMonacoChangesRef.current.shift();
-          }
-
-          console.log(`[MonacoIDE] 📤 Monaco -> Y.js: Sending update for ${capturedFilePath}`, {
-            monacoLength: monacoContent.length,
-            yjsLength: yjsContent.length,
-            clientId: clientIdRef.current,
-            timestamp: changeTimestamp,
-            recentChangesCount: recentMonacoChangesRef.current.length
-          });
-          
-          // CRITICAL: Use incremental updates instead of full replacement
-          // This allows YJS to properly merge concurrent edits from multiple users
-          doc.transact(() => {
-            // Compute diff and apply incrementally
-            const currentYjs = ytext.toString();
-            
-            // Find common prefix and suffix
-            let prefixLength = 0;
-            while (prefixLength < currentYjs.length && 
-                   prefixLength < monacoContent.length && 
-                   currentYjs[prefixLength] === monacoContent[prefixLength]) {
-              prefixLength++;
-            }
-            
-            let suffixLength = 0;
-            while (suffixLength < currentYjs.length - prefixLength && 
-                   suffixLength < monacoContent.length - prefixLength &&
-                   currentYjs[currentYjs.length - 1 - suffixLength] === monacoContent[monacoContent.length - 1 - suffixLength]) {
-              suffixLength++;
-            }
-            
-            // Delete the changed portion
-            const deleteStart = prefixLength;
-            const deleteEnd = currentYjs.length - suffixLength;
-            if (deleteEnd > deleteStart) {
-              ytext.delete(deleteStart, deleteEnd - deleteStart);
-            }
-            
-            // Insert the new portion
-            const insertText = monacoContent.substring(prefixLength, monacoContent.length - suffixLength);
-            if (insertText.length > 0) {
-              ytext.insert(prefixLength, insertText);
-            }
-          }, clientIdRef.current);
-          
-          console.log(`[MonacoIDE] ✅ Monaco -> Y.js: Successfully updated Y.js for ${capturedFilePath}`, {
-            newYjsLength: ytext.length,
-            origin: clientIdRef.current
-          });
-
-          // Track save status for LOCAL changes only (moved from ytext observer to prevent re-renders on echoes)
-          setSaveStatus((prev) => {
-            // Only update if actually changing to prevent unnecessary re-renders
-            if (prev[capturedFilePath] !== "saving") {
-              return { ...prev, [capturedFilePath]: "saving" };
-            }
-            return prev;
-          });
-
-          // Debounce the "saved" status update
-          if (saveStatusTimeoutRef.current[capturedFilePath]) {
-            clearTimeout(saveStatusTimeoutRef.current[capturedFilePath]);
-          }
-          saveStatusTimeoutRef.current[capturedFilePath] = setTimeout(() => {
-            if (yjsProvider.connected) {
-              setSaveStatus((prev) => ({ ...prev, [capturedFilePath]: "saved" }));
-            } else {
-              setSaveStatus((prev) => ({ ...prev, [capturedFilePath]: "error" }));
-            }
-          }, 1500); // 1.5s timeout for save confirmation
-
-          // Track content hash for echo detection
-          const contentHash = quickHash(monacoContent);
-          if (!recentContentHashesRef.current.has(capturedFilePath)) {
-            recentContentHashesRef.current.set(capturedFilePath, new Set());
-          }
-          recentContentHashesRef.current.get(capturedFilePath)!.add(contentHash);
-          // Clean up hash after 10 seconds (longer than container echo delay)
-          setTimeout(() => {
-            recentContentHashesRef.current.get(capturedFilePath)?.delete(contentHash);
-          }, 10000);
-        } else {
-          console.log(`[MonacoIDE] ⏭️  Skipping Monaco -> YJS sync - content matches`);
-        }
-      } finally {
-        // CRITICAL: Clear flag AFTER all operations complete
-        isApplyingMonacoUpdateRef.current[capturedFilePath] = false;
-      }
-    });
-    
-    // NOTE: We no longer use updateContentObserver to call setFileContent here.
-    // Monaco's onChange (handleEditorChange) already updates fileContent for ALL model changes,
-    // whether local or from YJS binding. Having updateContentObserver also call setFileContent
-    // causes duplicate re-renders which leads to focus loss.
-    //
-    // The YJS observer (yjsObserver) updates Monaco's model directly via pushEditOperations,
-    // which triggers Monaco's onChange, which triggers handleEditorChange, which updates fileContent.
-
-    // Keep a simple observer just for logging (no state updates)
-    const updateContentObserver = () => {
-      // Intentionally empty - just for dispose tracking
-      // setFileContent is handled by Monaco's onChange (handleEditorChange)
-    };
-
-    ytext.observe(updateContentObserver);
-
-    // Initial content sync - only needed once when binding is created
-    // Monaco's model should already have content from file load
-    const initialContent = ytext.toString();
-    if (initialContent) {
-      setFileContent((prev) => {
-        if (prev[filePath] !== initialContent) {
-          return { ...prev, [filePath]: initialContent };
-        }
-        return prev;
-      });
+        }));
+      };
     }
 
-    // Connection status check interval
-    const checkConnectionStatus = () => {
-      if (!yjsProvider.connected) {
-        setSaveStatus((prev) => ({ ...prev, [filePath]: "error" }));
-      }
-    };
-
-    const connectionCheckInterval = setInterval(checkConnectionStatus, 2000);
-
-    // Store disposables for cleanup - MUST include ALL observers
-    const dispose = () => {
-      console.log(`[MonacoIDE] 🧹 Disposing binding for ${filePath}`);
-      ytext.unobserve(yjsObserver);
-      ytext.unobserve(updateContentObserver);
-      monacoDisposable.dispose();
-      clearInterval(connectionCheckInterval);
-
-      // Clear any pending save status timeout for this file
+    // Set up save status tracking
+    doc.addSaveStatusListener(binding.bindingId, (status) => {
+      // Debounce save status updates
       if (saveStatusTimeoutRef.current[filePath]) {
         clearTimeout(saveStatusTimeoutRef.current[filePath]);
-        delete saveStatusTimeoutRef.current[filePath];
       }
-    };
-
-    yjsBindingsRef.current[filePath] = { dispose };
-    (yjsDocsRef.current[filePath] as any)._connectionCheckInterval = connectionCheckInterval;
-
-    console.log(`[MonacoIDE] ✅✅✅ Y.js binding CREATED for ${filePath}`, {
-      ytextLength: ytext.length,
-      modelLength: model.getValueLength()
+      saveStatusTimeoutRef.current[filePath] = setTimeout(() => {
+        setSaveStatus((prev) => ({ ...prev, [filePath]: status }));
+      }, status === "saved" ? 500 : 0);
     });
 
-    // NOTE: Save status tracking is now handled in the Monaco onDidChangeContent handler
-    // to prevent re-renders on every YJS update (including echoes)
-  }, [bucketId]);
-  
+    console.log(`[MonacoIDE] OT binding created for ${filePath} (rev=${doc.revision})`);
+  }, [bucketId, currentUser]);
+
   // Set up binding when file changes or editor becomes ready
-  // Add a small delay to ensure Monaco has updated the model content
   useEffect(() => {
     if (bucketId && selectedFile && editorRef.current && editorReadyRef.current) {
-      // Wait a moment for Monaco to update the model with the new file's content
-      // This prevents the binding from syncing with stale model content
       const timeout = setTimeout(() => {
         if (bucketId && selectedFile && editorRef.current) {
           const model = editorRef.current.getModel();
           if (model) {
-            setupYjsBinding(selectedFile);
+            setupOTBinding(selectedFile);
           }
         }
-      }, 50); // Small delay to let Monaco update
-      
+      }, 50);
+
       return () => clearTimeout(timeout);
     }
-  // CRITICAL: fileContent removed from dependencies to prevent feedback loop
-  // (YJS update → setFileContent → fileContent changes → effect re-runs → binding re-created)
-  }, [bucketId, selectedFile, setupYjsBinding]);
+  }, [bucketId, selectedFile, setupOTBinding]);
 
   // Track recently created files to prevent premature S3 reloads
   const recentlyCreatedFilesRef = useRef<Set<string>>(new Set());
@@ -1849,44 +1020,8 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
     loadFileTree();
   }, [bucketId]); // Only depend on bucketId, not loadFileTree to prevent unnecessary reloads
 
-  // Listen for Y.js document updates from other tabs/clients
-  useEffect(() => {
-    const handleYjsDocumentUpdate = (event: CustomEvent) => {
-      const { bucketId: updatedBucketId, filePath, docId, content } = event.detail;
-      if (updatedBucketId !== bucketId) return;
-      
-      // If this file is currently selected and editor is ready, ensure it's in sync
-      if (filePath === selectedFile && editorRef.current) {
-        const editor = editorRef.current;
-        const model = editor.getModel();
-        if (model && model.getValue() !== content) {
-          console.log(`[MonacoIDE] 🔄 Syncing Monaco editor with Y.js update from other client for ${filePath}`);
-          // Only update if binding isn't active (to avoid conflicts)
-          // The binding should handle this, but this is a safety net
-          if (!yjsBindingsRef.current[filePath]) {
-            model.pushEditOperations(
-              [],
-              [{
-                range: model.getFullModelRange(),
-                text: content
-              }],
-              () => null
-            );
-          }
-        }
-        // Update local state
-        setFileContent((prev) => ({ ...prev, [filePath]: content }));
-      } else if (filePath !== selectedFile) {
-        // Update state for files that aren't currently selected
-        setFileContent((prev) => ({ ...prev, [filePath]: content }));
-      }
-    };
-
-    window.addEventListener("yjs-document-updated", handleYjsDocumentUpdate as EventListener);
-    return () => {
-      window.removeEventListener("yjs-document-updated", handleYjsDocumentUpdate as EventListener);
-    };
-  }, [bucketId, selectedFile]);
+  // OT handles remote updates via MonacoOTBinding — no manual sync needed.
+  // The binding's onContentChanged callback updates Monaco directly.
 
   // Listen for file tree changes from other tabs
   useEffect(() => {
@@ -1927,17 +1062,13 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
           }
         }
         
-        // Clean up Y.js resources for deleted file (if not already cleaned up)
-        if (yjsBindingsRef.current[filePath]) {
-          yjsBindingsRef.current[filePath].dispose();
-          delete yjsBindingsRef.current[filePath];
+        // Clean up OT resources for deleted file
+        if (otBindingsRef.current[filePath]) {
+          otBindingsRef.current[filePath].destroy();
+          delete otBindingsRef.current[filePath];
         }
-        if (yjsDocsRef.current[filePath] && bucketId) {
-          // Wait a moment for the clear to sync, then unsubscribe
-          setTimeout(() => {
-            yjsProvider.unsubscribeDocument(bucketId, filePath);
-          }, 500);
-          delete yjsDocsRef.current[filePath];
+        if (bucketId) {
+          otProvider.unsubscribeDocument(bucketId, filePath);
         }
         
         // CRITICAL: Do NOT reload file tree here - the deletion is already handled optimistically
@@ -1994,50 +1125,23 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
           }
         });
 
-        // Initialize Y.js document for the new file (but don't switch to it)
-        // This ensures the file is available for syncing in all tabs
-        // CRITICAL: Subscribe first, then get the document to ensure we receive updates
-        // If this is from container, Y.js might already have content
+        // Subscribe to OT document for the new file (don't switch editor)
         if (bucketId) {
-            try {
-              yjsProvider.subscribeToDocument(bucketId, filePath);
-              const { doc, ytext } = yjsProvider.getDocument(bucketId, filePath);
-              
-              // Get current Y.js content (might already have content from container)
-              const yjsContent = ytext.toString();
-              
-              // Update local state with Y.js content (not empty - use actual content)
-        setFileContent((prev) => {
-                // Only update if we don't have content or if Y.js has newer content
-                if (!prev[filePath] || yjsContent.length > (prev[filePath]?.length || 0)) {
-                  return { ...prev, [filePath]: yjsContent };
-          }
-          return prev;
-        });
-
-              console.log(`[MonacoIDE] ✅ Initialized Y.js document for new file from container: ${filePath}`, {
-                yjsContentLength: yjsContent.length,
-                hasContent: yjsContent.length > 0
+          try {
+            otProvider.subscribeToDocument(bucketId, filePath);
+            const doc = otProvider.getDocument(bucketId, filePath);
+            const content = doc?.content || "";
+            if (content) {
+              setFileContent((prev) => {
+                if (!prev[filePath] || content.length > (prev[filePath]?.length || 0)) {
+                  return { ...prev, [filePath]: content };
+                }
+                return prev;
               });
-            } catch (error) {
-              console.warn(`[MonacoIDE] Failed to initialize Y.js for new file ${filePath}:`, error);
-            // Retry after delay
-          setTimeout(() => {
-            try {
-              yjsProvider.subscribeToDocument(bucketId, filePath);
-              const { ytext } = yjsProvider.getDocument(bucketId, filePath);
-                const yjsContent = ytext.toString();
-                setFileContent((prev) => {
-                  if (!prev[filePath] || yjsContent.length > (prev[filePath]?.length || 0)) {
-                    return { ...prev, [filePath]: yjsContent };
-              }
-                  return prev;
-                });
-              } catch (retryError) {
-                console.error(`[MonacoIDE] Retry failed for Y.js initialization:`, retryError);
             }
-          }, 500);
-        }
+          } catch (error) {
+            console.warn(`[MonacoIDE] Failed to subscribe to OT for new file ${filePath}:`, error);
+          }
         }
 
       // CRITICAL: Do NOT reload file tree after file-tree-change create events
@@ -2047,21 +1151,19 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
       }
     };
 
-    window.addEventListener("yjs-file-tree-change", handleFileTreeChange as EventListener);
+    window.addEventListener("ot-file-tree-change", handleFileTreeChange as EventListener);
     return () => {
-      window.removeEventListener("yjs-file-tree-change", handleFileTreeChange as EventListener);
+      window.removeEventListener("ot-file-tree-change", handleFileTreeChange as EventListener);
     };
   }, [bucketId, selectedFile, openTabs, loadFileTree]);
 
-  // Listen for Y.js connection restoration to update save status
+  // Listen for OT connection restoration to update save status
   useEffect(() => {
     const handleConnectionRestored = () => {
-      console.log(`[MonacoIDE] Y.js connection restored - updating save status`);
-      // Update save status for all open files
+      console.log(`[MonacoIDE] OT connection restored - updating save status`);
       for (const filePath of openTabs) {
-        if (yjsProvider.connected) {
+        if (otProvider.connected) {
           setSaveStatus((prev) => {
-            // Only update if currently showing error
             if (prev[filePath] === "error") {
               return { ...prev, [filePath]: "saved" };
             }
@@ -2071,11 +1173,53 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
       }
     };
 
-    window.addEventListener("yjs-connection-restored", handleConnectionRestored);
+    window.addEventListener("ot-connection-restored", handleConnectionRestored);
     return () => {
-      window.removeEventListener("yjs-connection-restored", handleConnectionRestored);
+      window.removeEventListener("ot-connection-restored", handleConnectionRestored);
     };
   }, [openTabs]);
+
+  // Listen for remote cursor events and render them
+  useEffect(() => {
+    const handleRemoteCursor = (event: CustomEvent) => {
+      const { documentId, clientId, cursor, selection, user, sourceInstanceId } = event.detail;
+      if (!bucketId || !selectedFileRef.current) return;
+
+      // Skip cursor events dispatched by this same MonacoIDE instance
+      if (sourceInstanceId && sourceInstanceId === instanceIdRef.current) return;
+
+      // Only process cursor events for the currently selected file
+      const expectedDocId = `${bucketId}:${selectedFileRef.current}`;
+      if (documentId !== expectedDocId) return;
+
+      // Find the active binding for the selected file
+      const binding = otBindingsRef.current[selectedFileRef.current];
+      if (binding) {
+        binding.updateRemoteCursor(clientId, user.name, user.color, cursor, selection);
+      }
+    };
+
+    window.addEventListener("ot-remote-cursor", handleRemoteCursor as EventListener);
+    return () => {
+      window.removeEventListener("ot-remote-cursor", handleRemoteCursor as EventListener);
+    };
+  }, [bucketId]);
+
+  // Re-subscribe to current document on visibility change for sync robustness
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (!document.hidden && bucketId && selectedFileRef.current) {
+        // Tab became visible again — re-subscribe to get fresh state
+        console.log(`[MonacoIDE] Tab visible again, re-subscribing to ${selectedFileRef.current}`);
+        otProvider.subscribeToDocument(bucketId, selectedFileRef.current);
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [bucketId]);
 
   // Auto-open default run file when files are loaded or runFilename changes
   useEffect(() => {
@@ -2124,10 +1268,10 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
       const currentTabs = Array.from(openTabs);
       const backendApiUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
       for (const filePath of currentTabs) {
-        if (bucketId && yjsDocsRef.current[filePath]) {
+        if (bucketId) {
           try {
-            const { ytext } = yjsDocsRef.current[filePath];
-            const content = ytext.toString();
+            const doc = otProvider.getDocument(bucketId, filePath);
+            const content = doc?.content || "";
 
             // Use fetch with keepalive for reliable save during page unload
             fetch(
@@ -2156,10 +1300,10 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
       // Save when tab becomes hidden (user switching tabs)
       const currentTabs = Array.from(openTabs);
       for (const filePath of currentTabs) {
-        if (yjsDocsRef.current[filePath]) {
-          const { ytext } = yjsDocsRef.current[filePath];
-          const content = ytext.toString();
-          
+        const doc = otProvider.getDocument(bucketId, filePath);
+        if (doc) {
+          const content = doc.content;
+
           // Save in background, don't await
           apiClient.saveS3File(bucketId, filePath, content).catch((error) => {
             console.error(`[MonacoIDE] Failed to save ${filePath} on visibility change:`, error);
@@ -2178,50 +1322,39 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
     };
   }, [bucketId, ideApiBaseUrl]); // Only depend on bucketId, not openTabs (use ref instead)
 
-  // Expose update log to window for debugging
+  // Expose OT debug info to window for debugging
   useEffect(() => {
-    (window as any).monacoIDEUpdateLog = () => {
-      console.table(yjsUpdateLogRef.current.slice(-20)); // Show last 20 updates
-      return yjsUpdateLogRef.current;
+    (window as any).monacoIDEDebug = () => {
+      const docs = bucketId ? otProvider.getDocumentsForBucket(bucketId) : new Map();
+      const info: Record<string, any> = {};
+      docs.forEach((doc, key) => {
+        info[key] = { revision: doc.revision, contentLength: doc.content.length, state: doc.state.type };
+      });
+      console.table(info);
+      return info;
     };
-    (window as any).monacoIDEClearLog = () => {
-      yjsUpdateLogRef.current = [];
-      console.log('[MonacoIDE] Update log cleared');
-    };
-    (window as any).monacoIDETypingState = () => {
-      return {
-        isTyping: isTypingRef.current,
-        lastChange: lastMonacoChangeRef.current,
-        clientId: clientIdRef.current
-      };
-    };
-  }, []);
+  }, [bucketId]);
 
-  // Cleanup Y.js bindings on unmount
+  // Cleanup OT bindings on unmount
   useEffect(() => {
     return () => {
       // Force save all files before cleanup
       if (bucketId) {
         for (const filePath of openTabs) {
-          if (yjsDocsRef.current[filePath]) {
-            const { ytext } = yjsDocsRef.current[filePath];
-            const content = ytext.toString();
-            
-            // Save directly to S3
-            apiClient.saveS3File(bucketId, filePath, content).catch((error) => {
+          const doc = otProvider.getDocument(bucketId, filePath);
+          if (doc) {
+            apiClient.saveS3File(bucketId, filePath, doc.content).catch((error) => {
               console.error(`[MonacoIDE] Failed to save ${filePath} on unmount:`, error);
             });
           }
         }
       }
-      
-      // Clean up all Y.js bindings
-      Object.values(yjsBindingsRef.current).forEach((binding) => {
-        binding.dispose();
+
+      // Clean up all OT bindings
+      Object.values(otBindingsRef.current).forEach((binding) => {
+        binding.destroy();
       });
-      yjsBindingsRef.current = {};
-      
-      yjsDocsRef.current = {};
+      otBindingsRef.current = {};
     };
   }, [bucketId, openTabs]);
 
@@ -2517,72 +1650,15 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
                       height="100%"
                       language={detectLanguage(selectedFile)}
                       // Use defaultValue instead of value to make Monaco uncontrolled after mount.
-                      // YJS binding manages all content updates directly on the model.
-                      // Using value= would cause re-renders that fight with YJS and cause focus loss.
+                      // OT binding manages all content updates directly on the model.
+                      // Using value= would cause re-renders that fight with OT and cause focus loss.
                       defaultValue={currentContent}
                       onChange={handleEditorChange}
                       onMount={(editor) => {
-                        console.log(`[MonacoIDE] 🎨 Monaco editor mounted`);
+                        console.log(`[MonacoIDE] Monaco editor mounted`);
                         editorRef.current = editor;
                         editorReadyRef.current = true;
-                        
-                        // CRITICAL: Add keydown listener to set typing state IMMEDIATELY
-                        // This must happen before content changes to block YJS updates
-                        const keydownDisposable = editor.onKeyDown((e) => {
-                          // Only set typing state for actual character input (not modifiers, arrows, etc.)
-                          const isCharacterKey = (e.keyCode >= 48 && e.keyCode <= 90) || // A-Z, 0-9
-                                                 (e.keyCode >= 186 && e.keyCode <= 222) || // Punctuation
-                                                 e.keyCode === 32 || // Space
-                                                 e.keyCode === 13 || // Enter
-                                                 e.keyCode === 8 || // Backspace
-                                                 e.keyCode === 46; // Delete
-                          
-                          if (isCharacterKey && !e.ctrlKey && !e.metaKey && !e.altKey) {
-                            // Set typing state IMMEDIATELY and SYNCHRONOUSLY
-                            isTypingRef.current = true;
-                            
-                            // Update last known content immediately
-                            const model = editor.getModel();
-                            if (model && selectedFileRef.current) {
-                              const currentContent = model.getValue();
-                              lastMonacoContentRef.current[selectedFileRef.current] = currentContent;
-                              
-                              // CRITICAL: Also add to recent changes for echo detection
-                              // This ensures echo detection works even if onDidChangeContent hasn't fired yet
-                              const changeTimestamp = Date.now();
-                              recentMonacoChangesRef.current.push({
-                                filePath: selectedFileRef.current,
-                                content: currentContent,
-                                timestamp: changeTimestamp
-                              });
-                              // Keep only last 5 changes
-                              if (recentMonacoChangesRef.current.length > 5) {
-                                recentMonacoChangesRef.current.shift();
-                              }
-                            }
-                            
-                            // Clear existing timeout
-                            if (typingTimeoutRef.current) {
-                              clearTimeout(typingTimeoutRef.current);
-                            }
-                            
-                            // Set new timeout (2 seconds)
-                            typingTimeoutRef.current = setTimeout(() => {
-                              isTypingRef.current = false;
-                              console.log(`[MonacoIDE] ⌨️  Typing state cleared (2000ms idle)`);
-                            }, 2000);
 
-                            console.log(`[MonacoIDE] ⌨️  Key pressed - typing state set immediately`, {
-                              keyCode: e.keyCode,
-                              code: e.code,
-                              isTyping: isTypingRef.current
-                            });
-                          }
-                        });
-                        
-                        // Store disposable for cleanup
-                        (editor as any)._keydownDisposable = keydownDisposable;
-                        
                         // Focus the editor to ensure keyboard input works
                         editor.focus();
                         
@@ -2595,13 +1671,13 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
                             if (bucketId && selectedFile && editorRef.current) {
                               const model = editorRef.current.getModel();
                               if (model) {
-                                // Call setupYjsBinding directly
-                                setupYjsBinding(selectedFile);
+                                // Call setupOTBinding directly
+                                setupOTBinding(selectedFile);
                               } else {
                                 // Retry after another short delay
                                 setTimeout(() => {
                                   if (bucketId && selectedFile && editorRef.current?.getModel()) {
-                                    setupYjsBinding(selectedFile);
+                                    setupOTBinding(selectedFile);
                                   }
                                 }, 200);
                               }

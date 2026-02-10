@@ -40,9 +40,7 @@
     "jsonwebtoken": "^9.0.2",
     "redis": "^5.8.2",
     "socket.io": "^4.8.1",
-    "uuid": "^9.0.1",
-    "y-websocket": "^2.0.4",
-    "yjs": "^13.6.10"
+    "uuid": "^9.0.1"
   },
   "devDependencies": {
     "@types/bcrypt": "^6.0.0",
