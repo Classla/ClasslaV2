@@ -757,7 +757,7 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
   const editor = useEditor({
     extensions: editorExtensions,
     content: "", // Start with empty content, we'll set it properly in useEffect
-    editable: !isReadOnly, // Read-only when submitted/graded
+    editable: false, // Viewer never allows text editing; block viewers control their own interactivity via editor.storage.isReadOnly
     onCreate: ({ editor }) => {
       // Store the answer change callbacks and state getter in the editor's storage
       (editor.storage as any).mcqAnswerCallback = handleMCQAnswerChange;
@@ -937,7 +937,7 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
         "[AssignmentViewer] useEffect - blockScores:",
         grader?.block_scores
       );
-      editor.setEditable(!isReadOnly);
+      editor.setEditable(false); // Viewer never allows text editing
 
       // Force editor to re-render when block scores change
       const tr = editor.state.tr;
