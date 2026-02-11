@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { createPortal } from "react-dom";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, useLocation } from "react-router-dom";
 import { Tree } from "react-arborist";
 
 import { apiClient } from "../lib/api";
@@ -62,8 +62,15 @@ interface TreeNodeData {
 const ModuleTree: React.FC<ModuleTreeProps> = ({ courseId, course, userRole, isInstructor }) => {
   const navigate = useNavigate();
   const { courseSlug } = useParams<{ courseSlug: string }>();
+  const location = useLocation();
   const { toast } = useToast();
   const { user } = useAuth();
+
+  const currentAssignmentId = useMemo(() => {
+    const pathParts = location.pathname.split("/");
+    const idx = pathParts.indexOf("assignment");
+    return idx !== -1 && idx + 1 < pathParts.length ? pathParts[idx + 1] : null;
+  }, [location.pathname]);
 
   // Check TA permissions
   const canCreate = useMemo(() => {
@@ -691,6 +698,8 @@ const ModuleTree: React.FC<ModuleTreeProps> = ({ courseId, course, userRole, isI
       show: boolean;
     }>({ x: 0, y: 0, show: false });
 
+    const isActive = assignment?.id === currentAssignmentId;
+
     const nodeContent = (
       <div
         style={style}
@@ -700,8 +709,8 @@ const ModuleTree: React.FC<ModuleTreeProps> = ({ courseId, course, userRole, isI
             ? "cursor-default"
             : isCreateNode
             ? "cursor-pointer hover:bg-gray-100"
-            : `hover:bg-gray-50 cursor-pointer ${
-                node.isSelected ? "bg-blue-50" : ""
+            : `cursor-pointer ${
+                isActive ? "bg-purple-100" : "hover:bg-gray-50"
               }`
         }`}
         onClick={isCreateNode ? undefined : (e) => {
@@ -747,11 +756,11 @@ const ModuleTree: React.FC<ModuleTreeProps> = ({ courseId, course, userRole, isI
           <FolderIcon className="w-4 h-4 text-gray-500" />
         ) : assignment && Object.keys(assignment.publish_times || {}).length > 0 ? (
           <div title="Published Assignment">
-            <FileText className="w-4 h-4 text-gray-500" />
+            <FileText className={`w-4 h-4 ${isActive ? "text-purple-600" : "text-gray-500"}`} />
           </div>
         ) : (
           <div title="Unpublished Assignment">
-            <FileLock className="w-4 h-4 text-amber-500" />
+            <FileLock className={`w-4 h-4 ${isActive ? "text-purple-600" : "text-amber-500"}`} />
           </div>
         )}
 
@@ -762,6 +771,8 @@ const ModuleTree: React.FC<ModuleTreeProps> = ({ courseId, course, userRole, isI
               ? "text-gray-400 italic text-sm"
               : isCreateNode
               ? "text-gray-500 text-sm"
+              : isActive
+              ? "text-purple-700 font-medium"
               : "text-gray-700"
           }`}
           title={nodeData.name}
