@@ -28,13 +28,6 @@ import { Button } from "../../ui/button";
 import { Input } from "../../ui/input";
 import { Label } from "../../ui/label";
 import { Checkbox } from "../../ui/checkbox";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "../../ui/select";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "../../ui/tabs";
 import {
   DropdownMenu,
@@ -337,7 +330,7 @@ const IDEBlockEditor: React.FC<IDEBlockEditorProps> = memo(
 
     // Start container for a specific tab
     const startContainer = useCallback(
-      async (tab: TabType) => {
+      async (tab: TabType, language?: IDELanguage) => {
         if (!user?.id) {
           toast({
             title: "Authentication required",
@@ -414,12 +407,12 @@ const IDEBlockEditor: React.FC<IDEBlockEditorProps> = memo(
 
               // Seed initial file for new template buckets
               if (isTemplate && bucketId) {
-                const language = ideData.settings?.language || "python";
-                const starterFile = language === "java" ? "Main.java" : "main.py";
-                const starterContent = language === "java" ? JAVA_HELLO_WORLD : PYTHON_HELLO_WORLD;
+                const lang = language || ideData.settings?.language || "python";
+                const starterFile = lang === "java" ? "Main.java" : "main.py";
+                const starterContent = lang === "java" ? JAVA_HELLO_WORLD : PYTHON_HELLO_WORLD;
                 try {
                   await apiClient.createS3File(bucketId, starterFile, starterContent);
-                  console.log(`[IDE] Seeded ${starterFile} for ${language} template`);
+                  console.log(`[IDE] Seeded ${starterFile} for ${lang} template`);
                 } catch (seedError) {
                   console.warn("Failed to seed initial file:", seedError);
                   // Continue anyway - bucket is created, just no starter file
@@ -541,12 +534,12 @@ const IDEBlockEditor: React.FC<IDEBlockEditorProps> = memo(
 
               // Seed initial file for new template buckets
               if (isTemplate && bucketId) {
-                const language = ideData.settings?.language || "python";
-                const starterFile = language === "java" ? "Main.java" : "main.py";
-                const starterContent = language === "java" ? JAVA_HELLO_WORLD : PYTHON_HELLO_WORLD;
+                const lang = language || ideData.settings?.language || "python";
+                const starterFile = lang === "java" ? "Main.java" : "main.py";
+                const starterContent = lang === "java" ? JAVA_HELLO_WORLD : PYTHON_HELLO_WORLD;
                 try {
                   await apiClient.createS3File(bucketId, starterFile, starterContent);
-                  console.log(`[IDE] Seeded ${starterFile} for ${language} template`);
+                  console.log(`[IDE] Seeded ${starterFile} for ${lang} template`);
                 } catch (seedError) {
                   console.warn("Failed to seed initial file:", seedError);
                   // Continue anyway - bucket is created, just no starter file
@@ -1557,7 +1550,7 @@ const IDEBlockEditor: React.FC<IDEBlockEditorProps> = memo(
                     autoGrading: newRunFile,
                   });
                   // Auto-start container after selecting language
-                  startContainer("template");
+                  startContainer("template", language);
                 }}
               />
             </TabsContent>
@@ -1667,7 +1660,7 @@ const IDEBlockEditor: React.FC<IDEBlockEditorProps> = memo(
                     autoGrading: newRunFile,
                   });
                   // Auto-start container after selecting language
-                  startContainer("modelSolution");
+                  startContainer("modelSolution", language);
                 }}
               />
             </TabsContent>
@@ -1753,41 +1746,6 @@ const IDEBlockEditor: React.FC<IDEBlockEditorProps> = memo(
                   className="w-20"
                 />
               )}
-              <Label htmlFor="language" className="text-sm text-gray-700 ml-4">
-                Language:
-              </Label>
-              <Select
-                value={ideData.settings?.language || ""}
-                onValueChange={(value: string) => {
-                  if (value === "python" || value === "java") {
-                    const newRunFile = value === "java" ? "Main.java" : "main.py";
-                    updateAttributes({
-                      ideData: {
-                        ...ideData,
-                        settings: {
-                          ...ideData.settings,
-                          language: value,
-                          default_run_file: newRunFile,
-                        },
-                      },
-                    });
-                    // Also update the local run filename state for all tabs
-                    setRunFilename({
-                      template: newRunFile,
-                      modelSolution: newRunFile,
-                      autoGrading: newRunFile,
-                    });
-                  }
-                }}
-              >
-                <SelectTrigger className={`w-28 ${!ideData.settings?.language ? "text-gray-400" : ""}`}>
-                  <SelectValue placeholder="Select..." />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="python">Python</SelectItem>
-                  <SelectItem value="java">Java</SelectItem>
-                </SelectContent>
-              </Select>
               {containers[activeTab] && (
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
