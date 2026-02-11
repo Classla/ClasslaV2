@@ -527,6 +527,18 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
           }
         } catch (e) {
           console.warn("[IDE] Failed to write file to container before run:", e);
+          if (e instanceof TypeError) {
+            // Network error — container may be unreachable, check status
+            const isAlive = await checkContainerStatus(container.id);
+            if (!isAlive) {
+              toast({
+                title: "Container disconnected",
+                description: "Restarting container. Please click Run again in a moment.",
+              });
+              startContainer();
+              return;
+            }
+          }
         }
       }
 
@@ -553,6 +565,18 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
 
           // Don't show toast on success - code is running silently
       } catch (error: any) {
+        if (error instanceof TypeError) {
+          // Network error — container may be unreachable
+          const isAlive = await checkContainerStatus(container.id);
+          if (!isAlive) {
+            toast({
+              title: "Container disconnected",
+              description: "Restarting container. Please click Run again in a moment.",
+            });
+            startContainer();
+            return;
+          }
+        }
         console.error("Failed to execute code:", error);
         toast({
           title: "Execution failed",
@@ -560,7 +584,7 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
           variant: "destructive",
         });
       }
-    }, [container, runFilename, detectLanguage, toast, studentBucketId]);
+    }, [container, runFilename, detectLanguage, toast, studentBucketId, checkContainerStatus, startContainer]);
 
     // Reset ownership when panel closes
     useEffect(() => {

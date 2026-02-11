@@ -320,6 +320,19 @@ const IDEFullscreenPage: React.FC = () => {
         }
       } catch (e) {
         console.warn("[IDE Fullscreen] Failed to write file before run:", e);
+        if (e instanceof TypeError) {
+          try {
+            const statusResp = await apiClient.checkContainerStatus(container.id);
+            if (statusResp.data.status !== "running") throw new Error("not running");
+          } catch {
+            toast({
+              title: "Container disconnected",
+              description: "Restarting container. Please click Run again in a moment.",
+            });
+            startContainer();
+            return;
+          }
+        }
       }
     }
 
@@ -348,6 +361,19 @@ const IDEFullscreenPage: React.FC = () => {
         throw new Error(data.error || "Failed to execute code");
       }
     } catch (error: any) {
+      if (error instanceof TypeError) {
+        try {
+          const statusResp = await apiClient.checkContainerStatus(container.id);
+          if (statusResp.data.status !== "running") throw new Error("not running");
+        } catch {
+          toast({
+            title: "Container disconnected",
+            description: "Restarting container. Please click Run again in a moment.",
+          });
+          startContainer();
+          return;
+        }
+      }
       console.error("Failed to execute code:", error);
       toast({
         title: "Execution failed",

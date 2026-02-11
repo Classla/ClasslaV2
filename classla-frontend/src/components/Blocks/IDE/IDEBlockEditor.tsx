@@ -720,6 +720,17 @@ const IDEBlockEditor: React.FC<IDEBlockEditorProps> = memo(
             }
           } catch (e) {
             console.warn("[IDE Editor] Failed to write file to container before run:", e);
+            if (e instanceof TypeError) {
+              const isAlive = await checkContainerStatus(tab, container.id);
+              if (!isAlive) {
+                toast({
+                  title: "Container disconnected",
+                  description: "Restarting container. Please click Run again in a moment.",
+                });
+                startContainer(tab);
+                return;
+              }
+            }
           }
         }
 
@@ -746,6 +757,17 @@ const IDEBlockEditor: React.FC<IDEBlockEditorProps> = memo(
 
           // Don't show toast on success - code is running silently
         } catch (error: any) {
+          if (error instanceof TypeError) {
+            const isAlive = await checkContainerStatus(tab, container.id);
+            if (!isAlive) {
+              toast({
+                title: "Container disconnected",
+                description: "Restarting container. Please click Run again in a moment.",
+              });
+              startContainer(tab);
+              return;
+            }
+          }
           console.error("Failed to execute code:", error);
           toast({
             title: "Execution failed",
@@ -754,7 +776,7 @@ const IDEBlockEditor: React.FC<IDEBlockEditorProps> = memo(
           });
         }
       },
-      [containers, runFilename, detectLanguage, toast, IDE_API_BASE_URL, ideData]
+      [containers, runFilename, detectLanguage, toast, IDE_API_BASE_URL, ideData, checkContainerStatus, startContainer]
     );
 
     // Handle view desktop toggle
