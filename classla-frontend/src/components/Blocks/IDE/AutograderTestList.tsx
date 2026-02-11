@@ -10,6 +10,7 @@ interface AutograderTestListProps {
   onEditTest: (test: TestCase) => void;
   onDeleteTest: (testId: string) => void;
   onTestModelSolution?: () => void;
+  isTestingModelSolution?: boolean;
   onGenerateUnitTests?: () => void;
   isGeneratingUnitTests?: boolean;
 }
@@ -20,6 +21,7 @@ const AutograderTestList: React.FC<AutograderTestListProps> = ({
   onEditTest,
   onDeleteTest,
   onTestModelSolution,
+  isTestingModelSolution,
   onGenerateUnitTests,
   isGeneratingUnitTests,
 }) => {
@@ -76,10 +78,14 @@ const AutograderTestList: React.FC<AutograderTestListProps> = ({
         {onTestModelSolution && (
           <Button
             onClick={onTestModelSolution}
+            disabled={isTestingModelSolution}
             className="bg-purple-600 hover:bg-purple-700 text-white"
             size="sm"
           >
-            Test Model Solution
+            {isTestingModelSolution && (
+              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+            )}
+            {isTestingModelSolution ? "Running Tests..." : "Test Model Solution"}
           </Button>
         )}
       </div>

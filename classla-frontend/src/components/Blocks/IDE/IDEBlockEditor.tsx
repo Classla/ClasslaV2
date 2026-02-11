@@ -98,6 +98,12 @@ public class Main {
 
 type TabType = "template" | "modelSolution" | "autoGrading";
 
+// Module-level maps to persist state across TipTap node view remounts
+// (OT sync after updateAttributes can cause full component remounts)
+const persistedActiveTab = new Map<string, TabType>();
+const persistedPendingTestRun = new Map<string, boolean>();
+const persistedTestingState = new Map<string, boolean>();
+
 const IDEBlockEditor: React.FC<IDEBlockEditorProps> = memo(
   ({ node, updateAttributes, deleteNode }) => {
     const ideData = node.attrs.ideData as IDEBlockData;
@@ -120,7 +126,7 @@ const IDEBlockEditor: React.FC<IDEBlockEditorProps> = memo(
       };
     }, [user]);
 
-    const [activeTab, setActiveTab] = useState<TabType>("template");
+    const [activeTab, setActiveTab] = useState<TabType>(() => persistedActiveTab.get(ideData.id) || "template");
     const [containers, setContainers] = useState<
       Record<TabType, ContainerInfo | null>
     >({
@@ -175,6 +181,9 @@ const IDEBlockEditor: React.FC<IDEBlockEditorProps> = memo(
     // Unique instance ID for cross-instance container state sync
     const instanceIdRef = useRef(`ide-editor-${Math.random().toString(36).slice(2, 8)}`);
 
+    // pendingTestRunRef backed by module-level map so it survives remounts
+    const pendingTestRunRef = useRef(persistedPendingTestRun.get(ideData.id) || false);
+
     // Wrap openSidePanel to claim ownership when this instance opens it
     const openSidePanelWithOwnership = useCallback((...args: Parameters<typeof openSidePanel>) => {
       isSidePanelOwnerRef.current = true;
@@ -187,6 +196,11 @@ const IDEBlockEditor: React.FC<IDEBlockEditorProps> = memo(
     const [isGeneratingUnitTests, setIsGeneratingUnitTests] = useState(false);
 
     // Autograder test case management
+    const [isTestingModelSolution, _setIsTestingModelSolution] = useState(() => persistedTestingState.get(ideData.id) || false);
+    const setIsTestingModelSolution = useCallback((value: boolean) => {
+      _setIsTestingModelSolution(value);
+      persistedTestingState.set(ideData.id, value);
+    }, [ideData.id]);
     const [testModalOpen, setTestModalOpen] = useState(false);
     const [editingTest, setEditingTest] = useState<TestCase | null>(null);
     const [testResultsModalOpen, setTestResultsModalOpen] = useState(false);
@@ -658,8 +672,10 @@ const IDEBlockEditor: React.FC<IDEBlockEditorProps> = memo(
 
     // Handle tab change
     const handleTabChange = useCallback((value: string) => {
-      setActiveTab(value as TabType);
-    }, []);
+      const tab = value as TabType;
+      setActiveTab(tab);
+      persistedActiveTab.set(ideData.id, tab);
+    }, [ideData.id]);
 
     // Detect language from filename extension
     const detectLanguage = useCallback((filename: string): string => {
@@ -895,19 +911,11 @@ const IDEBlockEditor: React.FC<IDEBlockEditorProps> = memo(
       [ideData, updateAttributes, toast]
     );
 
-    const handleTestModelSolution = useCallback(async () => {
-      const container = containers.modelSolution;
-      if (!container) {
-        toast({
-          title: "No container",
-          description: "Please start a model solution container first.",
-          variant: "destructive",
-        });
-        return;
-      }
-
+    // Run tests on a specific container (extracted helper)
+    const runTestsOnContainer = useCallback(async (containerId: string) => {
       const tests = ideData.autograder?.tests || [];
       if (tests.length === 0) {
+        setIsTestingModelSolution(false);
         toast({
           title: "No tests",
           description: "Please add test cases in the Auto Grading tab first.",
@@ -919,6 +927,7 @@ const IDEBlockEditor: React.FC<IDEBlockEditorProps> = memo(
       // Filter out manual grading tests
       const executableTests = tests.filter((test) => test.type !== "manualGrading");
       if (executableTests.length === 0) {
+        setIsTestingModelSolution(false);
         toast({
           title: "No executable tests",
           description: "All tests are manual grading. Please add input/output or unit tests.",
@@ -928,48 +937,65 @@ const IDEBlockEditor: React.FC<IDEBlockEditorProps> = memo(
       }
 
       try {
-        toast({
-          title: "Running tests",
-          description: "Executing test cases against model solution...",
-          variant: "default",
-        });
+        // Retry loop: the container's web server (port 3000) may not be ready
+        // immediately after startup, causing Traefik to return 502
+        const maxRetries = 5;
+        let lastError: Error | null = null;
 
-        const response = await fetch(
-          `${IDE_API_BASE_URL}/web/${container.id}/run-tests`,
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              tests: executableTests,
-            }),
+        for (let attempt = 0; attempt < maxRetries; attempt++) {
+          if (attempt > 0) {
+            await new Promise((r) => setTimeout(r, 2000));
           }
-        );
 
-        const data = await response.json();
+          const response = await fetch(
+            `${IDE_API_BASE_URL}/web/${containerId}/run-tests`,
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                tests: executableTests,
+              }),
+            }
+          );
 
-        if (!response.ok) {
-          throw new Error(data.error || "Failed to run tests");
+          if (response.status === 502) {
+            lastError = new Error("Container web server not ready yet");
+            continue;
+          }
+
+          if (!response.ok) {
+            const text = await response.text();
+            let message = "Failed to run tests";
+            try { message = JSON.parse(text).error || message; } catch {}
+            throw new Error(message);
+          }
+
+          const data = await response.json();
+
+          // Store results and show modal
+          setTestResults(data.results || []);
+          setTestTotalPoints(data.totalPoints || 0);
+          setTestPointsEarned(data.pointsEarned || 0);
+          setTestResultsModalOpen(true);
+
+          // Also show toast notification
+          const passedCount = data.results.filter((r: any) => r.passed).length;
+          const totalCount = data.results.length;
+          const pointsEarned = data.pointsEarned || 0;
+          const totalPoints = data.totalPoints || 0;
+
+          toast({
+            title: `Tests completed: ${passedCount}/${totalCount} passed`,
+            description: `Points: ${pointsEarned}/${totalPoints}`,
+            variant: passedCount === totalCount ? "default" : "destructive",
+          });
+          return; // Success — exit the function
         }
 
-        // Store results and show modal
-        setTestResults(data.results || []);
-        setTestTotalPoints(data.totalPoints || 0);
-        setTestPointsEarned(data.pointsEarned || 0);
-        setTestResultsModalOpen(true);
-
-        // Also show toast notification
-        const passedCount = data.results.filter((r: any) => r.passed).length;
-        const totalCount = data.results.length;
-        const pointsEarned = data.pointsEarned || 0;
-        const totalPoints = data.totalPoints || 0;
-
-        toast({
-          title: `Tests completed: ${passedCount}/${totalCount} passed`,
-          description: `Points: ${pointsEarned}/${totalPoints}`,
-          variant: passedCount === totalCount ? "default" : "destructive",
-        });
+        // All retries exhausted
+        throw lastError || new Error("Failed to run tests after retries");
       } catch (error: any) {
         console.error("Failed to run tests:", error);
         toast({
@@ -977,8 +1003,61 @@ const IDEBlockEditor: React.FC<IDEBlockEditorProps> = memo(
           description: error.message || "An error occurred while running tests.",
           variant: "destructive",
         });
+      } finally {
+        setIsTestingModelSolution(false);
       }
-    }, [containers.modelSolution, ideData.autograder?.tests, toast, IDE_API_BASE_URL]);
+    }, [ideData.autograder?.tests, toast, setIsTestingModelSolution, IDE_API_BASE_URL]);
+
+    const handleTestModelSolution = useCallback(async () => {
+      const container = containers.modelSolution;
+
+      if (!container) {
+        // Validate tests exist before starting a container
+        const tests = ideData.autograder?.tests || [];
+        if (tests.length === 0) {
+          toast({
+            title: "No tests",
+            description: "Please add test cases in the Auto Grading tab first.",
+            variant: "default",
+          });
+          return;
+        }
+
+        const executableTests = tests.filter((test) => test.type !== "manualGrading");
+        if (executableTests.length === 0) {
+          toast({
+            title: "No executable tests",
+            description: "All tests are manual grading. Please add input/output or unit tests.",
+            variant: "default",
+          });
+          return;
+        }
+
+        // Auto-start the container and queue the test run
+        setIsTestingModelSolution(true);
+        pendingTestRunRef.current = true;
+        persistedPendingTestRun.set(ideData.id, true);
+        startContainer("modelSolution");
+        return;
+      }
+
+      // Container already running — run tests directly
+      setIsTestingModelSolution(true);
+      await runTestsOnContainer(container.id);
+    }, [containers.modelSolution, ideData.id, ideData.autograder?.tests, toast, setIsTestingModelSolution, startContainer, runTestsOnContainer]);
+
+    // Auto-run pending tests when model solution container becomes ready
+    useEffect(() => {
+      if (
+        containers.modelSolution &&
+        !isStarting.modelSolution &&
+        pendingTestRunRef.current
+      ) {
+        pendingTestRunRef.current = false;
+        persistedPendingTestRun.delete(ideData.id);
+        runTestsOnContainer(containers.modelSolution.id);
+      }
+    }, [containers.modelSolution, isStarting.modelSolution, ideData.id, runTestsOnContainer]);
 
     const handleDeleteModelSolution = useCallback(async () => {
       const bucketId = ideData.modelSolution.s3_bucket_id;
@@ -1602,6 +1681,7 @@ const IDEBlockEditor: React.FC<IDEBlockEditorProps> = memo(
                   onEditTest={handleEditTest}
                   onDeleteTest={handleDeleteTest}
                   onTestModelSolution={handleTestModelSolution}
+                  isTestingModelSolution={isTestingModelSolution}
                   onGenerateUnitTests={handleGenerateUnitTests}
                   isGeneratingUnitTests={isGeneratingUnitTests}
                 />
