@@ -14,6 +14,15 @@ export function getDisplayName(user: {
   return fullName || user.email;
 }
 
+export function compareByLastFirstName(
+  a: { last_name?: string; first_name?: string },
+  b: { last_name?: string; first_name?: string }
+): number {
+  const lastCmp = (a.last_name || "").localeCompare(b.last_name || "");
+  if (lastCmp !== 0) return lastCmp;
+  return (a.first_name || "").localeCompare(b.first_name || "");
+}
+
 export function getInitials(user: {
   first_name?: string;
   last_name?: string;

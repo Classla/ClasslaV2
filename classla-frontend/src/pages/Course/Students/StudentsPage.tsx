@@ -35,7 +35,7 @@ import {
   FolderPlus,
 } from "lucide-react";
 import { Course, Section, User, CourseEnrollment, UserRole } from "../../../types";
-import { getDisplayName, getInitials } from "../../../lib/utils";
+import { getDisplayName, getInitials, compareByLastFirstName } from "../../../lib/utils";
 import { hasTAPermission } from "../../../lib/taPermissions";
 import { useAuth } from "../../../contexts/AuthContext";
 
@@ -239,13 +239,15 @@ const StudentsPage: React.FC<StudentsPageProps> = ({
     }
   };
 
-  // Apply instructor filtering first (if instructor)
+  // Apply instructor filtering first (if instructor), then sort by last name, first name
   const instructorFilteredStudents = isInstructor
-    ? students.filter((student) => {
-        if (selectedSection === "all") return true;
-        if (selectedSection === "none") return !student.enrollment.section_id;
-        return student.enrollment.section_id === selectedSection;
-      })
+    ? students
+        .filter((student) => {
+          if (selectedSection === "all") return true;
+          if (selectedSection === "none") return !student.enrollment.section_id;
+          return student.enrollment.section_id === selectedSection;
+        })
+        .sort(compareByLastFirstName)
     : students;
 
   // For students, filter and sort to show instructors/TAs first, then classmates
@@ -309,10 +311,8 @@ const StudentsPage: React.FC<StudentsPageProps> = ({
               return aOrder - bOrder;
             }
 
-            // Within the same role, sort alphabetically by name
-            const aName = getDisplayName(a);
-            const bName = getDisplayName(b);
-            return aName.localeCompare(bName);
+            // Within the same role, sort by last name then first name
+            return compareByLastFirstName(a, b);
           })
       : instructorFilteredStudents;
 

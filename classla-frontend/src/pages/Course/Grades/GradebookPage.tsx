@@ -74,17 +74,17 @@ const GradebookPage: React.FC<GradebookPageProps> = ({
     }
   }, [gradebookError, toast]);
 
-  // Filter students by selected section (memoized)
+  // Filter students by selected section and sort by last name, first name (memoized)
   const filteredStudents = useMemo(() => {
     if (!gradebookData) return [];
-
-    if (!selectedSectionId) {
-      return gradebookData.students;
-    }
-
-    return gradebookData.students.filter(
-      (student) => student.sectionId === selectedSectionId
-    );
+    const students = selectedSectionId
+      ? gradebookData.students.filter((s) => s.sectionId === selectedSectionId)
+      : gradebookData.students;
+    return [...students].sort((a, b) => {
+      const lastCmp = (a.lastName || "").localeCompare(b.lastName || "");
+      if (lastCmp !== 0) return lastCmp;
+      return (a.firstName || "").localeCompare(b.firstName || "");
+    });
   }, [gradebookData, selectedSectionId]);
 
   // Convert submissions and graders to Maps for efficient lookup (memoized)
