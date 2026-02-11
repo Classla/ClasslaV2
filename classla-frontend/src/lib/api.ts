@@ -601,6 +601,7 @@ export const apiClient = {
     firstName?: string;
     lastName?: string;
     courseId?: string;
+    sectionId?: string;
   }) => api.post("/managed-students", data),
   updateManagedStudent: (
     id: string,

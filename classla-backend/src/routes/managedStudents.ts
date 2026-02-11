@@ -17,7 +17,7 @@ router.post(
   authenticateToken,
   async (req: Request, res: Response) => {
     try {
-      const { username, password, firstName, lastName, courseId } = req.body;
+      const { username, password, firstName, lastName, courseId, sectionId } = req.body;
 
       // Validate required parameters
       if (!username || !password) {
@@ -38,6 +38,7 @@ router.post(
           firstName,
           lastName,
           courseId,
+          sectionId,
         }
       );
 

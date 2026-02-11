@@ -47,6 +47,7 @@ export interface CreateManagedStudentInput {
   firstName?: string;
   lastName?: string;
   courseId?: string; // Optional: immediately enroll in a course
+  sectionId?: string; // Optional: assign to a section when enrolling
 }
 
 export interface UpdateManagedStudentInput {
@@ -158,7 +159,7 @@ export class ManagedStudentService {
 
       // If a courseId was provided, enroll the student
       if (input.courseId) {
-        await this.enrollInCourse(teacherId, newStudent.id, input.courseId);
+        await this.enrollInCourse(teacherId, newStudent.id, input.courseId, input.sectionId);
       }
 
       return newStudent as ManagedStudent;
@@ -834,7 +835,8 @@ export class ManagedStudentService {
   async enrollInCourse(
     teacherId: string,
     studentId: string,
-    courseId: string
+    courseId: string,
+    sectionId?: string
   ): Promise<void> {
     try {
       // Verify student ownership
@@ -884,6 +886,24 @@ export class ManagedStudentService {
         return;
       }
 
+      // Validate section belongs to course if provided
+      if (sectionId) {
+        const { data: section } = await supabase
+          .from('sections')
+          .select('id')
+          .eq('id', sectionId)
+          .eq('course_id', courseId)
+          .single();
+
+        if (!section) {
+          throw new ManagedStudentServiceError(
+            'Section not found in this course',
+            'INVALID_SECTION',
+            400
+          );
+        }
+      }
+
       // Create enrollment
       const { error: createError } = await supabase
         .from('course_enrollments')
@@ -891,7 +911,8 @@ export class ManagedStudentService {
           user_id: studentId,
           course_id: courseId,
           role: UserRole.STUDENT,
-          enrolled_at: new Date().toISOString()
+          enrolled_at: new Date().toISOString(),
+          section_id: sectionId || null,
         });
 
       if (createError) {

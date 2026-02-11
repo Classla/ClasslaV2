@@ -162,10 +162,23 @@ const ManagedStudentsPage: React.FC = () => {
   const [bulkResults, setBulkResults] = useState<BulkStudent[] | null>(null);
   const [bulkValidating, setBulkValidating] = useState(false);
   const [bulkValidationErrors, setBulkValidationErrors] = useState<string[]>([]);
+  const [bulkSectionId, setBulkSectionId] = useState<string>("");
+  const [bulkSections, setBulkSections] = useState<Array<{ id: string; name: string }>>([]);
 
   useEffect(() => {
     fetchData();
   }, []);
+
+  useEffect(() => {
+    if (bulkCourseId) {
+      apiClient.getCourseSections(bulkCourseId).then((res) => {
+        setBulkSections(res.data.data || []);
+      }).catch(() => setBulkSections([]));
+    } else {
+      setBulkSections([]);
+    }
+    setBulkSectionId("");
+  }, [bulkCourseId]);
 
   const fetchData = async () => {
     try {
@@ -573,6 +586,7 @@ const ManagedStudentsPage: React.FC = () => {
           firstName: student.firstName || undefined,
           lastName: student.lastName || undefined,
           courseId: bulkCourseId || undefined,
+          sectionId: bulkSectionId || undefined,
         });
         results.push(student);
         successCount++;
@@ -623,6 +637,8 @@ const ManagedStudentsPage: React.FC = () => {
     setBulkNamesList("");
     setBulkStudents([]);
     setBulkCourseId("");
+    setBulkSectionId("");
+    setBulkSections([]);
     setBulkResults(null);
     setBulkValidationErrors([]);
   };
@@ -950,6 +966,22 @@ const ManagedStudentsPage: React.FC = () => {
                         <SelectItem key={course.id} value={course.id}>
                           {course.name}
                         </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+              {bulkCourseId && bulkSections.length > 0 && (
+                <div className="space-y-2">
+                  <Label>Assign to Section (Optional)</Label>
+                  <Select value={bulkSectionId || "none"} onValueChange={(val) => setBulkSectionId(val === "none" ? "" : val)}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select a section..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">No section</SelectItem>
+                      {bulkSections.map((s) => (
+                        <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
