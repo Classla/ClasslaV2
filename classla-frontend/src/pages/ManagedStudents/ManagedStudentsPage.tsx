@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { apiClient } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -63,8 +63,11 @@ import {
   AlertCircle,
   CheckCircle2,
   Loader2,
+  Search,
+  ArrowUpDown,
 } from "lucide-react";
 import type { ManagedStudentWithEnrollments } from "@/types";
+import { useDebounce } from "@/hooks/useDebounce";
 
 interface Course {
   id: string;
@@ -165,6 +168,16 @@ const ManagedStudentsPage: React.FC = () => {
   const [bulkSectionId, setBulkSectionId] = useState<string>("");
   const [bulkSections, setBulkSections] = useState<Array<{ id: string; name: string }>>([]);
 
+  // Filter/sort state
+  const [searchQuery, setSearchQuery] = useState("");
+  const [filterCourseId, setFilterCourseId] = useState("all");
+  const [filterSectionId, setFilterSectionId] = useState("all");
+  const [sortField, setSortField] = useState<"name" | "created_at">("name");
+  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
+  const [filterSections, setFilterSections] = useState<Array<{ id: string; name: string }>>([]);
+
+  const debouncedSearch = useDebounce(searchQuery, 300);
+
   useEffect(() => {
     fetchData();
   }, []);
@@ -179,6 +192,74 @@ const ManagedStudentsPage: React.FC = () => {
     }
     setBulkSectionId("");
   }, [bulkCourseId]);
+
+  // Load sections when filter course changes
+  useEffect(() => {
+    if (filterCourseId && filterCourseId !== "all") {
+      apiClient.getCourseSections(filterCourseId).then((res) => {
+        setFilterSections(res.data.data || []);
+      }).catch(() => setFilterSections([]));
+    } else {
+      setFilterSections([]);
+    }
+    setFilterSectionId("all");
+  }, [filterCourseId]);
+
+  // Filtered and sorted students
+  const filteredStudents = useMemo(() => {
+    let result = [...students];
+
+    // Text search
+    if (debouncedSearch) {
+      const query = debouncedSearch.toLowerCase();
+      result = result.filter((s) =>
+        (s.first_name || "").toLowerCase().includes(query) ||
+        (s.last_name || "").toLowerCase().includes(query) ||
+        s.username.toLowerCase().includes(query)
+      );
+    }
+
+    // Course filter
+    if (filterCourseId !== "all") {
+      result = result.filter((s) =>
+        s.enrollments.some((e) => e.course_id === filterCourseId)
+      );
+    }
+
+    // Section filter
+    if (filterSectionId !== "all" && filterCourseId !== "all") {
+      result = result.filter((s) =>
+        s.enrollments.some(
+          (e) => e.course_id === filterCourseId && e.section_id === filterSectionId
+        )
+      );
+    }
+
+    // Sort
+    result.sort((a, b) => {
+      let cmp = 0;
+      if (sortField === "name") {
+        const aName = `${a.last_name || ""} ${a.first_name || ""} ${a.username}`.toLowerCase();
+        const bName = `${b.last_name || ""} ${b.first_name || ""} ${b.username}`.toLowerCase();
+        cmp = aName.localeCompare(bName);
+      } else {
+        cmp = (a.created_at || "").localeCompare(b.created_at || "");
+      }
+      return sortDirection === "asc" ? cmp : -cmp;
+    });
+
+    return result;
+  }, [students, debouncedSearch, filterCourseId, filterSectionId, sortField, sortDirection]);
+
+  const isFiltering = debouncedSearch || filterCourseId !== "all";
+
+  const clearFilters = () => {
+    setSearchQuery("");
+    setFilterCourseId("all");
+    setFilterSectionId("all");
+    setSortField("name");
+    setSortDirection("asc");
+  };
 
   const fetchData = async () => {
     try {
@@ -1098,8 +1179,91 @@ const ManagedStudentsPage: React.FC = () => {
           </CardContent>
         </Card>
       ) : (
-        <div className="grid gap-4">
-          {students.map((student) => (
+        <>
+          {/* Filter/Sort Controls */}
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="relative flex-1 min-w-[200px] max-w-sm">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search by name or username..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-9"
+              />
+            </div>
+            {courses.length > 0 && (
+              <Select value={filterCourseId} onValueChange={setFilterCourseId}>
+                <SelectTrigger className="w-[180px]">
+                  <SelectValue placeholder="All courses" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All courses</SelectItem>
+                  {courses.map((course) => (
+                    <SelectItem key={course.id} value={course.id}>
+                      {course.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+            {filterCourseId !== "all" && filterSections.length > 0 && (
+              <Select value={filterSectionId} onValueChange={setFilterSectionId}>
+                <SelectTrigger className="w-[180px]">
+                  <SelectValue placeholder="All sections" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All sections</SelectItem>
+                  {filterSections.map((s) => (
+                    <SelectItem key={s.id} value={s.id}>
+                      {s.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+            <Select
+              value={`${sortField}-${sortDirection}`}
+              onValueChange={(val) => {
+                const [field, dir] = val.split("-") as ["name" | "created_at", "asc" | "desc"];
+                setSortField(field);
+                setSortDirection(dir);
+              }}
+            >
+              <SelectTrigger className="w-[160px]">
+                <ArrowUpDown className="h-4 w-4 mr-2" />
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="name-asc">Name A-Z</SelectItem>
+                <SelectItem value="name-desc">Name Z-A</SelectItem>
+                <SelectItem value="created_at-desc">Newest first</SelectItem>
+                <SelectItem value="created_at-asc">Oldest first</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {isFiltering && (
+            <p className="text-sm text-muted-foreground">
+              Showing {filteredStudents.length} of {students.length} student{students.length !== 1 ? "s" : ""}
+            </p>
+          )}
+
+          {filteredStudents.length === 0 && isFiltering ? (
+            <Card>
+              <CardContent className="flex flex-col items-center justify-center py-12">
+                <Search className="h-12 w-12 text-muted-foreground mb-4" />
+                <h3 className="text-lg font-semibold mb-2">No matching students</h3>
+                <p className="text-muted-foreground text-center mb-4">
+                  No students match your current filters.
+                </p>
+                <Button variant="outline" onClick={clearFilters}>
+                  Clear filters
+                </Button>
+              </CardContent>
+            </Card>
+          ) : (
+          <div className="grid gap-4">
+          {filteredStudents.map((student) => (
             <Card key={student.id}>
               <CardHeader className="pb-3">
                 <div className="flex items-center justify-between">
@@ -1170,6 +1334,9 @@ const ManagedStudentsPage: React.FC = () => {
                         className="flex items-center gap-1"
                       >
                         {enrollment.course_name}
+                        {enrollment.section_name && (
+                          <span className="text-muted-foreground font-normal"> ({enrollment.section_name})</span>
+                        )}
                         <button
                           onClick={() =>
                             handleUnenrollStudent(student.id, enrollment.course_id)
@@ -1186,6 +1353,8 @@ const ManagedStudentsPage: React.FC = () => {
             </Card>
           ))}
         </div>
+          )}
+        </>
       )}
 
       {/* Password Reset Dialog */}

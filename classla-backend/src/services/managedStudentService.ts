@@ -212,7 +212,9 @@ export class ManagedStudentService {
           course_id,
           role,
           enrolled_at,
-          courses:course_id (name)
+          section_id,
+          courses:course_id (name),
+          sections:section_id (name)
         `)
         .in('user_id', studentIds);
 
@@ -231,7 +233,9 @@ export class ManagedStudentService {
           course_id: enrollment.course_id,
           course_name: (enrollment.courses as any)?.name || 'Unknown Course',
           role: enrollment.role,
-          enrolled_at: enrollment.enrolled_at
+          enrolled_at: enrollment.enrolled_at,
+          section_id: enrollment.section_id || null,
+          section_name: (enrollment.sections as any)?.name || null
         });
         enrollmentsByStudent.set(enrollment.user_id, existing);
       });

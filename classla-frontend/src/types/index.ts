@@ -353,6 +353,8 @@ export interface ManagedStudentEnrollment {
   course_name: string;
   role: string;
   enrolled_at: string;
+  section_id: string | null;
+  section_name: string | null;
 }
 
 /**
