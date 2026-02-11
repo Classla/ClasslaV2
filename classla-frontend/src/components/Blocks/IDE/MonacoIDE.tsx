@@ -444,11 +444,14 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
       setLoadingFiles((prev) => new Set(prev).add(filePath));
 
       try {
-        // Subscribe to OT document - server handles S3 loading and sends document-state
-        otProvider.subscribeToDocument(bucketId, filePath);
+        // Subscribe to OT document only if not already loaded
+        const existingDoc = otProvider.getDocument(bucketId, filePath);
+        if (!existingDoc) {
+          otProvider.subscribeToDocument(bucketId, filePath);
+        }
 
         // Check if OT already has content (previous subscription)
-        const doc = otProvider.getDocument(bucketId, filePath);
+        const doc = existingDoc || otProvider.getDocument(bucketId, filePath);
         const content = doc?.content || "";
 
         console.log(`[MonacoIDE] Loading file ${filePath}`, {
@@ -518,10 +521,13 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
       setSelectedFile(path);
       selectedFileRef.current = path;
 
-      // Subscribe to OT document
+      // Subscribe to OT document only if not already loaded
       if (bucketId) {
-        otProvider.subscribeToDocument(bucketId, path);
-        const doc = otProvider.getDocument(bucketId, path);
+        const existingDoc = otProvider.getDocument(bucketId, path);
+        if (!existingDoc) {
+          otProvider.subscribeToDocument(bucketId, path);
+        }
+        const doc = existingDoc || otProvider.getDocument(bucketId, path);
         const content = doc?.content || "";
 
         if (content) {
@@ -899,12 +905,9 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
     [bucketId, files, fileContent, selectedFile, toast, loadFileTree]
   );
 
-  // Connect to OT provider
+  // Connect to OT provider (singleton — don't disconnect on unmount since other instances may use it)
   useEffect(() => {
-    if (!bucketId) {
-      otProvider.disconnect();
-      return;
-    }
+    if (!bucketId) return;
     const backendApiUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
     otProvider.connect(backendApiUrl, bucketId);
   }, [bucketId]);
@@ -1206,12 +1209,16 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
   }, [bucketId]);
 
   // Re-subscribe to current document on visibility change for sync robustness
+  // Only re-subscribe if the socket was disconnected (document lost)
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (!document.hidden && bucketId && selectedFileRef.current) {
-        // Tab became visible again — re-subscribe to get fresh state
-        console.log(`[MonacoIDE] Tab visible again, re-subscribing to ${selectedFileRef.current}`);
-        otProvider.subscribeToDocument(bucketId, selectedFileRef.current);
+        const existingDoc = otProvider.getDocument(bucketId, selectedFileRef.current);
+        if (!existingDoc) {
+          // Document was lost (socket disconnected) — re-subscribe
+          console.log(`[MonacoIDE] Tab visible again, re-subscribing to ${selectedFileRef.current}`);
+          otProvider.subscribeToDocument(bucketId, selectedFileRef.current);
+        }
       }
     };
 

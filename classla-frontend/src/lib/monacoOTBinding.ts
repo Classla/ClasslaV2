@@ -158,20 +158,24 @@ export class MonacoOTBinding {
     });
     this.disposables.push(selectionDisposable);
 
-    // OT -> Monaco: convert TextOperation to Monaco edits
+    // OT -> Monaco: convert TextOperation to Monaco batch edits
+    // All edit positions must reference the ORIGINAL (pre-edit) model content,
+    // since pushEditOperations applies all edits as a batch.
+    // Only retain and delete consume base characters (advance the index).
+    // Inserts do NOT advance the index — they add text at the current base position.
     this.document.addContentChangedListener(this.bindingId, (content: string, operation: TextOperation) => {
       this.isApplyingRemote = true;
       try {
         const edits: monaco.editor.IIdentifiedSingleEditOperation[] = [];
-        let offset = 0;
+        let index = 0; // Position in the base (original) document
 
         for (const op of operation.ops) {
           if (typeof op === "number" && op > 0) {
-            // Retain
-            offset += op;
+            // Retain: skip forward in base document
+            index += op;
           } else if (typeof op === "string") {
-            // Insert
-            const pos = model.getPositionAt(offset);
+            // Insert: add text at current base position
+            const pos = model.getPositionAt(index);
             edits.push({
               range: {
                 startLineNumber: pos.lineNumber,
@@ -181,12 +185,12 @@ export class MonacoOTBinding {
               } as monaco.IRange,
               text: op,
             });
-            offset += op.length;
+            // Do NOT advance index — inserts don't consume base characters
           } else if (typeof op === "number" && op < 0) {
-            // Delete
+            // Delete: remove characters from base document
             const deleteLen = -op;
-            const startPos = model.getPositionAt(offset);
-            const endPos = model.getPositionAt(offset + deleteLen);
+            const startPos = model.getPositionAt(index);
+            const endPos = model.getPositionAt(index + deleteLen);
             edits.push({
               range: {
                 startLineNumber: startPos.lineNumber,
@@ -196,7 +200,7 @@ export class MonacoOTBinding {
               } as monaco.IRange,
               text: "",
             });
-            // Don't advance offset for deletes (they remove text)
+            index += deleteLen; // Deletes consume base characters
           }
         }
 

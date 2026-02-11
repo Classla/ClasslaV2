@@ -512,12 +512,15 @@ class OTProvider {
         if (!doc) {
           doc = new OTDocumentClient(documentId, content, revision);
           this.documents.set(documentId, doc);
+        } else if (doc.state.type !== "synchronized") {
+          // Document has pending operations — don't reset state or content.
+          // The ack/remote-operation handlers will reconcile naturally.
+          console.log(`[OT] Ignoring document-state for ${documentId} (pending state: ${doc.state.type})`);
         } else {
-          // Reconnect case: check if content actually changed
+          // Synchronized state: safe to update content/revision
           const oldContent = doc.content;
           doc.content = content;
           doc.revision = revision;
-          doc.state = { type: "synchronized" };
 
           // If content changed during disconnect, build a replace operation for Monaco
           if (oldContent !== content && doc.onContentChanged) {
