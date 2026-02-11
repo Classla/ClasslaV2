@@ -69,7 +69,7 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
     const { toast } = useToast();
     const { user } = useAuth();
     const { openSidePanel, openFullscreen, updatePanelState, panelMode } = useIDEPanel();
-    const { courseId, assignmentId } = useAssignmentContext();
+    const { courseId, assignmentId, previewMode } = useAssignmentContext();
 
     // Watch for block scores updates (for grading view)
     const [blockScoresVersion, setBlockScoresVersion] = useState(0);
@@ -109,8 +109,9 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
     // Initialize from localStorage for faster rendering while API call is in flight
     const [studentBucketId, setStudentBucketId] = useState<string | null>(() => {
       if (!assignmentId || !user?.id) return null;
-      const storageKey = `student_bucket_${assignmentId}_${ideData.id}_${user.id}`;
-      return localStorage.getItem(storageKey);
+      const prefix = previewMode ? 'preview_bucket' : 'student_bucket';
+      const key = `${prefix}_${assignmentId}_${ideData.id}_${user.id}`;
+      return localStorage.getItem(key);
     });
 
     // Test results state for autograder
@@ -133,6 +134,13 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
       };
     }, [user]);
 
+    // Use a separate localStorage key for preview mode to isolate from student buckets
+    const bucketStorageKey = useMemo(() => {
+      if (!assignmentId || !user?.id) return '';
+      const prefix = previewMode ? 'preview_bucket' : 'student_bucket';
+      return `${prefix}_${assignmentId}_${ideData.id}_${user.id}`;
+    }, [previewMode, assignmentId, ideData.id, user?.id]);
+
     const pollingAttemptsRef = useRef(0);
 
     // Track whether THIS instance owns the side panel relationship.
@@ -147,9 +155,31 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
 
     // Load student's cloned bucket on mount - query database for existing bucket
     useEffect(() => {
-      if (!assignmentId || !user?.id) return;
+      if (!assignmentId || !user?.id || !bucketStorageKey) return;
 
       const loadStudentBucket = async () => {
+        // In preview mode, only check localStorage for a cached preview bucket
+        // (skip the API listS3Buckets call since preview buckets are ephemeral)
+        if (previewMode) {
+          const cachedBucketId = localStorage.getItem(bucketStorageKey);
+          if (cachedBucketId) {
+            try {
+              // Validate the cached bucket still exists
+              await apiClient.getS3Bucket(cachedBucketId);
+              console.log("[IDE Preview] Using cached preview bucket:", cachedBucketId);
+              setStudentBucketId(cachedBucketId);
+            } catch {
+              // Bucket was deleted or doesn't exist - clear and start fresh
+              console.log("[IDE Preview] Cached preview bucket invalid, clearing");
+              localStorage.removeItem(bucketStorageKey);
+              setStudentBucketId(null);
+            }
+          } else {
+            setStudentBucketId(null);
+          }
+          return;
+        }
+
         try {
           console.log("[IDE Student] Querying for student bucket:", {
             assignmentId,
@@ -181,21 +211,18 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
             setStudentBucketId(studentBucket.id);
 
             // Also save to localStorage for faster subsequent loads
-            const storageKey = `student_bucket_${assignmentId}_${ideData.id}_${user.id}`;
-            localStorage.setItem(storageKey, studentBucket.id);
+            localStorage.setItem(bucketStorageKey, studentBucket.id);
           } else {
             console.log("[IDE Student] No existing bucket found, student will need to clone");
             setStudentBucketId(null);
 
             // Clear localStorage if it has a stale value
-            const storageKey = `student_bucket_${assignmentId}_${ideData.id}_${user.id}`;
-            localStorage.removeItem(storageKey);
+            localStorage.removeItem(bucketStorageKey);
           }
         } catch (error) {
           console.error("Failed to load student bucket:", error);
           // Try localStorage as fallback (e.g., if API call fails)
-          const storageKey = `student_bucket_${assignmentId}_${ideData.id}_${user.id}`;
-          const cachedBucketId = localStorage.getItem(storageKey);
+          const cachedBucketId = localStorage.getItem(bucketStorageKey);
           if (cachedBucketId) {
             console.log("[IDE Student] Using cached bucket from localStorage:", cachedBucketId);
             setStudentBucketId(cachedBucketId);
@@ -206,7 +233,7 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
       };
 
       loadStudentBucket();
-    }, [assignmentId, user?.id, ideData.id, ideData.template.s3_bucket_id]);
+    }, [assignmentId, user?.id, ideData.id, ideData.template.s3_bucket_id, previewMode, bucketStorageKey]);
 
     // Cleanup polling interval on unmount
     useEffect(() => {
@@ -214,6 +241,29 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
         if (pollingInterval) clearInterval(pollingInterval);
       };
     }, [pollingInterval]);
+
+    // Cleanup preview resources on unmount (stop container, delete bucket, clear localStorage)
+    const studentBucketIdRef = useRef(studentBucketId);
+    const containerRef = useRef(container);
+    studentBucketIdRef.current = studentBucketId;
+    containerRef.current = container;
+
+    useEffect(() => {
+      if (!previewMode) return;
+      const storageKey = bucketStorageKey;
+      return () => {
+        const bucketId = studentBucketIdRef.current;
+        const cont = containerRef.current;
+        if (bucketId) {
+          // Fire-and-forget: kill the container via its web server endpoint
+          if (cont?.id && cont?.urls?.webServer) {
+            fetch(`${cont.urls.webServer}/kill`, { method: 'POST' }).catch(() => {});
+          }
+          apiClient.softDeleteS3Bucket(bucketId).catch(() => {});
+          localStorage.removeItem(storageKey);
+        }
+      };
+    }, [previewMode, bucketStorageKey]);
 
     // Load test run history when component mounts or when autograder tab becomes visible
     useEffect(() => {
@@ -377,10 +427,9 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
 
           // Save the cloned bucket ID to state and localStorage
           setStudentBucketId(bucketId);
-          if (assignmentId && user.id && bucketId) {
-            const storageKey = `student_bucket_${assignmentId}_${ideData.id}_${user.id}`;
-            localStorage.setItem(storageKey, bucketId);
-            console.log("[IDE Student] Saved bucket to localStorage:", storageKey, bucketId);
+          if (assignmentId && user.id && bucketId && bucketStorageKey) {
+            localStorage.setItem(bucketStorageKey, bucketId);
+            console.log("[IDE] Saved bucket to localStorage:", bucketStorageKey, bucketId);
           }
         } else {
           // Get existing bucket info
@@ -428,7 +477,7 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
           variant: "destructive",
         });
       }
-    }, [user, ideData, studentBucketId, assignmentId, courseId, pollContainerUntilReady, toast]);
+    }, [user, ideData, studentBucketId, assignmentId, courseId, pollContainerUntilReady, toast, bucketStorageKey]);
 
 
     // Detect language from filename extension
@@ -692,8 +741,7 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
 
         // Clear state and localStorage
         setStudentBucketId(null);
-        const storageKey = `student_bucket_${assignmentId}_${ideData.id}_${user.id}`;
-        localStorage.removeItem(storageKey);
+        localStorage.removeItem(bucketStorageKey);
 
         toast({
           title: "Workspace reset",
@@ -728,7 +776,7 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
 
         // Save new bucket ID
         setStudentBucketId(newBucketId);
-        localStorage.setItem(storageKey, newBucketId);
+        localStorage.setItem(bucketStorageKey, newBucketId);
 
         toast({
           title: "Workspace reset complete",
@@ -743,7 +791,7 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
           variant: "destructive",
         });
       }
-    }, [studentBucketId, assignmentId, courseId, user, ideData, clearContainer, toast]);
+    }, [studentBucketId, assignmentId, courseId, user, ideData, clearContainer, toast, bucketStorageKey]);
 
     // Handle running tests against student's solution
     const handleRunTests = useCallback(async () => {
@@ -849,8 +897,8 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
         const pointsEarned = data.pointsEarned || 0;
         const totalPoints = data.totalPoints || 0;
 
-        // Save test run to database for history
-        if (assignmentId && ideData.id) {
+        // Save test run to database for history (skip in preview mode)
+        if (assignmentId && ideData.id && !previewMode) {
           try {
             const savedRun = await apiClient.saveIDETestRun({
               assignment_id: assignmentId,
@@ -888,7 +936,7 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
       } finally {
         setIsRunningTests(false);
       }
-    }, [container, ideData.autograder?.tests, ideData.id, assignmentId, courseId, toast, studentBucketId]);
+    }, [container, ideData.autograder?.tests, ideData.id, assignmentId, courseId, toast, studentBucketId, previewMode]);
 
     // Handle tab change
     const handleTabChange = useCallback((value: string) => {

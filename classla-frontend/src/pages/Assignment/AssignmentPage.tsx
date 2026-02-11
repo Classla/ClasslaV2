@@ -629,7 +629,7 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
             <div className="flex-1 mx-6">
               <Card className="h-full p-0 overflow-hidden">
                 {assignment && (
-                  <AssignmentProvider courseId={assignment.course_id} assignmentId={assignment.id}>
+                  <AssignmentProvider courseId={assignment.course_id} assignmentId={assignment.id} previewMode={isPreviewMode}>
                     {canEdit ? (
                       selectedGradingStudent ? (
                         <AssignmentViewer
