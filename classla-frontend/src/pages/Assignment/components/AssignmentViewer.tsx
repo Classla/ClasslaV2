@@ -1353,12 +1353,13 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
       )}
 
       {/* Submission Selector Header */}
-      {isStudent && hasSubmission && allSubmissions.length > 1 && (
+      {hasSubmission && (allSubmissions?.length ?? 0) > 1 && (
         <div className="bg-gray-50 border-b border-gray-200 px-4 py-2">
           <div className="max-w-4xl mx-auto flex items-center justify-end">
             <div className="flex items-center gap-2">
               <span className="text-sm text-gray-600">Viewing:</span>
               <Popover
+                minWidth="auto"
                 trigger={
                   <button className="flex items-center gap-2 text-sm border border-gray-300 rounded-md px-3 py-1.5 bg-white hover:border-gray-400 hover:bg-gray-50 transition-colors">
                     <span>
@@ -1461,7 +1462,7 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
                     </div>
                   </div>
                 }
-                className="right-0"
+                className=""
               />
             </div>
           </div>
@@ -1616,7 +1617,7 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
                   )}
                 </Button>
               )}
-              {allowResubmissions && submissionStatus === "submitted" && (
+              {allowResubmissions && (submissionStatus === "submitted" || submissionStatus === "graded") && (
                 <Button
                   onClick={handleResubmit}
                   disabled={isSubmitting}

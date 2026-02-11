@@ -102,6 +102,7 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
     string | undefined
   >(undefined);
   const [rubricSchema, setRubricSchema] = useState<RubricSchema | null>(null);
+  const [selectedGradingSubmissionId, setSelectedGradingSubmissionId] = useState<string | undefined>(undefined);
 
   // Student Preview Mode state - persists to localStorage
   const [isPreviewMode, setIsPreviewMode] = useState<boolean>(() => {
@@ -163,12 +164,35 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
     }
   }, [isPreviewMode]);
 
+  // Reset selected grading submission when grading student changes
+  useEffect(() => {
+    if (selectedGradingStudent) {
+      setSelectedGradingSubmissionId(selectedGradingStudent.latestSubmission?.id);
+    } else {
+      setSelectedGradingSubmissionId(undefined);
+    }
+  }, [selectedGradingStudent?.userId]);
+
+  // Compute active grading submission for AssignmentViewer
+  const activeGradingSubmission = useMemo(() => {
+    if (!selectedGradingStudent || !selectedGradingSubmissionId) return null;
+    return selectedGradingStudent.submissions.find(
+      (s: any) => s.id === selectedGradingSubmissionId
+    ) || null;
+  }, [selectedGradingStudent, selectedGradingSubmissionId]);
+
   // Set loading immediately when assignmentId changes
   useEffect(() => {
     if (assignmentId && assignmentId !== previousAssignmentId) {
       setLoading(true);
       setPreviousAssignmentId(assignmentId);
       setAssignment(null); // Clear previous assignment immediately
+      // Clear stale submission state
+      setSubmissionId(undefined);
+      setSubmissionStatus(null);
+      setSubmissionTimestamp(null);
+      setAllSubmissions([]);
+      setSelectedSubmissionId(undefined);
     }
   }, [assignmentId, previousAssignmentId]);
 
@@ -248,6 +272,12 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
               setSelectedSubmissionId(latestSubmission.id);
               setSubmissionStatus(latestSubmission.status);
               setSubmissionTimestamp(latestSubmission.timestamp);
+            } else {
+              setSubmissionId(undefined);
+              setSelectedSubmissionId(undefined);
+              setSubmissionStatus(null);
+              setSubmissionTimestamp(null);
+              setAllSubmissions([]);
             }
           } catch (submissionError) {
             console.log("No submission found yet:", submissionError);
@@ -604,19 +634,16 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
                       selectedGradingStudent ? (
                         <AssignmentViewer
                           assignment={assignment}
-                          submissionId={
-                            selectedGradingStudent.latestSubmission?.id
-                          }
-                          submissionStatus={
-                            selectedGradingStudent.latestSubmission?.status
-                          }
-                          submissionTimestamp={
-                            selectedGradingStudent.latestSubmission?.timestamp
-                          }
+                          submissionId={selectedGradingSubmissionId || selectedGradingStudent.latestSubmission?.id}
+                          submissionStatus={activeGradingSubmission?.status || selectedGradingStudent.latestSubmission?.status}
+                          submissionTimestamp={activeGradingSubmission?.timestamp || selectedGradingStudent.latestSubmission?.timestamp}
                           isStudent={false}
                           studentId={selectedGradingStudent.userId}
                           locked={true}
-                          grader={selectedGradingStudent.grader}
+                          grader={activeGradingSubmission?._grader ?? selectedGradingStudent.grader}
+                          allSubmissions={selectedGradingStudent.submissions}
+                          selectedSubmissionId={selectedGradingSubmissionId}
+                          onSubmissionSelect={(id) => setSelectedGradingSubmissionId(id)}
                         />
                       ) : isPreviewMode ? (
                         // Student Preview Mode - show what students see
@@ -814,6 +841,7 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
                     courseId={assignment.course_id}
                     onStudentSelect={setSelectedGradingStudent}
                     selectedStudent={selectedGradingStudent}
+                    selectedSubmissionId={selectedGradingSubmissionId}
                   />
                 ) : canEdit ? (
                   <AssignmentSettingsPanel

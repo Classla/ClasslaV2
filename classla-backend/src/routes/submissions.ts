@@ -450,71 +450,75 @@ router.get(
         hasBlockScores: !!gradersData?.[0]?.block_scores,
       });
 
-      // Create a map of student_id to submission data for quick lookup
-      // If a student has multiple submissions, keep only the most recent one
-      const submissionMap = new Map();
+      // Create a map of student_id to ALL their submissions with graders
+      const studentSubmissionsMap = new Map<string, Array<{ submission: any; grader: any }>>();
       submissionsData?.forEach((submission: any) => {
-        const existingEntry = submissionMap.get(submission.student_id);
+        const graderData = graderMap.get(submission.id) || null;
+        const entry = {
+          submission: {
+            id: submission.id,
+            assignment_id: submission.assignment_id,
+            timestamp: submission.timestamp,
+            values: submission.values,
+            course_id: submission.course_id,
+            student_id: submission.student_id,
+            grader_id: submission.grader_id,
+            grade: submission.grade,
+            status: submission.status,
+            created_at: submission.created_at,
+            updated_at: submission.updated_at,
+          },
+          grader: graderData,
+        };
 
-        // If no existing entry or this submission is more recent, use it
-        if (
-          !existingEntry ||
-          new Date(submission.timestamp) >
-            new Date(existingEntry.submission.timestamp)
-        ) {
-          // Get grader from the graderMap
-          const graderData = graderMap.get(submission.id) || null;
-
-          console.log("[submissions/with-students] Setting submission data:", {
-            submissionId: submission.id,
-            studentId: submission.student_id,
-            hasGrader: !!graderData,
-            hasBlockScores: !!graderData?.block_scores,
-            blockScores: graderData?.block_scores,
-          });
-
-          submissionMap.set(submission.student_id, {
-            submission: {
-              id: submission.id,
-              assignment_id: submission.assignment_id,
-              timestamp: submission.timestamp,
-              values: submission.values,
-              course_id: submission.course_id,
-              student_id: submission.student_id,
-              grader_id: submission.grader_id,
-              grade: submission.grade,
-              status: submission.status,
-              created_at: submission.created_at,
-              updated_at: submission.updated_at,
-            },
-            grader: graderData,
-          });
+        if (!studentSubmissionsMap.has(submission.student_id)) {
+          studentSubmissionsMap.set(submission.student_id, []);
         }
+        studentSubmissionsMap.get(submission.student_id)!.push(entry);
       });
 
-      // Format the response - one entry per enrolled student (Requirement 2.8)
-      const formattedData = (enrollments || []).map((enrollment: any) => {
-        const submissionData = submissionMap.get(enrollment.user_id);
+      // Sort each student's submissions by timestamp descending (latest first)
+      studentSubmissionsMap.forEach((submissions) => {
+        submissions.sort((a, b) =>
+          new Date(b.submission.timestamp).getTime() - new Date(a.submission.timestamp).getTime()
+        );
+      });
 
-        return {
-          // Requirement 2.4: null submission if student hasn't submitted
-          submission: submissionData?.submission || null,
-          // Requirement 2.2: include enrollment information (name, section)
-          // Anonymize student names if TA doesn't have canViewStudents permission
-          student: enrollment.user
-            ? {
-                id: enrollment.user.id,
-                firstName: shouldAnonymizeStudents ? "Anonymous" : enrollment.user.first_name,
-                lastName: shouldAnonymizeStudents ? "" : enrollment.user.last_name,
-                email: shouldAnonymizeStudents ? "" : enrollment.user.email,
-              }
-            : null,
-          // Requirement 2.5, 2.6: include grader if exists, null otherwise
-          grader: submissionData?.grader || null,
-          sectionId: enrollment.section_id,
-          sectionName: enrollment.section?.name || null,
-          sectionSlug: enrollment.section?.slug || null,
-        };
+      // Format the response - one entry per submission per student
+      // Students with no submissions get one entry with null submission
+      const formattedData: any[] = [];
+      (enrollments || []).forEach((enrollment: any) => {
+        const studentData = enrollment.user
+          ? {
+              id: enrollment.user.id,
+              firstName: shouldAnonymizeStudents ? "Anonymous" : enrollment.user.first_name,
+              lastName: shouldAnonymizeStudents ? "" : enrollment.user.last_name,
+              email: shouldAnonymizeStudents ? "" : enrollment.user.email,
+            }
+          : null;
+
+        const submissions = studentSubmissionsMap.get(enrollment.user_id);
+        if (submissions && submissions.length > 0) {
+          submissions.forEach(({ submission, grader }) => {
+            formattedData.push({
+              submission,
+              student: studentData,
+              grader,
+              sectionId: enrollment.section_id,
+              sectionName: enrollment.section?.name || null,
+              sectionSlug: enrollment.section?.slug || null,
+            });
+          });
+        } else {
+          formattedData.push({
+            submission: null,
+            student: studentData,
+            grader: null,
+            sectionId: enrollment.section_id,
+            sectionName: enrollment.section?.name || null,
+            sectionSlug: enrollment.section?.slug || null,
+          });
+        }
       });
 
       res.json(formattedData);
@@ -615,16 +619,22 @@ router.post(
       }
 
       // Check if submission already exists for this student and assignment
-      const { data: existingSubmission, error: existingError } = await supabase
+      const { data: existingSubmissions, error: existingError } = await supabase
         .from("submissions")
         .select("*")
         .eq("assignment_id", assignment_id)
         .eq("student_id", userId)
-        .single();
+        .order("created_at", { ascending: false })
+        .limit(1);
 
+      if (existingError) {
+        throw existingError;
+      }
+
+      const existingSubmission = existingSubmissions?.[0] || null;
       let submission;
 
-      if (existingSubmission && !existingError) {
+      if (existingSubmission) {
         // Check if resubmissions are allowed for submitted/graded submissions
         const isSubmittedOrGraded =
           existingSubmission.status === SubmissionStatus.SUBMITTED ||

@@ -6,6 +6,7 @@ interface PopoverProps {
   content: React.ReactNode;
   className?: string;
   align?: "left" | "right" | "center";
+  minWidth?: string;
 }
 
 export const Popover: React.FC<PopoverProps> = ({
@@ -13,6 +14,7 @@ export const Popover: React.FC<PopoverProps> = ({
   content,
   className = "",
   align = "right",
+  minWidth = "320px",
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [position, setPosition] = useState({ top: 0, left: 0 });
@@ -90,7 +92,7 @@ export const Popover: React.FC<PopoverProps> = ({
             style={{
               top: `${position.top}px`,
               left: `${position.left}px`,
-              minWidth: "320px",
+              minWidth,
             }}
             data-popover="true"
           >

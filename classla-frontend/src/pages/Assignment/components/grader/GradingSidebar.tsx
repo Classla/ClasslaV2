@@ -36,6 +36,7 @@ interface GradingSidebarProps {
   courseId: string;
   onStudentSelect: (student: StudentSubmissionInfo | null) => void;
   selectedStudent: StudentSubmissionInfo | null;
+  selectedSubmissionId?: string;
 }
 
 const GradingSidebar: React.FC<GradingSidebarProps> = ({
@@ -43,6 +44,7 @@ const GradingSidebar: React.FC<GradingSidebarProps> = ({
   courseId,
   onStudentSelect,
   selectedStudent,
+  selectedSubmissionId,
 }) => {
   const { toast } = useToast();
   const [searchQuery, setSearchQuery] = useState("");
@@ -104,19 +106,25 @@ const GradingSidebar: React.FC<GradingSidebarProps> = ({
 
       // Only add submission if it exists (not null)
       if (item.submission) {
-        studentInfo.submissions.push(item.submission);
+        // Attach grader to submission for later lookup
+        studentInfo.submissions.push({ ...item.submission, _grader: item.grader });
 
-        if (!studentInfo.latestSubmission) {
+        // Track latest submission by timestamp
+        if (
+          !studentInfo.latestSubmission ||
+          new Date(item.submission.timestamp) > new Date(studentInfo.latestSubmission.timestamp)
+        ) {
           studentInfo.latestSubmission = item.submission;
           studentInfo.grader = item.grader;
-          console.log("[GradingSidebar] Setting grader for student:", {
-            studentId,
-            grader: item.grader,
-            hasBlockScores: !!item.grader?.block_scores,
-            blockScores: item.grader?.block_scores,
-          });
         }
       }
+    });
+
+    // Sort submissions by timestamp descending (latest first)
+    studentMap.forEach((studentInfo) => {
+      studentInfo.submissions.sort((a: any, b: any) =>
+        new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+      );
     });
 
     return Array.from(studentMap.values());
@@ -193,11 +201,14 @@ const GradingSidebar: React.FC<GradingSidebarProps> = ({
 
   // Handle grader updates
   const handleGraderUpdate = async (updates: any) => {
-    if (!selectedStudent?.grader?.id) return;
+    const activeGrader = selectedSubmissionId
+      ? selectedStudent?.submissions.find((s: any) => s.id === selectedSubmissionId)?._grader
+      : selectedStudent?.grader;
+    if (!activeGrader?.id) return;
 
     try {
       await autoSaveGraderMutation.mutateAsync({
-        graderId: selectedStudent.grader.id,
+        graderId: activeGrader.id,
         updates,
       });
 
@@ -245,15 +256,24 @@ const GradingSidebar: React.FC<GradingSidebarProps> = ({
           Back to Students
         </Button>
         <div className="flex-1 overflow-y-auto px-4 pb-4">
-          <GradingControls
-            grader={selectedStudent.grader}
-            assignmentId={assignment.id}
-            studentId={selectedStudent.userId}
-            courseId={courseId}
-            submissionId={selectedStudent.latestSubmission?.id}
-            onUpdate={handleGraderUpdate}
-            autoSave={true}
-          />
+          {(() => {
+            const activeSubmission = selectedSubmissionId
+              ? selectedStudent.submissions.find((s: any) => s.id === selectedSubmissionId)
+              : null;
+            const activeGrader = activeSubmission?._grader ?? selectedStudent.grader;
+            const activeSubmissionIdForControls = selectedSubmissionId || selectedStudent.latestSubmission?.id;
+            return (
+              <GradingControls
+                grader={activeGrader}
+                assignmentId={assignment.id}
+                studentId={selectedStudent.userId}
+                courseId={courseId}
+                submissionId={activeSubmissionIdForControls}
+                onUpdate={handleGraderUpdate}
+                autoSave={true}
+              />
+            );
+          })()}
         </div>
       </div>
     );
@@ -320,6 +340,11 @@ const GradingSidebar: React.FC<GradingSidebarProps> = ({
                   <div className="flex-1">
                     <div className="font-medium text-gray-900">
                       {student.lastName}, {student.firstName}
+                      {student.submissions.length > 1 && (
+                        <span className="ml-2 text-xs bg-gray-200 text-gray-600 rounded-full px-1.5 py-0.5">
+                          {student.submissions.length} submissions
+                        </span>
+                      )}
                     </div>
                     <div className={`text-sm mt-1 ${status.color}`}>
                       {status.label}
