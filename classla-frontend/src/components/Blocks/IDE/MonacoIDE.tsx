@@ -1391,14 +1391,14 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
     >
       {/* Toolbar */}
       <div className="flex items-center justify-between p-2 border-b border-gray-200 bg-gray-50">
-        {/* Left side - Kill Machine button */}
+        {/* Left side - Stop Machine button */}
         <div className="flex items-center gap-2">
           {containerId && containerWebServerUrl && (
             <Button
               variant="outline"
               size="sm"
               onClick={async () => {
-                if (!confirm("Are you sure you want to kill the machine? This will disconnect the container.")) {
+                if (!confirm("Are you sure you want to stop the machine? This will disconnect the container.")) {
                   return;
                 }
                 try {
@@ -1424,7 +1424,7 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
                   
                   if (response.ok) {
                     toast({
-                      title: "Machine killed",
+                      title: "Machine stopped",
                       description: "The container has been shut down.",
                     });
                     // Notify parent component that container was killed
@@ -1434,7 +1434,7 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
                     // which could cause the response to fail
                     console.warn("Kill endpoint returned non-OK status:", response.status);
                     toast({
-                      title: "Kill request sent",
+                      title: "Stop request sent",
                       description: "The container shutdown has been initiated.",
                     });
                     onContainerKilled?.();
@@ -1453,10 +1453,10 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
               }}
               disabled={isStarting}
               className="h-8 px-3 text-sm text-red-600 hover:text-red-700 hover:bg-red-50"
-              title="Kill the container machine"
+              title="Stop the container machine"
             >
               <Power className="w-4 h-4 mr-1" />
-              Kill Machine
+              Stop Machine
             </Button>
           )}
         </div>

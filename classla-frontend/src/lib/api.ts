@@ -495,6 +495,7 @@ export const apiClient = {
     user_id?: string;
     course_id?: string;
     assignment_id?: string;
+    block_id?: string;
     status?: string;
     include_deleted?: boolean;
   }) => api.get("/s3buckets", { params }),
@@ -503,6 +504,7 @@ export const apiClient = {
     user_id: string;
     course_id?: string;
     assignment_id?: string;
+    block_id?: string;
     region?: string;
     is_template?: boolean;
   }) => api.post("/s3buckets", data),
@@ -511,6 +513,7 @@ export const apiClient = {
     data: {
       course_id?: string;
       assignment_id?: string;
+      block_id?: string;
       region?: string;
     }
   ) => api.post(`/s3buckets/${sourceBucketId}/clone`, data),

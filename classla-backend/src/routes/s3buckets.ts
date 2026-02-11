@@ -145,7 +145,7 @@ const canAccessBucket = async (
 router.post(
   "/",
   asyncHandler(async (req: Request, res: Response) => {
-    const { user_id, course_id, assignment_id, region, is_template, bucket_id } = req.body;
+    const { user_id, course_id, assignment_id, region, is_template, bucket_id, block_id } = req.body;
 
     if (!user_id) {
       return res.status(400).json({ error: "user_id is required" });
@@ -171,6 +171,7 @@ router.post(
       user_id,
       course_id: course_id || null,
       assignment_id: assignment_id || null,
+      block_id: block_id || null,
       status: "creating",
       is_template: is_template === true,
     });
@@ -241,7 +242,7 @@ router.post(
 router.get(
   "/",
   asyncHandler(async (req: Request, res: Response) => {
-    const { user_id, course_id, assignment_id, status, include_deleted } = req.query;
+    const { user_id, course_id, assignment_id, block_id, status, include_deleted } = req.query;
 
     let query = supabase.from("s3_buckets").select("*");
 
@@ -260,6 +261,10 @@ router.get(
 
     if (assignment_id) {
       query = query.eq("assignment_id", assignment_id as string);
+    }
+
+    if (block_id) {
+      query = query.eq("block_id", block_id as string);
     }
 
     if (status) {
@@ -403,7 +408,7 @@ router.post(
   asyncHandler(async (req: Request, res: Response) => {
     const { id: sourceBucketId } = req.params;
     const { id: userId } = req.user!;
-    const { course_id, assignment_id, region } = req.body;
+    const { course_id, assignment_id, region, block_id } = req.body;
 
     // Fetch source bucket (exclude deleted buckets)
     const { data: sourceBucket, error: fetchError } = await supabase
@@ -455,6 +460,7 @@ router.post(
       user_id: userId,
       course_id: course_id || sourceBucket.course_id || null,
       assignment_id: assignment_id || sourceBucket.assignment_id || null,
+      block_id: block_id || null,
       status: "creating",
       is_template: false, // Cloned buckets are never templates
     });

@@ -71,6 +71,30 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
     const { openSidePanel, openFullscreen, updatePanelState, panelMode } = useIDEPanel();
     const { courseId, assignmentId } = useAssignmentContext();
 
+    // Watch for block scores updates (for grading view)
+    const [blockScoresVersion, setBlockScoresVersion] = useState(0);
+    useEffect(() => {
+      if (!editor) return;
+
+      const updateHandler = ({ transaction }: any) => {
+        if (transaction.getMeta("blockScoresUpdate")) {
+          setBlockScoresVersion((v) => v + 1);
+        }
+      };
+
+      editor.on("transaction", updateHandler);
+      return () => {
+        editor.off("transaction", updateHandler);
+      };
+    }, [editor]);
+
+    const blockScores = useMemo(() => {
+      return (editor?.storage as any)?.blockScores || {};
+    }, [editor, blockScoresVersion]);
+
+    const blockScore = blockScores[ideData.id];
+    const hasScore = blockScore !== undefined;
+
     const [activeTab, setActiveTab] = useState<TabType>("code");
     const [container, setContainer] = useState<ContainerInfo | null>(null);
     const [isStarting, setIsStarting] = useState(false);
@@ -85,7 +109,7 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
     // Initialize from localStorage for faster rendering while API call is in flight
     const [studentBucketId, setStudentBucketId] = useState<string | null>(() => {
       if (!assignmentId || !user?.id) return null;
-      const storageKey = `student_bucket_${assignmentId}_${user.id}`;
+      const storageKey = `student_bucket_${assignmentId}_${ideData.id}_${user.id}`;
       return localStorage.getItem(storageKey);
     });
 
@@ -133,21 +157,23 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
             templateBucketId: ideData.template.s3_bucket_id
           });
 
-          // Query database for student's bucket for this assignment
+          // Query database for student's bucket for this assignment and block
           const bucketsResponse = await apiClient.listS3Buckets({
             user_id: user.id,
             assignment_id: assignmentId,
+            block_id: ideData.id,
           });
 
           const buckets = bucketsResponse.data?.buckets || [];
 
-          // Find the first non-template, non-deleted bucket for this student and assignment
+          // Find the first non-template, non-deleted bucket for this student, assignment, and block
           const studentBucket = buckets?.find(
             (b: any) =>
               !b.is_template &&
               !b.deleted_at &&
               b.user_id === user.id &&
-              b.assignment_id === assignmentId
+              b.assignment_id === assignmentId &&
+              b.block_id === ideData.id
           );
 
           if (studentBucket) {
@@ -155,20 +181,20 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
             setStudentBucketId(studentBucket.id);
 
             // Also save to localStorage for faster subsequent loads
-            const storageKey = `student_bucket_${assignmentId}_${user.id}`;
+            const storageKey = `student_bucket_${assignmentId}_${ideData.id}_${user.id}`;
             localStorage.setItem(storageKey, studentBucket.id);
           } else {
             console.log("[IDE Student] No existing bucket found, student will need to clone");
             setStudentBucketId(null);
 
             // Clear localStorage if it has a stale value
-            const storageKey = `student_bucket_${assignmentId}_${user.id}`;
+            const storageKey = `student_bucket_${assignmentId}_${ideData.id}_${user.id}`;
             localStorage.removeItem(storageKey);
           }
         } catch (error) {
           console.error("Failed to load student bucket:", error);
           // Try localStorage as fallback (e.g., if API call fails)
-          const storageKey = `student_bucket_${assignmentId}_${user.id}`;
+          const storageKey = `student_bucket_${assignmentId}_${ideData.id}_${user.id}`;
           const cachedBucketId = localStorage.getItem(storageKey);
           if (cachedBucketId) {
             console.log("[IDE Student] Using cached bucket from localStorage:", cachedBucketId);
@@ -180,7 +206,7 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
       };
 
       loadStudentBucket();
-    }, [assignmentId, user?.id, ideData.template.s3_bucket_id]);
+    }, [assignmentId, user?.id, ideData.id, ideData.template.s3_bucket_id]);
 
     // Cleanup polling interval on unmount
     useEffect(() => {
@@ -310,6 +336,7 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
               user_id: user.id,
               course_id: courseId || undefined,
               assignment_id: assignmentId || undefined,
+              block_id: ideData.id,
               region: "us-east-1",
             });
 
@@ -325,6 +352,7 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
             const cloneResponse = await apiClient.cloneS3Bucket(templateBucketId, {
               course_id: courseId || undefined,
               assignment_id: assignmentId || undefined,
+              block_id: ideData.id,
               region: "us-east-1",
             });
 
@@ -342,6 +370,7 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
               bucketName,
               userId: user.id,
               assignmentId,
+              blockId: ideData.id,
               courseId
             });
           }
@@ -349,7 +378,7 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
           // Save the cloned bucket ID to state and localStorage
           setStudentBucketId(bucketId);
           if (assignmentId && user.id && bucketId) {
-            const storageKey = `student_bucket_${assignmentId}_${user.id}`;
+            const storageKey = `student_bucket_${assignmentId}_${ideData.id}_${user.id}`;
             localStorage.setItem(storageKey, bucketId);
             console.log("[IDE Student] Saved bucket to localStorage:", storageKey, bucketId);
           }
@@ -401,20 +430,6 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
       }
     }, [user, ideData, studentBucketId, assignmentId, courseId, pollContainerUntilReady, toast]);
 
-    // Initialize container on mount
-    useEffect(() => {
-      const containerId = ideData.template.last_container_id;
-
-      if (containerId) {
-        // Check if container is still running
-        checkContainerStatus(containerId).then((isRunning) => {
-          if (!isRunning) {
-            // Container is not running, clear it
-            setContainer(null);
-          }
-        });
-      }
-    }, [ideData, checkContainerStatus]);
 
     // Detect language from filename extension
     const detectLanguage = useCallback((filename: string): string => {
@@ -677,7 +692,7 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
 
         // Clear state and localStorage
         setStudentBucketId(null);
-        const storageKey = `student_bucket_${assignmentId}_${user.id}`;
+        const storageKey = `student_bucket_${assignmentId}_${ideData.id}_${user.id}`;
         localStorage.removeItem(storageKey);
 
         toast({
@@ -695,6 +710,7 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
         const cloneResponse = await apiClient.cloneS3Bucket(templateBucketId, {
           course_id: courseId || undefined,
           assignment_id: assignmentId || undefined,
+          block_id: ideData.id,
           region: "us-east-1",
         });
 
@@ -1151,6 +1167,25 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
               </TabsContent>
             )}
           </Tabs>
+
+          {/* Footer with score display (for grading view) */}
+          {hasScore && (
+            <div className="mt-4 pt-3 border-t border-gray-200 text-xs text-gray-500 select-none">
+              <div className="flex justify-end items-center">
+                <span
+                  className={`px-3 py-1 rounded-md font-bold text-white ${
+                    blockScore.awarded === blockScore.possible
+                      ? "bg-green-600"
+                      : blockScore.awarded > 0
+                      ? "bg-yellow-600"
+                      : "bg-red-600"
+                  }`}
+                >
+                  {blockScore.awarded} / {blockScore.possible} pts
+                </span>
+              </div>
+            </div>
+          )}
 
         </div>
       </NodeViewWrapper>
