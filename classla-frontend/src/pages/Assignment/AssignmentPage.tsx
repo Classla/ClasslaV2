@@ -7,7 +7,7 @@ import { Card } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { Calendar, Users, Eye, Settings, X } from "lucide-react";
-import { Assignment, UserRole, RubricSchema, Course } from "../../types";
+import { Assignment, UserRole, RubricSchema, Course, Grader } from "../../types";
 import { hasTAPermission } from "../../lib/taPermissions";
 import PublishingModal from "../../components/PublishingModal";
 import DueDatesModal from "../Course/components/DueDatesModal";
@@ -103,6 +103,7 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
   >(undefined);
   const [rubricSchema, setRubricSchema] = useState<RubricSchema | null>(null);
   const [selectedGradingSubmissionId, setSelectedGradingSubmissionId] = useState<string | undefined>(undefined);
+  const [studentGrader, setStudentGrader] = useState<Grader | null>(null);
 
   // Student Preview Mode state - persists to localStorage
   const [isPreviewMode, setIsPreviewMode] = useState<boolean>(() => {
@@ -193,6 +194,7 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
       setSubmissionTimestamp(null);
       setAllSubmissions([]);
       setSelectedSubmissionId(undefined);
+      setStudentGrader(null);
     }
   }, [assignmentId, previousAssignmentId]);
 
@@ -272,12 +274,26 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
               setSelectedSubmissionId(latestSubmission.id);
               setSubmissionStatus(latestSubmission.status);
               setSubmissionTimestamp(latestSubmission.timestamp);
+
+              // Fetch grader data if submission is submitted or graded
+              if (latestSubmission.status === "submitted" || latestSubmission.status === "graded") {
+                try {
+                  const graderResponse = await apiClient.getGradersBySubmission(latestSubmission.id);
+                  const graders = graderResponse.data;
+                  if (graders.length > 0) {
+                    setStudentGrader(graders[0]);
+                  }
+                } catch (graderError) {
+                  console.log("No grader data available:", graderError);
+                }
+              }
             } else {
               setSubmissionId(undefined);
               setSelectedSubmissionId(undefined);
               setSubmissionStatus(null);
               setSubmissionTimestamp(null);
               setAllSubmissions([]);
+              setStudentGrader(null);
             }
           } catch (submissionError) {
             console.log("No submission found yet:", submissionError);
@@ -360,9 +376,10 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
     }
     const newPanel = activeSidebarPanel === panel ? null : panel;
     setActiveSidebarPanel(newPanel);
-    // Reset selected student when closing grader panel
+    // Reset selected student and submission when closing grader panel
     if (newPanel !== "grader") {
       setSelectedGradingStudent(null);
+      setSelectedGradingSubmissionId(undefined);
     }
   };
 
@@ -625,6 +642,26 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
               </div>
             )}
 
+            {/* Viewing Student Submission Banner */}
+            {selectedGradingStudent && (
+              <div className="bg-blue-500 text-white px-4 py-2 mx-6 mt-2 rounded-lg flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Eye className="w-5 h-5" />
+                  <span className="font-medium">
+                    Viewing {selectedGradingStudent.firstName} {selectedGradingStudent.lastName}'s Submission
+                  </span>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setSelectedGradingStudent(null)}
+                  className="text-white hover:bg-blue-600"
+                >
+                  Exit
+                </Button>
+              </div>
+            )}
+
             {/* Assignment Content */}
             <div className="flex-1 mx-6">
               <Card className="h-full p-0 overflow-hidden">
@@ -675,6 +712,8 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
                         studentId={user?.id}
                         allSubmissions={allSubmissions}
                         selectedSubmissionId={selectedSubmissionId}
+                        grader={studentGrader}
+                        totalPossiblePoints={totalPoints}
                         locked={
                           submissionStatus === "submitted" ||
                           submissionStatus === "graded"
@@ -688,6 +727,17 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
                             setSubmissionId(id);
                             setSubmissionStatus(selected.status);
                             setSubmissionTimestamp(selected.timestamp);
+                            // Fetch grader for this submission
+                            if (selected.status === "submitted" || selected.status === "graded") {
+                              apiClient.getGradersBySubmission(id)
+                                .then((response) => {
+                                  const graders = response.data;
+                                  setStudentGrader(graders.length > 0 ? graders[0] : null);
+                                })
+                                .catch(() => setStudentGrader(null));
+                            } else {
+                              setStudentGrader(null);
+                            }
                           }
                         }}
                         onSubmissionCreated={(id) => {
@@ -713,6 +763,17 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
                         }}
                         onSubmissionStatusChange={(status) => {
                           setSubmissionStatus(status);
+                          // Fetch grader when submission becomes graded or submitted
+                          if ((status === "graded" || status === "submitted") && submissionId) {
+                            apiClient.getGradersBySubmission(submissionId)
+                              .then((response) => {
+                                const graders = response.data;
+                                if (graders.length > 0) {
+                                  setStudentGrader(graders[0]);
+                                }
+                              })
+                              .catch((err) => console.log("Failed to fetch grader:", err));
+                          }
                         }}
                       />
                     ) : (
@@ -827,7 +888,11 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
                   <Button
                     variant="ghost"
                     size="sm"
-                    onClick={() => setActiveSidebarPanel(null)}
+                    onClick={() => {
+                      setActiveSidebarPanel(null);
+                      setSelectedGradingStudent(null);
+                      setSelectedGradingSubmissionId(undefined);
+                    }}
                     className="w-8 h-8 p-0"
                   >
                     ×

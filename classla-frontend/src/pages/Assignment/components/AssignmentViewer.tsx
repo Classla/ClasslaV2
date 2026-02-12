@@ -66,6 +66,7 @@ interface AssignmentViewerProps {
   onSubmissionSelect?: (submissionId: string) => void; // Callback when submission is selected
   locked?: boolean; // If true, viewer is read-only (for viewing submitted work)
   grader?: any; // Grader object with block_scores for displaying scores on blocks
+  totalPossiblePoints?: number; // Total possible points for the assignment
   previewMode?: boolean; // If true, this is a teacher preview - disable all submissions
 }
 
@@ -102,6 +103,7 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
   onSubmissionSelect,
   locked = false,
   grader,
+  totalPossiblePoints,
   previewMode = false,
 }) => {
   const { toast } = useToast();
@@ -1326,7 +1328,9 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
               />
             </svg>
             <span className="font-medium">
-              {showResponsesAfterSubmission
+              {grader?.raw_assignment_score != null && totalPossiblePoints != null
+                ? `Assignment Submitted - Your score: ${grader.raw_assignment_score} / ${totalPossiblePoints} points`
+                : showResponsesAfterSubmission
                 ? "Assignment Submitted - You can view your responses below"
                 : "Assignment Submitted - Your answers are locked"}
             </span>
@@ -1346,7 +1350,9 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
               />
             </svg>
             <span className="font-medium">
-              Assignment Graded - View your results below
+              {grader?.raw_assignment_score != null && totalPossiblePoints != null
+                ? `Assignment Graded - Your score: ${grader.raw_assignment_score} / ${totalPossiblePoints} points`
+                : "Assignment Graded - View your results below"}
             </span>
           </div>
         </div>

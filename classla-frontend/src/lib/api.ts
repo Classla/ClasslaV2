@@ -406,6 +406,10 @@ export const apiClient = {
     data: CreateGraderWithSubmissionRequest
   ): Promise<AxiosResponse<CreateGraderWithSubmissionResponse>> =>
     api.post("/grader/create-with-submission", data),
+  getGradersBySubmission: (
+    submissionId: string
+  ): Promise<AxiosResponse<Grader[]>> =>
+    api.get(`/graders/by-submission/${submissionId}`),
 
   // Gradebook endpoints
   getCourseGradebook: (

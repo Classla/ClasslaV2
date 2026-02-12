@@ -147,6 +147,10 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
 
     const pollingAttemptsRef = useRef(0);
 
+    // Track pending test run — when user clicks "Run Tests" without a container,
+    // we auto-start one and queue the test run for when it's ready
+    const pendingTestRunRef = useRef(false);
+
     // Track whether THIS instance owns the side panel relationship.
     // Only the owner pushes state updates to prevent dual-instance overwrites.
     const isSidePanelOwnerRef = useRef(false);
@@ -842,15 +846,6 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
 
     // Handle running tests against student's solution
     const handleRunTests = useCallback(async () => {
-      if (!container) {
-        toast({
-          title: "No container",
-          description: "Please start a container first to run tests.",
-          variant: "destructive",
-        });
-        return;
-      }
-
       const tests = ideData.autograder?.tests || [];
       if (tests.length === 0) {
         toast({
@@ -869,6 +864,14 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
           description: "All tests require manual grading.",
           variant: "default",
         });
+        return;
+      }
+
+      if (!container) {
+        // Auto-start the container and queue the test run
+        setIsRunningTests(true);
+        pendingTestRunRef.current = true;
+        startContainer();
         return;
       }
 
@@ -983,7 +986,15 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
       } finally {
         setIsRunningTests(false);
       }
-    }, [container, ideData.autograder?.tests, ideData.id, assignmentId, courseId, toast, studentBucketId, previewMode]);
+    }, [container, ideData.autograder?.tests, ideData.id, assignmentId, courseId, toast, studentBucketId, previewMode, startContainer]);
+
+    // Auto-run pending tests when container becomes ready after auto-start
+    useEffect(() => {
+      if (container && !isStarting && pendingTestRunRef.current) {
+        pendingTestRunRef.current = false;
+        handleRunTests();
+      }
+    }, [container, isStarting, handleRunTests]);
 
     // Handle tab change
     const handleTabChange = useCallback((value: string) => {
@@ -1141,13 +1152,13 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
                     <Button
                       className="bg-purple-600 hover:bg-purple-700 text-white"
                       size="sm"
-                      disabled={!container || isRunningTests}
+                      disabled={isRunningTests || isStarting}
                       onClick={handleRunTests}
                     >
                       {isRunningTests ? (
                         <>
                           <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                          Running...
+                          {!container ? "Starting machine..." : "Running..."}
                         </>
                       ) : (
                         <>
@@ -1193,12 +1204,12 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
                   <div className="border border-gray-200 rounded-lg p-4 bg-gray-50">
                     {!container ? (
                       <div className="text-center py-6">
-                        <Code2 className="w-10 h-10 text-gray-400 mx-auto mb-2" />
+                        <PlayCircle className="w-10 h-10 text-purple-400 mx-auto mb-2" />
                         <p className="text-sm text-gray-600 mb-1">
-                          Start a container to run tests
+                          No machine running
                         </p>
                         <p className="text-xs text-gray-500">
-                          Go to the Code tab and start your virtual codespace first
+                          Click "Run Tests" to automatically start a machine and run your tests
                         </p>
                       </div>
                     ) : (
