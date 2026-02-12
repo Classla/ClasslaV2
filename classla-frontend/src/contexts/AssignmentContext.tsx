@@ -4,6 +4,7 @@ interface AssignmentContextType {
   courseId: string | null;
   assignmentId: string | null;
   previewMode: boolean;
+  studentId: string | null;
 }
 
 const AssignmentContext = createContext<AssignmentContextType | undefined>(undefined);
@@ -12,7 +13,7 @@ export const useAssignmentContext = () => {
   const context = useContext(AssignmentContext);
   // Return undefined values if not within provider (graceful fallback)
   if (!context) {
-    return { courseId: null, assignmentId: null, previewMode: false };
+    return { courseId: null, assignmentId: null, previewMode: false, studentId: null };
   }
   return context;
 };
@@ -22,6 +23,7 @@ interface AssignmentProviderProps {
   courseId: string | null;
   assignmentId: string | null;
   previewMode?: boolean;
+  studentId?: string | null;
 }
 
 export const AssignmentProvider: React.FC<AssignmentProviderProps> = ({
@@ -29,11 +31,13 @@ export const AssignmentProvider: React.FC<AssignmentProviderProps> = ({
   courseId,
   assignmentId,
   previewMode = false,
+  studentId = null,
 }) => {
   const value: AssignmentContextType = {
     courseId,
     assignmentId,
     previewMode,
+    studentId,
   };
 
   return (

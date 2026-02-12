@@ -1,8 +1,8 @@
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect, useCallback } from "react";
 import { Assignment } from "../../../../types";
 import { Button } from "../../../../components/ui/button";
 import { Input } from "../../../../components/ui/input";
-import { ArrowLeft, Search, Loader2 } from "lucide-react";
+import { ArrowLeft, ChevronLeft, ChevronRight, Search, Loader2 } from "lucide-react";
 import { GradingControls } from "./GradingControls";
 import {
   useSubmissionsWithStudents,
@@ -199,6 +199,50 @@ const GradingSidebar: React.FC<GradingSidebarProps> = ({
     return filtered;
   }, [students, debouncedSearchQuery, selectedSectionId]);
 
+  // Student navigation
+  const currentStudentIndex = useMemo(() => {
+    if (!selectedStudent) return -1;
+    return filteredStudents.findIndex((s) => s.userId === selectedStudent.userId);
+  }, [filteredStudents, selectedStudent]);
+
+  const hasPrevStudent = currentStudentIndex > 0;
+  const hasNextStudent = currentStudentIndex >= 0 && currentStudentIndex < filteredStudents.length - 1;
+
+  const goToPrevStudent = useCallback(() => {
+    if (hasPrevStudent) {
+      onStudentSelect(filteredStudents[currentStudentIndex - 1]);
+    }
+  }, [hasPrevStudent, filteredStudents, currentStudentIndex, onStudentSelect]);
+
+  const goToNextStudent = useCallback(() => {
+    if (hasNextStudent) {
+      onStudentSelect(filteredStudents[currentStudentIndex + 1]);
+    }
+  }, [hasNextStudent, filteredStudents, currentStudentIndex, onStudentSelect]);
+
+  // Keyboard navigation (arrow keys)
+  useEffect(() => {
+    if (!selectedStudent) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Skip if user is typing in an input, textarea, or contenteditable
+      const tag = (e.target as HTMLElement)?.tagName?.toLowerCase();
+      if (tag === 'input' || tag === 'textarea') return;
+      if ((e.target as HTMLElement)?.closest?.('[contenteditable="true"]')) return;
+
+      if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        goToPrevStudent();
+      } else if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        goToNextStudent();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedStudent, goToPrevStudent, goToNextStudent]);
+
   // Handle grader updates
   const handleGraderUpdate = async (updates: any) => {
     const activeGrader = selectedSubmissionId
@@ -247,14 +291,47 @@ const GradingSidebar: React.FC<GradingSidebarProps> = ({
   if (selectedStudent) {
     return (
       <div className="h-full flex flex-col">
-        <Button
-          variant="ghost"
-          onClick={() => onStudentSelect(null)}
-          className="m-4 justify-start"
-        >
-          <ArrowLeft className="w-4 h-4 mr-2" />
-          Back to Students
-        </Button>
+        <div className="p-4 border-b space-y-3">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => onStudentSelect(null)}
+            className="justify-start px-0 h-auto text-gray-500 hover:text-gray-700"
+          >
+            <ArrowLeft className="w-4 h-4 mr-1" />
+            Back to Students
+          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={goToPrevStudent}
+              disabled={!hasPrevStudent}
+              className="w-8 h-8 p-0 flex-shrink-0"
+              title="Previous student (Left arrow)"
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </Button>
+            <div className="flex-1 text-center min-w-0">
+              <div className="font-semibold text-gray-900 truncate">
+                {selectedStudent.firstName} {selectedStudent.lastName}
+              </div>
+              <div className="text-xs text-gray-500">
+                {currentStudentIndex + 1} of {filteredStudents.length}
+              </div>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={goToNextStudent}
+              disabled={!hasNextStudent}
+              className="w-8 h-8 p-0 flex-shrink-0"
+              title="Next student (Right arrow)"
+            >
+              <ChevronRight className="w-4 h-4" />
+            </Button>
+          </div>
+        </div>
         <div className="flex-1 overflow-y-auto px-4 pb-4">
           {(() => {
             const activeSubmission = selectedSubmissionId

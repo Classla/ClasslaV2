@@ -69,7 +69,11 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
     const { toast } = useToast();
     const { user } = useAuth();
     const { openSidePanel, openFullscreen, updatePanelState, panelMode } = useIDEPanel();
-    const { courseId, assignmentId, previewMode } = useAssignmentContext();
+    const { courseId, assignmentId, previewMode, studentId: contextStudentId } = useAssignmentContext();
+
+    // When grading, use the selected student's ID instead of the logged-in teacher's ID
+    const effectiveUserId = contextStudentId || user?.id;
+    const isViewingOtherStudent = !!contextStudentId && contextStudentId !== user?.id;
 
     // Watch for block scores updates (for grading view)
     const [blockScoresVersion, setBlockScoresVersion] = useState(0);
@@ -108,9 +112,9 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
     // Track student's cloned bucket ID (persisted in localStorage)
     // Initialize from localStorage for faster rendering while API call is in flight
     const [studentBucketId, setStudentBucketId] = useState<string | null>(() => {
-      if (!assignmentId || !user?.id) return null;
+      if (!assignmentId || !effectiveUserId) return null;
       const prefix = previewMode ? 'preview_bucket' : 'student_bucket';
-      const key = `${prefix}_${assignmentId}_${ideData.id}_${user.id}`;
+      const key = `${prefix}_${assignmentId}_${ideData.id}_${effectiveUserId}`;
       return localStorage.getItem(key);
     });
 
@@ -136,10 +140,10 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
 
     // Use a separate localStorage key for preview mode to isolate from student buckets
     const bucketStorageKey = useMemo(() => {
-      if (!assignmentId || !user?.id) return '';
+      if (!assignmentId || !effectiveUserId) return '';
       const prefix = previewMode ? 'preview_bucket' : 'student_bucket';
-      return `${prefix}_${assignmentId}_${ideData.id}_${user.id}`;
-    }, [previewMode, assignmentId, ideData.id, user?.id]);
+      return `${prefix}_${assignmentId}_${ideData.id}_${effectiveUserId}`;
+    }, [previewMode, assignmentId, ideData.id, effectiveUserId]);
 
     const pollingAttemptsRef = useRef(0);
 
@@ -155,7 +159,7 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
 
     // Load student's cloned bucket on mount - query database for existing bucket
     useEffect(() => {
-      if (!assignmentId || !user?.id || !bucketStorageKey) return;
+      if (!assignmentId || !effectiveUserId || !bucketStorageKey) return;
 
       const loadStudentBucket = async () => {
         // In preview mode, only check localStorage for a cached preview bucket
@@ -183,13 +187,13 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
         try {
           console.log("[IDE Student] Querying for student bucket:", {
             assignmentId,
-            userId: user.id,
+            userId: effectiveUserId,
             templateBucketId: ideData.template.s3_bucket_id
           });
 
           // Query database for student's bucket for this assignment and block
           const bucketsResponse = await apiClient.listS3Buckets({
-            user_id: user.id,
+            user_id: effectiveUserId,
             assignment_id: assignmentId,
             block_id: ideData.id,
           });
@@ -201,7 +205,7 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
             (b: any) =>
               !b.is_template &&
               !b.deleted_at &&
-              b.user_id === user.id &&
+              b.user_id === effectiveUserId &&
               b.assignment_id === assignmentId &&
               b.block_id === ideData.id
           );
@@ -233,7 +237,7 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
       };
 
       loadStudentBucket();
-    }, [assignmentId, user?.id, ideData.id, ideData.template.s3_bucket_id, previewMode, bucketStorageKey]);
+    }, [assignmentId, effectiveUserId, ideData.id, ideData.template.s3_bucket_id, previewMode, bucketStorageKey]);
 
     // Cleanup polling interval on unmount
     useEffect(() => {
@@ -264,6 +268,16 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
         }
       };
     }, [previewMode, bucketStorageKey]);
+
+    // Clear container state when switching between students (effectiveUserId changes)
+    const prevEffectiveUserIdRef = useRef(effectiveUserId);
+    useEffect(() => {
+      if (prevEffectiveUserIdRef.current && prevEffectiveUserIdRef.current !== effectiveUserId) {
+        setContainer(null);
+        setIsStarting(false);
+      }
+      prevEffectiveUserIdRef.current = effectiveUserId;
+    }, [effectiveUserId]);
 
     // Load test run history when component mounts or when autograder tab becomes visible
     useEffect(() => {
@@ -359,11 +373,20 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
 
     // Start container
     const startContainer = useCallback(async () => {
-      if (!user?.id) {
+      if (!effectiveUserId) {
         toast({
           title: "Authentication required",
           description: "Please sign in to start a container.",
           variant: "destructive",
+        });
+        return;
+      }
+
+      // When viewing another student's work, don't clone a template for them
+      if (isViewingOtherStudent && !studentBucketId) {
+        toast({
+          title: "No student work",
+          description: "This student hasn't started this coding environment yet.",
         });
         return;
       }
@@ -383,7 +406,7 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
           if (!templateBucketId) {
             // No template bucket exists, create a new empty bucket
             const bucketResponse = await apiClient.createS3Bucket({
-              user_id: user.id,
+              user_id: effectiveUserId,
               course_id: courseId || undefined,
               assignment_id: assignmentId || undefined,
               block_id: ideData.id,
@@ -418,7 +441,7 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
               templateBucketId,
               clonedBucketId: bucketId,
               bucketName,
-              userId: user.id,
+              userId: effectiveUserId,
               assignmentId,
               blockId: ideData.id,
               courseId
@@ -427,7 +450,7 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
 
           // Save the cloned bucket ID to state and localStorage
           setStudentBucketId(bucketId);
-          if (assignmentId && user.id && bucketId && bucketStorageKey) {
+          if (assignmentId && effectiveUserId && bucketId && bucketStorageKey) {
             localStorage.setItem(bucketStorageKey, bucketId);
             console.log("[IDE] Saved bucket to localStorage:", bucketStorageKey, bucketId);
           }
@@ -443,7 +466,7 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
           s3Bucket: bucketName,
           s3BucketId: bucketId ?? undefined,
           s3Region: bucketRegion,
-          userId: user.id,
+          userId: effectiveUserId,
         });
 
         const containerData = containerResponse.data;
@@ -477,7 +500,7 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
           variant: "destructive",
         });
       }
-    }, [user, ideData, studentBucketId, assignmentId, courseId, pollContainerUntilReady, toast, bucketStorageKey]);
+    }, [effectiveUserId, isViewingOtherStudent, ideData, studentBucketId, assignmentId, courseId, pollContainerUntilReady, toast, bucketStorageKey]);
 
 
     // Detect language from filename extension
@@ -921,8 +944,8 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
         const pointsEarned = data.pointsEarned || 0;
         const totalPoints = data.totalPoints || 0;
 
-        // Save test run to database for history (skip in preview mode)
-        if (assignmentId && ideData.id && !previewMode) {
+        // Save test run to database for history (skip in preview mode and when viewing other student)
+        if (assignmentId && ideData.id && !previewMode && !isViewingOtherStudent) {
           try {
             const savedRun = await apiClient.saveIDETestRun({
               assignment_id: assignmentId,
@@ -991,8 +1014,8 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
               </div>
             </div>
             <div className="flex items-center gap-2">
-              {/* Reset to Template button (only show if student has a bucket) */}
-              {studentBucketId && (
+              {/* Reset to Template button (only show if student has a bucket, hide when viewing another student) */}
+              {studentBucketId && !isViewingOtherStudent && (
                 <Button
                   variant="outline"
                   size="sm"
@@ -1065,26 +1088,39 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
                     /* Show start button if no bucket exists yet */
                     <div className="flex flex-col items-center justify-center h-96">
                       <Code2 className="w-16 h-16 text-gray-400 mb-4" />
-                      <p className="text-gray-600 font-medium mb-2">
-                        Start Virtual Codespace
-                      </p>
-                      <p className="text-sm text-gray-500 mb-4">
-                        Launch a containerized development environment
-                      </p>
-                      <Button
-                        onClick={startContainer}
-                        className="bg-purple-600 hover:bg-purple-700 text-white"
-                        disabled={isStarting}
-                      >
-                        {isStarting ? (
-                          <>
-                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                            Starting...
-                          </>
-                        ) : (
-                          "Start Virtual Codespace"
-                        )}
-                      </Button>
+                      {isViewingOtherStudent ? (
+                        <>
+                          <p className="text-gray-600 font-medium mb-2">
+                            No Student Work
+                          </p>
+                          <p className="text-sm text-gray-500">
+                            This student hasn't started this coding environment yet.
+                          </p>
+                        </>
+                      ) : (
+                        <>
+                          <p className="text-gray-600 font-medium mb-2">
+                            Start Virtual Codespace
+                          </p>
+                          <p className="text-sm text-gray-500 mb-4">
+                            Launch a containerized development environment
+                          </p>
+                          <Button
+                            onClick={startContainer}
+                            className="bg-purple-600 hover:bg-purple-700 text-white"
+                            disabled={isStarting}
+                          >
+                            {isStarting ? (
+                              <>
+                                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                Starting...
+                              </>
+                            ) : (
+                              "Start Virtual Codespace"
+                            )}
+                          </Button>
+                        </>
+                      )}
                     </div>
                   )}
                 </div>
