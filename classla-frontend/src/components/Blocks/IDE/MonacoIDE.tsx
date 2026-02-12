@@ -17,6 +17,18 @@ import {
 } from "../../ui/select";
 // Custom resize implementation - no Allotment needed
 
+// Binary file detection by extension
+const BINARY_EXTENSIONS = new Set([
+  'class', 'jar', 'war', 'o', 'obj', 'exe', 'dll', 'so', 'dylib',
+  'png', 'jpg', 'jpeg', 'gif', 'bmp', 'ico', 'webp',
+  'pdf', 'zip', 'tar', 'gz', 'bz2', '7z', 'rar',
+  'wasm', 'bin', 'dat', 'pyc', 'pyo', 'ttf', 'otf', 'woff', 'woff2',
+]);
+function isBinaryFile(filePath: string): boolean {
+  const ext = filePath.split('.').pop()?.toLowerCase();
+  return BINARY_EXTENSIONS.has(ext || '');
+}
+
 // (Client ID and echo detection removed - OT protocol handles this)
 
 interface MonacoIDEProps {
@@ -441,6 +453,11 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
     async (filePath: string, forceReload: boolean = false) => {
       if (!bucketId) return;
 
+      // Skip OT subscription for binary files — they can't be collaboratively edited
+      if (isBinaryFile(filePath)) {
+        return;
+      }
+
       setLoadingFiles((prev) => new Set(prev).add(filePath));
 
       try {
@@ -521,8 +538,8 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
       setSelectedFile(path);
       selectedFileRef.current = path;
 
-      // Subscribe to OT document only if not already loaded
-      if (bucketId) {
+      // Subscribe to OT document only if not already loaded (skip for binary files)
+      if (bucketId && !isBinaryFile(path)) {
         const existingDoc = otProvider.getDocument(bucketId, path);
         if (!existingDoc) {
           otProvider.subscribeToDocument(bucketId, path);
@@ -1643,7 +1660,13 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
                       <div className="text-gray-500">Loading files...</div>
                     </div>
                   ) : selectedFile ? (
-                    loadingFiles.has(selectedFile) ? (
+                    isBinaryFile(selectedFile) ? (
+                      <div className="flex-1 flex items-center justify-center">
+                        <div className="text-sm text-gray-500">
+                          Binary file — cannot be displayed in editor
+                        </div>
+                      </div>
+                    ) : loadingFiles.has(selectedFile) ? (
                       <div className="flex-1 flex items-center justify-center">
                         <div className="flex flex-col items-center gap-2">
                           <Loader2 className="w-6 h-6 animate-spin text-purple-500" />

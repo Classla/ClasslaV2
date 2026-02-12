@@ -13,6 +13,23 @@ const path = require("path");
 const http = require("http");
 const https = require("https");
 
+// Binary file detection by extension
+const BINARY_EXTENSIONS = new Set([
+  'class', 'jar', 'war',                    // Java
+  'o', 'obj', 'exe', 'dll', 'so', 'dylib',  // Compiled
+  'png', 'jpg', 'jpeg', 'gif', 'bmp', 'ico', 'webp',  // Images
+  'pdf',                                     // Documents
+  'zip', 'tar', 'gz', 'bz2', '7z', 'rar',   // Archives
+  'wasm',                                    // WebAssembly
+  'bin', 'dat',                              // Generic
+  'pyc', 'pyo',                              // Python compiled
+  'ttf', 'otf', 'woff', 'woff2',            // Fonts
+]);
+function isBinaryFile(filePath) {
+  const ext = filePath.split('.').pop()?.toLowerCase();
+  return BINARY_EXTENSIONS.has(ext || '');
+}
+
 // Configuration
 const WORKSPACE_PATH = process.env.WORKSPACE_PATH || "/workspace";
 let BACKEND_API_URL = process.env.BACKEND_API_URL || "http://localhost:8000/api";
@@ -120,10 +137,19 @@ class ContainerFileSync {
             return;
           }
 
-          const content = await fs.readFile(fullPath, "utf-8");
-          console.log(`[ContainerSync] Syncing ${relativePath} (${content.length} chars)`);
+          let content, encoding;
+          if (isBinaryFile(relativePath)) {
+            const buffer = await fs.readFile(fullPath);
+            content = buffer.toString('base64');
+            encoding = 'base64';
+            console.log(`[ContainerSync] Syncing binary ${relativePath} (${buffer.length} bytes)`);
+          } else {
+            content = await fs.readFile(fullPath, "utf-8");
+            encoding = 'utf-8';
+            console.log(`[ContainerSync] Syncing ${relativePath} (${content.length} chars)`);
+          }
 
-          await this.pushToBackend(relativePath, content);
+          await this.pushToBackend(relativePath, content, encoding);
         } catch (err) {
           if (err.code === "ENOENT") return; // File was deleted
           console.error(`[ContainerSync] Error syncing ${relativePath}:`, err.message);
@@ -132,10 +158,10 @@ class ContainerFileSync {
     );
   }
 
-  async pushToBackend(filePath, content) {
+  async pushToBackend(filePath, content, encoding = 'utf-8') {
     const url = `${BACKEND_API_URL}/s3buckets/${BUCKET_ID}/files/sync-from-container`;
 
-    const body = JSON.stringify({ filePath, content });
+    const body = JSON.stringify({ filePath, content, encoding });
     const parsedUrl = new URL(url);
     const transport = parsedUrl.protocol === "https:" ? https : http;
 
@@ -226,8 +252,16 @@ class ContainerFileSync {
 
       const fullPath = path.join(WORKSPACE_PATH, relativePath);
       try {
-        const content = await fs.readFile(fullPath, "utf-8");
-        await this.pushToBackend(relativePath, content);
+        let content, encoding;
+        if (isBinaryFile(relativePath)) {
+          const buffer = await fs.readFile(fullPath);
+          content = buffer.toString('base64');
+          encoding = 'base64';
+        } else {
+          content = await fs.readFile(fullPath, "utf-8");
+          encoding = 'utf-8';
+        }
+        await this.pushToBackend(relativePath, content, encoding);
         console.log(`[ContainerSync] Flushed pending: ${relativePath}`);
       } catch (err) {
         if (err.code !== "ENOENT") {
@@ -242,14 +276,18 @@ class ContainerFileSync {
       const fileList = await this.fetchFileList();
       for (const filePath of fileList) {
         try {
-          const content = await this.fetchFileContent(filePath);
-          if (content !== null) {
+          const result = await this.fetchFileContent(filePath);
+          if (result !== null) {
             const fullPath = path.join(WORKSPACE_PATH, filePath);
             await fs.mkdir(path.dirname(fullPath), { recursive: true });
 
             // Mark as syncing to prevent the watcher from re-pushing
             this.syncingFiles.add(filePath);
-            await fs.writeFile(fullPath, content, "utf-8");
+            if (result.encoding === 'base64') {
+              await fs.writeFile(fullPath, Buffer.from(result.content, 'base64'));
+            } else {
+              await fs.writeFile(fullPath, result.content, "utf-8");
+            }
             // Clear syncing flag after a short delay (let watcher settle)
             setTimeout(() => this.syncingFiles.delete(filePath), 2000);
 
@@ -337,7 +375,9 @@ class ContainerFileSync {
             if (res.statusCode >= 200 && res.statusCode < 300) {
               try {
                 const parsed = JSON.parse(data);
-                resolve(parsed.content !== undefined ? parsed.content : null);
+                resolve(parsed.content !== undefined
+                  ? { content: parsed.content, encoding: parsed.encoding || 'utf-8' }
+                  : null);
               } catch (e) {
                 reject(new Error(`Invalid JSON: ${data.substring(0, 100)}`));
               }

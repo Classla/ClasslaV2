@@ -27,6 +27,23 @@ import { logger } from "../utils/logger";
 
 const router = express.Router();
 
+// Binary file detection by extension
+const BINARY_EXTENSIONS = new Set([
+  'class', 'jar', 'war',                    // Java
+  'o', 'obj', 'exe', 'dll', 'so', 'dylib',  // Compiled
+  'png', 'jpg', 'jpeg', 'gif', 'bmp', 'ico', 'webp',  // Images
+  'pdf',                                     // Documents
+  'zip', 'tar', 'gz', 'bz2', '7z', 'rar',   // Archives
+  'wasm',                                    // WebAssembly
+  'bin', 'dat',                              // Generic
+  'pyc', 'pyo',                              // Python compiled
+  'ttf', 'otf', 'woff', 'woff2',            // Fonts
+]);
+function isBinaryFile(filePath: string): boolean {
+  const ext = filePath.split('.').pop()?.toLowerCase();
+  return BINARY_EXTENSIONS.has(ext || '');
+}
+
 // S3 buckets are always created in us-east-1
 // This is separate from the backend's AWS_REGION which may be different
 const S3_DEFAULT_REGION = "us-east-1";
@@ -945,21 +962,33 @@ router.get(
 
       const response = await bucketS3Client.send(getCommand);
       
-      // Convert stream to string
+      // Convert stream to buffer
       let content = "";
       if (response.Body) {
         // AWS SDK v3 returns a Readable stream
         const stream = response.Body as Readable;
         const chunks: Buffer[] = [];
-        
+
         // Read the stream
         await new Promise<void>((resolve, reject) => {
           stream.on("data", (chunk: Buffer) => chunks.push(chunk));
           stream.on("end", () => resolve());
           stream.on("error", reject);
         });
-        
+
         const buffer = Buffer.concat(chunks);
+
+        // Return binary files as base64
+        if (isBinaryFile(filePath)) {
+          content = buffer.toString('base64');
+
+          res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+          res.setHeader("Pragma", "no-cache");
+          res.setHeader("Expires", "0");
+
+          return res.json({ content, path: filePath, encoding: 'base64' });
+        }
+
         content = buffer.toString("utf-8");
       }
 
@@ -1324,7 +1353,7 @@ router.post(
   "/:bucketId/files/sync-from-container",
   asyncHandler(async (req: Request, res: Response) => {
     const { bucketId } = req.params;
-    const { filePath, content } = req.body;
+    const { filePath, content, encoding } = req.body;
     const serviceToken = req.headers["x-container-service-token"] as string;
 
     // Verify service token
@@ -1366,8 +1395,9 @@ router.post(
             : undefined,
       });
 
-      const contentBuffer =
-        typeof content === "string" ? Buffer.from(content, "utf-8") : content;
+      const contentBuffer = encoding === 'base64'
+        ? Buffer.from(content, 'base64')
+        : (typeof content === "string" ? Buffer.from(content, "utf-8") : content);
 
       const extension = filePath.split(".").pop()?.toLowerCase();
       const contentTypeMap: Record<string, string> = {
@@ -1381,8 +1411,30 @@ router.post(
         md: "text/markdown",
         txt: "text/plain",
         sh: "text/x-shellscript",
+        class: "application/java-vm",
+        jar: "application/java-archive",
+        png: "image/png",
+        jpg: "image/jpeg",
+        jpeg: "image/jpeg",
+        gif: "image/gif",
+        pdf: "application/pdf",
+        zip: "application/zip",
       };
       const contentType = contentTypeMap[extension || ""] || "text/plain";
+
+      // Check if file already exists in S3 (to detect new files for tree updates)
+      let isNewFile = false;
+      try {
+        await bucketS3Client.send(new HeadObjectCommand({
+          Bucket: bucket.bucket_name,
+          Key: filePath,
+        }));
+      } catch (headError: any) {
+        if (headError.name === "NotFound" || headError.$metadata?.httpStatusCode === 404) {
+          isNewFile = true;
+        }
+        // Other errors are non-fatal — proceed with the put regardless
+      }
 
       const putCommand = new PutObjectCommand({
         Bucket: bucket.bucket_name,
@@ -1395,14 +1447,32 @@ router.post(
       const putResult = await bucketS3Client.send(putCommand);
       const etag = putResult.ETag;
 
-      // Update OT documents so web clients see the change immediately
-      try {
-        const { applyContainerContent } = await import("../services/otProviderService");
-        const { getIO } = await import("../services/websocket");
-        const newContent = typeof content === "string" ? content : content.toString("utf-8");
-        await applyContainerContent(bucketId, filePath, newContent, getIO());
-      } catch (error: any) {
-        logger.error(`[Container Sync] Failed to update OT document from container sync:`, error);
+      // Only update OT for text files (binary files can't be collaboratively edited)
+      if (encoding !== 'base64') {
+        try {
+          const { applyContainerContent } = await import("../services/otProviderService");
+          const { getIO } = await import("../services/websocket");
+          const newContent = typeof content === "string" ? content : content.toString("utf-8");
+          await applyContainerContent(bucketId, filePath, newContent, getIO());
+        } catch (error: any) {
+          logger.error(`[Container Sync] Failed to update OT document from container sync:`, error);
+        }
+      }
+
+      // Notify frontend clients about new files so file tree updates instantly
+      if (isNewFile) {
+        try {
+          const { getIO } = await import("../services/websocket");
+          const io = getIO();
+          const bucketRoom = `bucket:${bucketId}`;
+          io.of("/ot").to(bucketRoom).emit("file-tree-change", {
+            bucketId,
+            filePath,
+            action: "create",
+          });
+        } catch (error: any) {
+          logger.error(`[Container Sync] Failed to broadcast file-tree-change:`, error);
+        }
       }
 
       return res.json({

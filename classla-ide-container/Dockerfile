@@ -610,7 +610,11 @@ RUN echo '#!/usr/bin/env python3' > /usr/local/bin/run-server.py && \
     echo '        clear_terminal()' >> /usr/local/bin/run-server.py && \
     echo '        ' >> /usr/local/bin/run-server.py && \
     echo '        # Build and send command' >> /usr/local/bin/run-server.py && \
-    echo '        command = f"{cmd} {shlex.quote(filename)}"' >> /usr/local/bin/run-server.py && \
+    echo '        if language == "java":' >> /usr/local/bin/run-server.py && \
+    echo '            classname = os.path.splitext(filename)[0]' >> /usr/local/bin/run-server.py && \
+    echo '            command = f"javac *.java && java {shlex.quote(classname)}"' >> /usr/local/bin/run-server.py && \
+    echo '        else:' >> /usr/local/bin/run-server.py && \
+    echo '            command = f"{cmd} {shlex.quote(filename)}"' >> /usr/local/bin/run-server.py && \
     echo '        send_command(command)' >> /usr/local/bin/run-server.py && \
     echo '        ' >> /usr/local/bin/run-server.py && \
     echo '        return jsonify({' >> /usr/local/bin/run-server.py && \
