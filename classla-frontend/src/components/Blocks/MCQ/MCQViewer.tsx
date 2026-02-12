@@ -64,9 +64,9 @@ const MCQViewer: React.FC<MCQViewerProps> = memo(
         console.log("[MCQViewer] Loading answer state for block:", {
           blockId: mcqData.id,
           blockState,
-          selectedOptions: blockState.selectedOptions,
+          selectedOptions: blockState?.selectedOptions,
         });
-        setSelectedOptions(blockState.selectedOptions);
+        setSelectedOptions(blockState?.selectedOptions ?? []);
       }
     }, [editor, mcqData.id]);
 
@@ -92,7 +92,7 @@ const MCQViewer: React.FC<MCQViewerProps> = memo(
             currentVersion,
             lastVersion,
           });
-          setSelectedOptions(blockState.selectedOptions);
+          setSelectedOptions(blockState?.selectedOptions ?? []);
           (editor.storage as any)._lastProcessedVersion = currentVersion;
         }
       };

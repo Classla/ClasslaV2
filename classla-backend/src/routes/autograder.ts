@@ -324,17 +324,20 @@ export async function autogradeSubmission(submissionId: string): Promise<{
     throw new Error("Failed to create or update grader");
   }
 
-  // 6. Update submission status to graded
-  // Note: grader_id is not set for autograded submissions (it's for manual grading by instructors)
-  const { error: statusUpdateError } = await supabase
-    .from("submissions")
-    .update({
-      status: SubmissionStatus.GRADED,
-    })
-    .eq("id", submissionId);
+  // 6. Update submission status to graded, but ONLY if the submission has been submitted
+  // Do NOT change status of "in-progress" submissions - the student hasn't submitted yet
+  // This prevents the instructor grading panel from locking students out of their work
+  if (submission.status === SubmissionStatus.SUBMITTED) {
+    const { error: statusUpdateError } = await supabase
+      .from("submissions")
+      .update({
+        status: SubmissionStatus.GRADED,
+      })
+      .eq("id", submissionId);
 
-  if (statusUpdateError) {
-    throw new Error("Failed to update submission status");
+    if (statusUpdateError) {
+      throw new Error("Failed to update submission status");
+    }
   }
 
   const ideTotalPoints = ideBlocks.reduce(

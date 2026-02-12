@@ -30,6 +30,30 @@ const PollViewer: React.FC<PollViewerProps> = memo(({ node, editor, onAnswerChan
     }
   }, [editor, pollData.id, pollData.showResults]);
 
+  // Poll for answer state changes (for submission switching / async loading)
+  useEffect(() => {
+    if (!editor || !pollData.id) return;
+
+    const checkForUpdates = () => {
+      const getBlockAnswerState = (editor.storage as any)?.getBlockAnswerState;
+      const currentVersion = (editor.storage as any)?.answerStateVersion;
+      const lastVersion = (editor.storage as any)?._lastPollProcessedVersion;
+
+      if (currentVersion && currentVersion !== lastVersion && getBlockAnswerState) {
+        const blockState = getBlockAnswerState(pollData.id);
+        const newOptions = blockState?.selectedOptions ?? [];
+        setSelectedOptions(newOptions);
+        if (pollData.showResults === "after-voting" && newOptions.length > 0) {
+          setShowResults(true);
+        }
+        (editor.storage as any)._lastPollProcessedVersion = currentVersion;
+      }
+    };
+
+    const interval = setInterval(checkForUpdates, 100);
+    return () => clearInterval(interval);
+  }, [editor, pollData.id, pollData.showResults]);
+
   // Auto-save answer state when it changes
   useEffect(() => {
     if (selectedOptions.length === 0) return;
@@ -99,8 +123,8 @@ const PollViewer: React.FC<PollViewerProps> = memo(({ node, editor, onAnswerChan
                   className="text-blue-600"
                 />
                 <span className="flex-1">{option.text}</span>
-                {showResults && selectedOptions.length > 0 && (
-                  <span className="text-xs text-gray-500">0%</span>
+                {isSelected && (
+                  <Check className="w-4 h-4 text-blue-600" />
                 )}
               </label>
             );

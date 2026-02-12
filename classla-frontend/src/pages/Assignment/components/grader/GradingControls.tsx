@@ -39,12 +39,13 @@ export const GradingControls: React.FC<GradingControlsProps> = React.memo(
     const [rubric, setRubric] = useState<Rubric | null>(null);
     const [isLoadingRubric, setIsLoadingRubric] = useState(true);
 
-    // Use the ensureGrader hook for auto-creation
+    // Use the ensureGrader hook - don't auto-create submissions/graders
     const { grader, isCreating, ensureGrader } = useEnsureGrader(
       assignmentId,
       studentId,
       courseId,
-      initialGrader
+      initialGrader,
+      false
     );
 
     // Notify parent when grader is created/updated

@@ -219,13 +219,12 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
                       timestamp: new Date(submission.timestamp),
                     };
                   } else if (value.length === 1) {
-                    // Single string - could be answer, solution, or JSON
+                    // Single string - could be answer, selectedOptions, or JSON
                     try {
                       const parsed = JSON.parse(value[0]);
                       if (typeof parsed === "object" && !Array.isArray(parsed)) {
                         // It's a matches or answers object
                         if (Object.keys(parsed).every((k) => typeof parsed[k] === "string")) {
-                          // Check if it looks like answers (blankId -> answer) or matches (itemId -> zoneId)
                           newAnswerState[blockId] = {
                             answers: parsed,
                             timestamp: new Date(submission.timestamp),
@@ -237,15 +236,19 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
                           };
                         }
                       } else {
-                        // It's a regular string answer
+                        // It's a regular string - set both answer and selectedOptions
+                        // so both MCQ/Poll viewers (selectedOptions) and ShortAnswer (answer) can read it
                         newAnswerState[blockId] = {
+                          selectedOptions: value,
                           answer: value[0],
                           timestamp: new Date(submission.timestamp),
                         };
                       }
                     } catch {
-                      // Not JSON, it's a regular string answer
+                      // Not JSON - set both answer and selectedOptions
+                      // so both MCQ/Poll viewers (selectedOptions) and ShortAnswer (answer) can read it
                       newAnswerState[blockId] = {
+                        selectedOptions: value,
                         answer: value[0],
                         timestamp: new Date(submission.timestamp),
                       };
