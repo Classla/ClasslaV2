@@ -36,6 +36,7 @@ import { Assignment, Folder, UserRole, Course } from "../types";
 import { hasTAPermission } from "../lib/taPermissions";
 import { useAuth } from "../contexts/AuthContext";
 import PublishingModal from "./PublishingModal";
+import ModuleTreeSkeleton from "./ModuleTreeSkeleton";
 
 interface ModuleTreeProps {
   courseId: string;
@@ -987,12 +988,7 @@ const ModuleTree: React.FC<ModuleTreeProps> = ({ courseId, course, userRole, isI
   };
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center py-8">
-        <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-purple-600"></div>
-        <span className="ml-3 text-gray-600">Loading assignments...</span>
-      </div>
-    );
+    return <ModuleTreeSkeleton />;
   }
 
   return (

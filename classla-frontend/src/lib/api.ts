@@ -534,8 +534,18 @@ export const apiClient = {
     api.put(`/s3buckets/${bucketId}/files/${encodeURIComponent(filePath)}`, { content }),
   deleteS3File: (bucketId: string, filePath: string) =>
     api.delete(`/s3buckets/${bucketId}/files/${encodeURIComponent(filePath)}`),
+  renameS3File: (bucketId: string, oldPath: string, newPath: string) =>
+    api.post(`/s3buckets/${bucketId}/files/rename`, { oldPath, newPath }),
   createS3File: (bucketId: string, filePath: string, content?: string) =>
     api.post(`/s3buckets/${bucketId}/files`, { path: filePath, content: content || "" }),
+
+  // S3 version history operations (for grading edit history slider)
+  getS3FileVersions: (bucketId: string, filePath: string) =>
+    api.get(`/s3buckets/${bucketId}/versions/${encodeURIComponent(filePath)}`),
+  getS3FileVersionContent: (bucketId: string, versionId: string, filePath: string) =>
+    api.get(`/s3buckets/${bucketId}/version/${versionId}/${encodeURIComponent(filePath)}`),
+  getSourceBucket: (snapshotBucketId: string) =>
+    api.get(`/s3buckets/${snapshotBucketId}/source-bucket`),
 
   // Organization endpoints
   getOrganizations: () => api.get("/organizations"),

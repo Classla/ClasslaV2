@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import Editor from "@monaco-editor/react";
-import { Terminal as TerminalIcon, ChevronRight, ChevronLeft, RefreshCw, Monitor, Play, Loader2, Files, Power, ExternalLink, PanelLeft } from "lucide-react";
-import FileExplorer, { FileNode } from "./FileExplorer";
+import { Terminal as TerminalIcon, ChevronRight, ChevronLeft, RefreshCw, Monitor, Play, Loader2, Files, Power, ExternalLink, PanelLeft, History, Clock } from "lucide-react";
+import type { FileVersion } from "../../../hooks/useFileHistory";
+import FileExplorer, { FileNode, getFileIcon } from "./FileExplorer";
 import { apiClient } from "../../../lib/api";
 import { useToast } from "../../../hooks/use-toast";
 import { Button } from "../../ui/button";
@@ -51,6 +52,17 @@ interface MonacoIDEProps {
   onOpenFullscreen?: () => void;
   showPanelButtons?: boolean;
   currentUser?: { id: string; name: string; color: string };
+  // History mode props (grading view only)
+  historyMode?: boolean;
+  historyContent?: string | null;
+  historyVersions?: FileVersion[];
+  historyVersionIndex?: number;
+  isLoadingVersions?: boolean;
+  isLoadingContent?: boolean;
+  onHistoryVersionChange?: (index: number) => void;
+  onHistoryToggle?: () => void;
+  onHistoryFileChange?: (filePath: string) => void;
+  onSelectedFileChange?: (filePath: string) => void;
 }
 
 const MonacoIDE: React.FC<MonacoIDEProps> = ({
@@ -73,6 +85,16 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
   onOpenFullscreen,
   showPanelButtons = false,
   currentUser,
+  historyMode = false,
+  historyContent,
+  historyVersions = [],
+  historyVersionIndex = 0,
+  isLoadingVersions = false,
+  isLoadingContent = false,
+  onHistoryVersionChange,
+  onHistoryToggle,
+  onHistoryFileChange,
+  onSelectedFileChange,
 }) => {
   const { toast } = useToast();
   const [files, setFiles] = useState<FileNode[]>([]);
@@ -131,8 +153,70 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
   const [isResizingTerminal, setIsResizingTerminal] = useState(false);
   const [isResizingVnc, setIsResizingVnc] = useState(false);
   
-  // Auto-show terminal when container is ready
-  const hasTerminal = !!(containerId && containerTerminalUrl);
+  // Terminal URL readiness probe - ensures Traefik route is propagated before rendering iframe
+  const [terminalUrlReady, setTerminalUrlReady] = useState(false);
+  const terminalProbeRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const terminalProbeAttemptsRef = useRef(0);
+
+  useEffect(() => {
+    // Cleanup any existing probe
+    if (terminalProbeRef.current) {
+      clearInterval(terminalProbeRef.current);
+      terminalProbeRef.current = null;
+    }
+    terminalProbeAttemptsRef.current = 0;
+
+    // Reset readiness when URL changes or disappears
+    if (!containerTerminalUrl || !containerId) {
+      setTerminalUrlReady(false);
+      return;
+    }
+
+    const probeUrl = containerTerminalUrl;
+    const MAX_ATTEMPTS = 20; // 20 * 500ms = 10s max
+
+    const probe = async () => {
+      try {
+        const resp = await fetch(probeUrl, { method: 'HEAD', cache: 'no-store', signal: AbortSignal.timeout(2000) });
+        // 404 means Traefik route not propagated yet; anything else (200/302/401) means route exists
+        if (resp.status !== 404) {
+          console.log('[MonacoIDE] Terminal URL verified accessible', probeUrl);
+          setTerminalUrlReady(true);
+          if (terminalProbeRef.current) {
+            clearInterval(terminalProbeRef.current);
+            terminalProbeRef.current = null;
+          }
+          return;
+        }
+      } catch {
+        // Network error / timeout - keep retrying
+      }
+
+      terminalProbeAttemptsRef.current++;
+      if (terminalProbeAttemptsRef.current >= MAX_ATTEMPTS) {
+        console.warn('[MonacoIDE] Terminal URL probe timed out after 10s, showing iframe anyway');
+        setTerminalUrlReady(true);
+        if (terminalProbeRef.current) {
+          clearInterval(terminalProbeRef.current);
+          terminalProbeRef.current = null;
+        }
+      }
+    };
+
+    // Run first probe immediately
+    probe();
+    terminalProbeRef.current = setInterval(probe, 500);
+
+    return () => {
+      if (terminalProbeRef.current) {
+        clearInterval(terminalProbeRef.current);
+        terminalProbeRef.current = null;
+      }
+    };
+  }, [containerTerminalUrl, containerId]);
+
+  // Auto-show terminal when container is ready and URL probe has passed
+  const hasTerminal = !!(containerId && containerTerminalUrl && terminalUrlReady);
   const hasVnc = !!(containerId && containerVncUrl && showDesktop);
 
   // Detect container disconnection by monitoring health endpoints
@@ -538,6 +622,11 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
       setSelectedFile(path);
       selectedFileRef.current = path;
 
+      // Notify history hook when switching files during history mode
+      if (historyMode) {
+        onHistoryFileChange?.(path);
+      }
+
       // Subscribe to OT document only if not already loaded (skip for binary files)
       if (bucketId && !isBinaryFile(path)) {
         const existingDoc = otProvider.getDocument(bucketId, path);
@@ -554,7 +643,7 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
         }
       }
     },
-    [bucketId, loadFile, selectedFile]
+    [bucketId, loadFile, selectedFile, historyMode, onHistoryFileChange]
   );
 
   // Handle tab close
@@ -893,11 +982,10 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
         }
       }
 
-      // Save new file to S3 (use PUT, not POST - OT subscription may have already created it)
-      // Then delete old file
+      // Rename file server-side (S3 CopyObject + DeleteObject)
+      // This preserves binary file content that the frontend can't access
       try {
-        await apiClient.saveS3File(bucketId, newPath, content);
-        await apiClient.deleteS3File(bucketId, oldPath);
+        await apiClient.renameS3File(bucketId, oldPath, newPath);
       } catch (error: any) {
         console.error("Failed to rename file in S3:", error);
         toast({
@@ -1031,6 +1119,70 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
       return () => clearTimeout(timeout);
     }
   }, [bucketId, selectedFile, setupOTBinding]);
+
+  // Notify parent whenever the selected file changes (covers auto-open, tab clicks, etc.)
+  useEffect(() => {
+    if (selectedFile) {
+      onSelectedFileChange?.(selectedFile);
+    }
+  }, [selectedFile, onSelectedFileChange]);
+
+  // History mode: destroy OT binding when entering, restore when exiting
+  const prevHistoryModeRef = useRef(false);
+  useEffect(() => {
+    if (!editorRef.current || !selectedFile) return;
+
+    const editor = editorRef.current;
+
+    if (historyMode && !prevHistoryModeRef.current) {
+      // Entering history mode — destroy OT binding for current file
+      if (otBindingsRef.current[selectedFile]) {
+        otBindingsRef.current[selectedFile].destroy();
+        delete otBindingsRef.current[selectedFile];
+      }
+      // Set read-only
+      editor.updateOptions({ readOnly: true });
+    } else if (!historyMode && prevHistoryModeRef.current) {
+      // Exiting history mode — re-establish OT binding
+      editor.updateOptions({ readOnly: false });
+      // Restore original content from OT before re-binding
+      if (bucketId && selectedFile) {
+        const doc = otProvider.getDocument(bucketId, selectedFile);
+        if (doc) {
+          const model = editor.getModel();
+          if (model) {
+            model.pushEditOperations(
+              [],
+              [{ range: model.getFullModelRange(), text: doc.content }],
+              () => null
+            );
+          }
+        }
+        setupOTBinding(selectedFile);
+      }
+    }
+
+    prevHistoryModeRef.current = historyMode;
+  }, [historyMode, selectedFile, bucketId, setupOTBinding]);
+
+  // History mode: update editor content when version content changes
+  useEffect(() => {
+    if (!historyMode || !editorRef.current) return;
+    if (historyContent === null || historyContent === undefined) return;
+
+    const editor = editorRef.current;
+    const model = editor.getModel();
+    if (model) {
+      // Preserve scroll position
+      const scrollTop = editor.getScrollTop();
+      model.pushEditOperations(
+        [],
+        [{ range: model.getFullModelRange(), text: historyContent }],
+        () => null
+      );
+      editor.setScrollTop(scrollTop);
+    }
+  }, [historyMode, historyContent]);
 
   // Track recently created files to prevent premature S3 reloads
   const recentlyCreatedFilesRef = useRef<Set<string>>(new Set());
@@ -1514,7 +1666,7 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
                 variant="outline"
                 size="sm"
                 onClick={onRun}
-                disabled={isStarting}
+                disabled={isStarting || historyMode}
               >
                 {isStarting ? (
                   <>
@@ -1631,6 +1783,7 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
                                 : "border-transparent text-gray-600 hover:bg-gray-100"
                             }`}
                           >
+                            {getFileIcon(fileName)}
                             <span className="text-sm whitespace-nowrap">{fileName}</span>
                             {fileStatus === "saving" && (
                               <span title="Saving...">
@@ -1655,6 +1808,73 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
                       })}
                     </div>
                   )}
+
+                  {/* History Bar (grading view only) */}
+                  {onHistoryToggle && (
+                    <div className={`flex items-center gap-2 px-3 py-1.5 border-b flex-shrink-0 ${
+                      historyMode ? "bg-amber-50 border-amber-200" : "bg-gray-50 border-gray-200"
+                    }`}>
+                      <button
+                        onClick={onHistoryToggle}
+                        disabled={isLoadingVersions || (selectedFile ? isBinaryFile(selectedFile) : false)}
+                        className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium transition-colors ${
+                          historyMode
+                            ? "bg-amber-200 text-amber-800 hover:bg-amber-300"
+                            : "bg-gray-200 text-gray-700 hover:bg-gray-300"
+                        } disabled:opacity-50 disabled:cursor-not-allowed`}
+                      >
+                        <History className="w-3.5 h-3.5" />
+                        {historyMode ? "Exit History" : "View History"}
+                      </button>
+
+                      {historyMode && (
+                        <>
+                          {isLoadingVersions ? (
+                            <div className="flex items-center gap-1.5 text-xs text-amber-700">
+                              <Loader2 className="w-3 h-3 animate-spin" />
+                              Loading versions...
+                            </div>
+                          ) : historyVersions.length === 0 ? (
+                            <span className="text-xs text-amber-700">No history available</span>
+                          ) : (
+                            <>
+                              <span className="text-xs text-amber-700">Oldest</span>
+                              <input
+                                type="range"
+                                min={0}
+                                max={historyVersions.length - 1}
+                                // Slider value is inverted: left=oldest (max index), right=newest (0)
+                                value={historyVersions.length - 1 - historyVersionIndex}
+                                onChange={(e) => {
+                                  const invertedIndex = historyVersions.length - 1 - parseInt(e.target.value);
+                                  onHistoryVersionChange?.(invertedIndex);
+                                }}
+                                className="flex-1 max-w-[300px] h-1.5 accent-amber-500"
+                              />
+                              <span className="text-xs text-amber-700">Newest</span>
+
+                              {/* Version timestamp */}
+                              <div className="flex items-center gap-1 text-xs text-amber-700 ml-2">
+                                <Clock className="w-3 h-3" />
+                                {historyVersions[historyVersionIndex]?.lastModified
+                                  ? new Date(historyVersions[historyVersionIndex].lastModified).toLocaleString()
+                                  : "—"}
+                              </div>
+
+                              {isLoadingContent && (
+                                <Loader2 className="w-3 h-3 animate-spin text-amber-600" />
+                              )}
+
+                              <span className="ml-auto text-xs font-semibold text-amber-800 bg-amber-200 px-2 py-0.5 rounded">
+                                READ ONLY
+                              </span>
+                            </>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  )}
+
                   {loading ? (
                     <div className="flex-1 flex items-center justify-center">
                       <div className="text-gray-500">Loading files...</div>
@@ -1841,12 +2061,16 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
                     <div className="flex-1 flex items-center justify-center bg-gray-50">
                       <div className="text-center text-gray-500">
                         <TerminalIcon className="w-8 h-8 mx-auto mb-2 text-gray-400" />
-                        <p className="text-sm">Waiting for machine to start...</p>
+                        <p className="text-sm">
+                          {containerId && containerTerminalUrl
+                            ? 'Connecting to terminal...'
+                            : 'Waiting for machine to start...'}
+                        </p>
                       </div>
                     </div>
                   )}
                 </div>
-                
+
                 {/* VNC Resize Handle for Side Panel Mode (vertical) */}
                 {showDesktop && hasVnc && (
                   <div
@@ -1955,12 +2179,16 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
                       <div className="flex-1 flex items-center justify-center bg-gray-50">
                         <div className="text-center text-gray-500">
                           <TerminalIcon className="w-8 h-8 mx-auto mb-2 text-gray-400" />
-                          <p className="text-sm">Waiting for machine to start...</p>
+                          <p className="text-sm">
+                            {containerId && containerTerminalUrl
+                              ? 'Connecting to terminal...'
+                              : 'Waiting for machine to start...'}
+                          </p>
                         </div>
                       </div>
                     )}
                   </div>
-                  
+
                   {/* VNC Resize Handle - wider invisible hit area for better tracking */}
                   {showDesktop && hasVnc && (
                     <div

@@ -272,8 +272,9 @@ class ContainerFileSync {
 
     // 2. Pull latest file list from backend and update container filesystem
     let pulledCount = 0;
+    let fileList = [];
     try {
-      const fileList = await this.fetchFileList();
+      fileList = await this.fetchFileList();
       for (const filePath of fileList) {
         try {
           const result = await this.fetchFileContent(filePath);
@@ -301,8 +302,31 @@ class ContainerFileSync {
       console.error("[ContainerSync] Error fetching file list:", err.message);
     }
 
-    console.log(`[ContainerSync] Flush complete: pushed ${pendingPaths.length}, pulled ${pulledCount} file(s)`);
-    return pendingPaths.length + pulledCount;
+    // 3. Delete local files that no longer exist in S3
+    let deletedCount = 0;
+    try {
+      const s3FileSet = new Set(fileList);
+      const localFiles = await this.scanWorkspaceFiles();
+      for (const localFile of localFiles) {
+        if (!s3FileSet.has(localFile) && !this.syncingFiles.has(localFile)) {
+          const fullPath = path.join(WORKSPACE_PATH, localFile);
+          try {
+            await fs.unlink(fullPath);
+            deletedCount++;
+            console.log(`[ContainerSync] Deleted stale file: ${localFile}`);
+          } catch (err) {
+            if (err.code !== "ENOENT") {
+              console.error(`[ContainerSync] Error deleting ${localFile}:`, err.message);
+            }
+          }
+        }
+      }
+    } catch (err) {
+      console.error("[ContainerSync] Error cleaning up stale files:", err.message);
+    }
+
+    console.log(`[ContainerSync] Flush complete: pushed ${pendingPaths.length}, pulled ${pulledCount}, deleted ${deletedCount} file(s)`);
+    return pendingPaths.length + pulledCount + deletedCount;
   }
 
   /**
@@ -393,6 +417,32 @@ class ContainerFileSync {
       req.on("timeout", () => { req.destroy(); reject(new Error("Timeout")); });
       req.end();
     });
+  }
+
+  /**
+   * Recursively scan workspace directory and return all relative file paths,
+   * respecting the same ignore patterns as the watcher.
+   */
+  async scanWorkspaceFiles(dir = WORKSPACE_PATH) {
+    const results = [];
+    let entries;
+    try {
+      entries = await fs.readdir(dir, { withFileTypes: true });
+    } catch (err) {
+      return results;
+    }
+    for (const entry of entries) {
+      const fullPath = path.join(dir, entry.name);
+      const relativePath = path.relative(WORKSPACE_PATH, fullPath);
+      if (this.shouldIgnore(relativePath)) continue;
+      if (entry.isDirectory()) {
+        const subFiles = await this.scanWorkspaceFiles(fullPath);
+        results.push(...subFiles);
+      } else if (entry.isFile()) {
+        results.push(relativePath);
+      }
+    }
+    return results;
   }
 
   shouldIgnore(filePath) {

@@ -28,6 +28,7 @@ import { useAuth } from "../../../contexts/AuthContext";
 import { useIDEPanel } from "../../../contexts/IDEPanelContext";
 import { useAssignmentContext } from "../../../contexts/AssignmentContext";
 import { otProvider } from "../../../lib/otClient";
+import { useFileHistory } from "../../../hooks/useFileHistory";
 
 // Deterministic color from user ID for cursor sharing
 const CURSOR_COLORS = [
@@ -69,7 +70,10 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
     const { toast } = useToast();
     const { user } = useAuth();
     const { openSidePanel, openFullscreen, updatePanelState, panelMode } = useIDEPanel();
-    const { courseId, assignmentId, previewMode, studentId: contextStudentId } = useAssignmentContext();
+    const { courseId, assignmentId, previewMode, studentId: contextStudentId, snapshotBucketMap } = useAssignmentContext();
+
+    // When grading or viewing a submitted assignment, use the snapshot bucket if available
+    const snapshotBucketId = snapshotBucketMap?.[ideData.id] || null;
 
     // When grading, use the selected student's ID instead of the logged-in teacher's ID
     const effectiveUserId = contextStudentId || user?.id;
@@ -138,6 +142,18 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
       };
     }, [user]);
 
+    // Track selected file path for history feature
+    const [selectedFilePath, setSelectedFilePath] = useState<string | null>(null);
+
+    // File history hook (only enabled when viewing another student's work)
+    // When there's a snapshot, the hook resolves the live bucket via API.
+    // When there's no snapshot, studentBucketId IS the live bucket.
+    const fileHistory = useFileHistory({
+      snapshotBucketId,
+      directLiveBucketId: !snapshotBucketId && isViewingOtherStudent ? studentBucketId : null,
+      enabled: isViewingOtherStudent,
+    });
+
     // Use a separate localStorage key for preview mode to isolate from student buckets
     const bucketStorageKey = useMemo(() => {
       if (!assignmentId || !effectiveUserId) return '';
@@ -162,7 +178,15 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
     }, [openSidePanel]);
 
     // Load student's cloned bucket on mount - query database for existing bucket
+    // If a snapshot bucket is available (from a submitted assignment), use that instead
     useEffect(() => {
+      // If we have a snapshot bucket, use it directly (frozen code from submission time)
+      if (snapshotBucketId) {
+        console.log("[IDE Snapshot] Using snapshot bucket:", snapshotBucketId);
+        setStudentBucketId(snapshotBucketId);
+        return;
+      }
+
       if (!assignmentId || !effectiveUserId || !bucketStorageKey) return;
 
       const loadStudentBucket = async () => {
@@ -241,7 +265,7 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
       };
 
       loadStudentBucket();
-    }, [assignmentId, effectiveUserId, ideData.id, ideData.template.s3_bucket_id, previewMode, bucketStorageKey]);
+    }, [snapshotBucketId, assignmentId, effectiveUserId, ideData.id, ideData.template.s3_bucket_id, previewMode, bucketStorageKey]);
 
     // Cleanup polling interval on unmount
     useEffect(() => {
@@ -1093,6 +1117,25 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
                           runFilename,
                           ideApiBaseUrl: IDE_API_BASE_URL,
                         })}
+                        onSelectedFileChange={setSelectedFilePath}
+                        // History mode props (only when viewing another student)
+                        {...(isViewingOtherStudent ? {
+                          historyMode: fileHistory.isHistoryMode,
+                          historyContent: fileHistory.versionContent,
+                          historyVersions: fileHistory.versions,
+                          historyVersionIndex: fileHistory.currentVersionIndex,
+                          isLoadingVersions: fileHistory.isLoadingVersions,
+                          isLoadingContent: fileHistory.isLoadingContent,
+                          onHistoryVersionChange: fileHistory.setVersionIndex,
+                          onHistoryToggle: () => {
+                            if (fileHistory.isHistoryMode) {
+                              fileHistory.disableHistory();
+                            } else if (selectedFilePath) {
+                              fileHistory.enableHistory(selectedFilePath);
+                            }
+                          },
+                          onHistoryFileChange: (filePath: string) => fileHistory.loadVersionsForFile(filePath),
+                        } : {})}
                       />
                     </div>
                   ) : (

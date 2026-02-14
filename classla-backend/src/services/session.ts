@@ -242,25 +242,8 @@ export class SessionManagementService {
    */
   async validateSession(req: Request): Promise<UserSessionData | null> {
     try {
-      // Log session details for debugging
-      logger.info("Validating session", {
-        hasSession: !!req.session,
-        sessionId: req.sessionID,
-        sessionKeys: req.session ? Object.keys(req.session) : [],
-        hasUser: req.session ? !!(req.session as any).user : false,
-        cookieValue: req.headers.cookie?.includes('classla.sid') ? 
-          req.headers.cookie.split(';').find(c => c.trim().startsWith('classla.sid='))?.substring(0, 50) : 
-          'no cookie',
-        sessionStore: (req.session as any)?.store ? 'has store' : 'no store',
-      });
-
       if (!req.session) {
-        logger.warn("Session validation failed: no session object", {
-          sessionId: req.sessionID,
-          cookieValue: req.headers.cookie?.includes('classla.sid') ? 
-            req.headers.cookie.split(';').find(c => c.trim().startsWith('classla.sid='))?.substring(0, 50) : 
-            'no cookie',
-        });
+        logger.warn("Session validation failed: no session object");
         return null;
       }
 

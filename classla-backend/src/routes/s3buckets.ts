@@ -20,6 +20,9 @@ import {
   GetObjectCommand,
   PutObjectCommand,
   HeadObjectCommand,
+  PutBucketVersioningCommand,
+  ListObjectVersionsCommand,
+  PutBucketLifecycleConfigurationCommand,
 } from "@aws-sdk/client-s3";
 import { Readable } from "stream";
 import { asyncHandler } from "../middleware/errorHandler";
@@ -69,10 +72,38 @@ interface S3Bucket {
   user_id: string;
   course_id: string | null;
   assignment_id: string | null;
+  block_id: string | null;
   is_template: boolean;
+  is_snapshot: boolean | null;
   region: string;
   status: string;
   deleted_at: string | null;
+}
+
+/**
+ * Enable S3 versioning and lifecycle policy on a bucket.
+ * Non-fatal — logs warning on failure.
+ */
+async function enableBucketVersioning(bucketName: string): Promise<void> {
+  try {
+    await s3Client.send(new PutBucketVersioningCommand({
+      Bucket: bucketName,
+      VersioningConfiguration: { Status: "Enabled" },
+    }));
+    await s3Client.send(new PutBucketLifecycleConfigurationCommand({
+      Bucket: bucketName,
+      LifecycleConfiguration: {
+        Rules: [{
+          ID: "expire-old-versions",
+          Status: "Enabled",
+          Filter: { Prefix: "" },
+          NoncurrentVersionExpiration: { NoncurrentDays: 30 },
+        }],
+      },
+    }));
+  } catch (error: any) {
+    logger.warn(`[S3 Versioning] Failed to enable versioning on ${bucketName}:`, error.message);
+  }
 }
 
 /**
@@ -156,6 +187,103 @@ const canAccessBucket = async (
 };
 
 /**
+ * Create a read-only snapshot of an S3 bucket for a submission.
+ * Copies all objects from the source bucket into a new "snapshot" bucket
+ * and records it in the database linked to the submission.
+ *
+ * @param sourceBucketId - The live bucket to snapshot
+ * @param submissionId - The submission this snapshot belongs to
+ * @returns The snapshot bucket ID
+ */
+export async function createBucketSnapshot(
+  sourceBucketId: string,
+  submissionId: string
+): Promise<string> {
+  // Fetch the source bucket
+  const { data: sourceBucket, error: fetchError } = await supabase
+    .from("s3_buckets")
+    .select("*")
+    .eq("id", sourceBucketId)
+    .is("deleted_at", null)
+    .single();
+
+  if (fetchError || !sourceBucket) {
+    throw new Error(`Source bucket not found: ${sourceBucketId}`);
+  }
+
+  // Create a new snapshot bucket
+  const bucketName = `classla-snapshot-${sourceBucket.user_id.substring(0, 8)}-${Date.now()}`;
+  const bucketRegion = sourceBucket.region || S3_DEFAULT_REGION;
+  const bucketId = uuidv4();
+
+  // Insert snapshot bucket record
+  const { error: insertError } = await supabase.from("s3_buckets").insert({
+    id: bucketId,
+    bucket_name: bucketName,
+    region: bucketRegion,
+    user_id: sourceBucket.user_id,
+    course_id: sourceBucket.course_id || null,
+    assignment_id: sourceBucket.assignment_id || null,
+    block_id: sourceBucket.block_id || null,
+    status: "creating",
+    is_template: false,
+    is_snapshot: true,
+    submission_id: submissionId,
+  });
+
+  if (insertError) {
+    throw new Error(`Failed to insert snapshot bucket record: ${insertError.message}`);
+  }
+
+  try {
+    // Create the S3 bucket
+    await s3Client.send(new CreateBucketCommand({
+      Bucket: bucketName,
+      CreateBucketConfiguration:
+        bucketRegion !== "us-east-1"
+          ? { LocationConstraint: bucketRegion as any }
+          : undefined,
+    }));
+
+    // List all objects in source bucket
+    const listResponse = await s3Client.send(new ListObjectsV2Command({
+      Bucket: sourceBucket.bucket_name,
+    }));
+
+    // Copy all objects in parallel
+    if (listResponse.Contents && listResponse.Contents.length > 0) {
+      const copyPromises = listResponse.Contents
+        .filter((obj) => obj.Key)
+        .map((obj) =>
+          s3Client.send(new CopyObjectCommand({
+            CopySource: `${sourceBucket.bucket_name}/${obj.Key}`,
+            Bucket: bucketName,
+            Key: obj.Key!,
+          })).catch((err) => {
+            logger.error(`Failed to copy object ${obj.Key} during snapshot:`, err);
+          })
+        );
+      await Promise.all(copyPromises);
+    }
+
+    // Mark as active
+    await supabase
+      .from("s3_buckets")
+      .update({ status: "active" })
+      .eq("id", bucketId);
+
+    return bucketId;
+  } catch (error: any) {
+    // Mark as error
+    await supabase
+      .from("s3_buckets")
+      .update({ status: "error" })
+      .eq("id", bucketId);
+    throw new Error(`Failed to create snapshot bucket: ${error.message}`);
+  }
+}
+
+/**
  * POST /api/s3buckets
  * Create a new S3 bucket for IDE container workspace
  */
@@ -212,6 +340,11 @@ router.post(
 
       await s3Client.send(createCommand);
 
+      // Enable versioning on non-template buckets (student work buckets)
+      if (!is_template) {
+        await enableBucketVersioning(bucketName);
+      }
+
       // Update status to 'active'
       const { error: updateError } = await supabase
         .from("s3_buckets")
@@ -259,13 +392,18 @@ router.post(
 router.get(
   "/",
   asyncHandler(async (req: Request, res: Response) => {
-    const { user_id, course_id, assignment_id, block_id, status, include_deleted } = req.query;
+    const { user_id, course_id, assignment_id, block_id, status, include_deleted, include_snapshots } = req.query;
 
     let query = supabase.from("s3_buckets").select("*");
 
     // By default, exclude deleted buckets unless explicitly requested
     if (include_deleted !== "true") {
       query = query.is("deleted_at", null);
+    }
+
+    // By default, exclude snapshot buckets unless explicitly requested
+    if (include_snapshots !== "true") {
+      query = query.or("is_snapshot.is.null,is_snapshot.eq.false");
     }
 
     if (user_id) {
@@ -298,6 +436,54 @@ router.get(
     }
 
     return res.json({ buckets });
+  })
+);
+
+/**
+ * POST /api/s3buckets/admin/enable-versioning
+ * One-time migration: enable S3 versioning on all existing non-template, non-snapshot buckets.
+ * Admin-only endpoint.
+ */
+router.post(
+  "/admin/enable-versioning",
+  authenticateToken,
+  asyncHandler(async (req: Request, res: Response) => {
+    const { isAdmin } = req.user!;
+    if (!isAdmin) {
+      return res.status(403).json({ error: "Admin access required" });
+    }
+
+    // Fetch all active, non-template, non-snapshot, non-deleted buckets
+    const { data: buckets, error } = await supabase
+      .from("s3_buckets")
+      .select("id, bucket_name")
+      .is("deleted_at", null)
+      .eq("is_template", false)
+      .or("is_snapshot.is.null,is_snapshot.eq.false")
+      .eq("status", "active");
+
+    if (error) {
+      return res.status(500).json({ error: error.message });
+    }
+
+    let processed = 0;
+    const errors: string[] = [];
+
+    for (const bucket of buckets || []) {
+      try {
+        await enableBucketVersioning(bucket.bucket_name);
+        processed++;
+      } catch (err: any) {
+        errors.push(`${bucket.bucket_name}: ${err.message}`);
+      }
+    }
+
+    return res.json({
+      message: `Versioning enabled on ${processed}/${(buckets || []).length} buckets`,
+      processed,
+      total: (buckets || []).length,
+      errors: errors.length > 0 ? errors : undefined,
+    });
   })
 );
 
@@ -501,6 +687,9 @@ router.post(
 
       await s3Client.send(createCommand);
 
+      // Enable versioning on cloned buckets (student work buckets)
+      await enableBucketVersioning(bucketName);
+
       // List all objects in source bucket
       const listCommand = new ListObjectsV2Command({
         Bucket: sourceBucket.bucket_name,
@@ -623,6 +812,291 @@ router.post(
       message: "Bucket soft deleted successfully",
       bucket: updatedBucket,
     });
+  })
+);
+
+/**
+ * GET /api/s3buckets/:bucketId/source-bucket
+ * Resolve the live (non-snapshot) bucket for a snapshot bucket.
+ * Used by the grading view to fetch version history from the student's live bucket.
+ */
+router.get(
+  "/:bucketId/source-bucket",
+  asyncHandler(async (req: Request, res: Response) => {
+    const { bucketId } = req.params;
+
+    // Authenticate
+    let userId: string | undefined;
+    let isAdmin: boolean = false;
+    try {
+      const sessionData = await sessionManagementService.validateSession(req);
+      if (!sessionData) {
+        throw new AuthenticationError("Valid session is required");
+      }
+      if (sessionData.isManagedStudent) {
+        userId = sessionData.userId;
+        isAdmin = false;
+      } else {
+        const { data: userData } = await supabase
+          .from("users")
+          .select("id, is_admin")
+          .eq("workos_user_id", sessionData.workosUserId)
+          .single();
+        if (userData) {
+          userId = userData.id;
+          isAdmin = userData.is_admin || false;
+        }
+      }
+      if (!userId) {
+        throw new AuthenticationError("User not found");
+      }
+    } catch (error) {
+      return res.status(401).json({ error: "Valid session is required" });
+    }
+
+    // Fetch snapshot bucket
+    const { data: snapshotBucket, error: fetchError } = await supabase
+      .from("s3_buckets")
+      .select("*")
+      .eq("id", bucketId)
+      .is("deleted_at", null)
+      .single();
+
+    if (fetchError || !snapshotBucket) {
+      return res.status(404).json({ error: "Bucket not found" });
+    }
+
+    if (!snapshotBucket.is_snapshot) {
+      return res.status(400).json({ error: "Bucket is not a snapshot" });
+    }
+
+    // Auth check
+    const hasAccess = await canAccessBucket(userId, snapshotBucket, isAdmin, 'read');
+    if (!hasAccess) {
+      return res.status(403).json({ error: "You do not have permission to access this bucket" });
+    }
+
+    // Find the live bucket matching the same user, assignment, and block
+    const { data: liveBucket, error: liveError } = await supabase
+      .from("s3_buckets")
+      .select("id")
+      .eq("user_id", snapshotBucket.user_id)
+      .eq("assignment_id", snapshotBucket.assignment_id)
+      .eq("block_id", snapshotBucket.block_id)
+      .eq("is_template", false)
+      .or("is_snapshot.is.null,is_snapshot.eq.false")
+      .is("deleted_at", null)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .single();
+
+    if (liveError || !liveBucket) {
+      return res.status(404).json({ error: "Live bucket not found" });
+    }
+
+    return res.json({ liveBucketId: liveBucket.id });
+  })
+);
+
+/**
+ * GET /api/s3buckets/:bucketId/versions/*
+ * List all S3 object versions for a specific file in a bucket.
+ * Used by the grading view history slider.
+ */
+router.get(
+  "/:bucketId/versions/*",
+  asyncHandler(async (req: Request, res: Response) => {
+    const { bucketId } = req.params;
+    const filePath = decodeURIComponent(req.params[0] || "");
+
+    if (!filePath) {
+      return res.status(400).json({ error: "File path is required" });
+    }
+
+    // Authenticate
+    let userId: string | undefined;
+    let isAdmin: boolean = false;
+    try {
+      const sessionData = await sessionManagementService.validateSession(req);
+      if (!sessionData) {
+        throw new AuthenticationError("Valid session is required");
+      }
+      if (sessionData.isManagedStudent) {
+        userId = sessionData.userId;
+        isAdmin = false;
+      } else {
+        const { data: userData } = await supabase
+          .from("users")
+          .select("id, is_admin")
+          .eq("workos_user_id", sessionData.workosUserId)
+          .single();
+        if (userData) {
+          userId = userData.id;
+          isAdmin = userData.is_admin || false;
+        }
+      }
+      if (!userId) {
+        throw new AuthenticationError("User not found");
+      }
+    } catch (error) {
+      return res.status(401).json({ error: "Valid session is required" });
+    }
+
+    // Fetch bucket
+    const { data: bucket, error: fetchError } = await supabase
+      .from("s3_buckets")
+      .select("*")
+      .eq("id", bucketId)
+      .is("deleted_at", null)
+      .single();
+
+    if (fetchError || !bucket) {
+      return res.status(404).json({ error: "Bucket not found" });
+    }
+
+    // Auth check
+    const hasAccess = await canAccessBucket(userId, bucket, isAdmin, 'read');
+    if (!hasAccess) {
+      return res.status(403).json({ error: "You do not have permission to access this bucket" });
+    }
+
+    try {
+      const response = await s3Client.send(new ListObjectVersionsCommand({
+        Bucket: bucket.bucket_name,
+        Prefix: filePath,
+        MaxKeys: 500,
+      }));
+
+      // Filter to exact key match (Prefix is just a prefix, not exact)
+      const versions = (response.Versions || [])
+        .filter((v) => v.Key === filePath)
+        .sort((a, b) => {
+          const aTime = a.LastModified?.getTime() || 0;
+          const bTime = b.LastModified?.getTime() || 0;
+          return bTime - aTime; // newest first
+        })
+        .map((v) => ({
+          versionId: v.VersionId,
+          lastModified: v.LastModified?.toISOString(),
+          size: v.Size,
+          isLatest: v.IsLatest,
+        }));
+
+      return res.json({ versions, filePath });
+    } catch (s3Error: any) {
+      logger.error("Failed to list object versions:", s3Error);
+      return res.status(500).json({
+        error: "Failed to list file versions",
+        details: s3Error.message,
+      });
+    }
+  })
+);
+
+/**
+ * GET /api/s3buckets/:bucketId/version/:versionId/*
+ * Get a specific version's content for a file in a bucket.
+ * Used by the grading view history slider.
+ */
+router.get(
+  "/:bucketId/version/:versionId/*",
+  asyncHandler(async (req: Request, res: Response) => {
+    const { bucketId, versionId } = req.params;
+    const filePath = decodeURIComponent(req.params[0] || "");
+
+    if (!filePath) {
+      return res.status(400).json({ error: "File path is required" });
+    }
+
+    // Authenticate
+    let userId: string | undefined;
+    let isAdmin: boolean = false;
+    try {
+      const sessionData = await sessionManagementService.validateSession(req);
+      if (!sessionData) {
+        throw new AuthenticationError("Valid session is required");
+      }
+      if (sessionData.isManagedStudent) {
+        userId = sessionData.userId;
+        isAdmin = false;
+      } else {
+        const { data: userData } = await supabase
+          .from("users")
+          .select("id, is_admin")
+          .eq("workos_user_id", sessionData.workosUserId)
+          .single();
+        if (userData) {
+          userId = userData.id;
+          isAdmin = userData.is_admin || false;
+        }
+      }
+      if (!userId) {
+        throw new AuthenticationError("User not found");
+      }
+    } catch (error) {
+      return res.status(401).json({ error: "Valid session is required" });
+    }
+
+    // Fetch bucket
+    const { data: bucket, error: fetchError } = await supabase
+      .from("s3_buckets")
+      .select("*")
+      .eq("id", bucketId)
+      .is("deleted_at", null)
+      .single();
+
+    if (fetchError || !bucket) {
+      return res.status(404).json({ error: "Bucket not found" });
+    }
+
+    // Auth check
+    const hasAccess = await canAccessBucket(userId, bucket, isAdmin, 'read');
+    if (!hasAccess) {
+      return res.status(403).json({ error: "You do not have permission to access this bucket" });
+    }
+
+    try {
+      const response = await s3Client.send(new GetObjectCommand({
+        Bucket: bucket.bucket_name,
+        Key: filePath,
+        VersionId: versionId,
+      }));
+
+      let content = "";
+      if (response.Body) {
+        const stream = response.Body as Readable;
+        const chunks: Buffer[] = [];
+        await new Promise<void>((resolve, reject) => {
+          stream.on("data", (chunk: Buffer) => chunks.push(chunk));
+          stream.on("end", () => resolve());
+          stream.on("error", reject);
+        });
+
+        const buffer = Buffer.concat(chunks);
+
+        if (isBinaryFile(filePath)) {
+          content = buffer.toString('base64');
+          res.setHeader("Cache-Control", "public, max-age=3600");
+          return res.json({ content, path: filePath, versionId, encoding: 'base64' });
+        }
+
+        content = buffer.toString("utf-8");
+      }
+
+      // Versions are immutable, cache aggressively
+      res.setHeader("Cache-Control", "public, max-age=3600");
+
+      return res.json({ content, path: filePath, versionId });
+    } catch (s3Error: any) {
+      if (s3Error.name === "NoSuchKey" || s3Error.name === "NoSuchVersion" || s3Error.$metadata?.httpStatusCode === 404) {
+        return res.status(404).json({ error: "Version not found", path: filePath, versionId });
+      }
+      logger.error("Failed to get version content:", s3Error);
+      return res.status(500).json({
+        error: "Failed to get version content",
+        details: s3Error.message,
+      });
+    }
   })
 );
 
@@ -1087,6 +1561,11 @@ router.put(
       return res.status(404).json({ error: "Bucket not found" });
     }
 
+    // Snapshot buckets are read-only
+    if (bucket.is_snapshot) {
+      return res.status(403).json({ error: "Snapshot buckets are read-only" });
+    }
+
     // Check if user has permission to modify this bucket
     // Writing file content requires write permission
     if (!isTestBucket) {
@@ -1293,6 +1772,11 @@ router.delete(
       return res.status(404).json({ error: "Bucket not found" });
     }
 
+    // Snapshot buckets are read-only
+    if (bucket.is_snapshot) {
+      return res.status(403).json({ error: "Snapshot buckets are read-only" });
+    }
+
     // Check if user has permission to modify this bucket
     // Deleting files requires write permission
     if (!isTestBucket) {
@@ -1380,6 +1864,11 @@ router.post(
 
     if (fetchError || !bucket) {
       return res.status(404).json({ error: "Bucket not found" });
+    }
+
+    // Snapshot buckets are read-only
+    if (bucket.is_snapshot) {
+      return res.status(403).json({ error: "Snapshot buckets are read-only" });
     }
 
     try {
@@ -1490,6 +1979,148 @@ router.post(
 );
 
 /**
+ * POST /api/s3buckets/:bucketId/files/rename
+ * Rename (move) a file within an S3 bucket server-side.
+ * Uses CopyObject + DeleteObject so binary content never passes through the frontend.
+ */
+router.post(
+  "/:bucketId/files/rename",
+  asyncHandler(async (req: Request, res: Response) => {
+    const { bucketId } = req.params;
+    const { oldPath, newPath } = req.body;
+
+    if (!oldPath || !newPath) {
+      return res.status(400).json({ error: "oldPath and newPath are required" });
+    }
+
+    if (oldPath === newPath) {
+      return res.status(400).json({ error: "oldPath and newPath must be different" });
+    }
+
+    // Allow test bucket without authentication in development
+    const isTestBucket = process.env.NODE_ENV === 'development' &&
+                         bucketId === '00000000-0000-0000-0000-000000000001';
+
+    let userId: string | undefined;
+    let isAdmin: boolean = false;
+    if (!isTestBucket) {
+      try {
+        const sessionData = await sessionManagementService.validateSession(req);
+        if (!sessionData) {
+          throw new AuthenticationError("Valid session is required");
+        }
+
+        if (sessionData.isManagedStudent) {
+          userId = sessionData.userId;
+          isAdmin = false;
+        } else {
+          const { data: userData } = await supabase
+            .from("users")
+            .select("id, is_admin")
+            .eq("workos_user_id", sessionData.workosUserId)
+            .single();
+
+          if (userData) {
+            userId = userData.id;
+            isAdmin = userData.is_admin || false;
+          }
+        }
+
+        if (!userId) {
+          throw new AuthenticationError("User not found");
+        }
+      } catch (error) {
+        return res.status(401).json({ error: "Valid session is required" });
+      }
+    } else {
+      userId = "00000000-0000-0000-0000-000000000000";
+      isAdmin = false;
+    }
+
+    // Fetch bucket
+    const { data: bucket, error: fetchError } = await supabase
+      .from("s3_buckets")
+      .select("*")
+      .eq("id", bucketId)
+      .is("deleted_at", null)
+      .single();
+
+    if (fetchError || !bucket) {
+      return res.status(404).json({ error: "Bucket not found" });
+    }
+
+    // Snapshot buckets are read-only
+    if (bucket.is_snapshot) {
+      return res.status(403).json({ error: "Snapshot buckets are read-only" });
+    }
+
+    // Check write permission
+    if (!isTestBucket) {
+      const hasAccess = await canAccessBucket(userId, bucket, isAdmin, 'write');
+      if (!hasAccess) {
+        return res.status(403).json({
+          error: "You do not have permission to modify this bucket",
+        });
+      }
+    }
+
+    try {
+      // Copy object to new key
+      await s3Client.send(new CopyObjectCommand({
+        CopySource: `${bucket.bucket_name}/${oldPath}`,
+        Bucket: bucket.bucket_name,
+        Key: newPath,
+      }));
+
+      // Delete old object
+      await s3Client.send(new DeleteObjectCommand({
+        Bucket: bucket.bucket_name,
+        Key: oldPath,
+      }));
+
+      // Clean up OT document for old path
+      try {
+        const { cleanupDocument: cleanupOTDocument, getDocumentId: getOTDocumentId } = await import("../services/otProviderService");
+        cleanupOTDocument(getOTDocumentId(bucketId, oldPath), true);
+        logger.info(`[File Rename] Cleaned up OT document for old path: ${oldPath}`);
+      } catch (otError: any) {
+        logger.warn(`[File Rename] Failed to clean up OT document:`, otError);
+      }
+
+      // Broadcast file-tree-change events
+      try {
+        const { getIO } = await import("../services/websocket");
+        const io = getIO();
+        const bucketRoom = `bucket:${bucketId}`;
+        io.of("/ot").to(bucketRoom).emit("file-tree-change", {
+          bucketId,
+          filePath: oldPath,
+          action: "delete",
+        });
+        io.of("/ot").to(bucketRoom).emit("file-tree-change", {
+          bucketId,
+          filePath: newPath,
+          action: "create",
+        });
+      } catch (error: any) {
+        logger.error(`[File Rename] Failed to broadcast file-tree-change:`, error);
+      }
+
+      return res.json({ message: "File renamed successfully", oldPath, newPath });
+    } catch (s3Error: any) {
+      if (s3Error.name === "NoSuchKey" || s3Error.$metadata?.httpStatusCode === 404) {
+        return res.status(404).json({ error: "Source file not found", path: oldPath });
+      }
+      logger.error("S3 file rename failed:", s3Error);
+      return res.status(500).json({
+        error: "Failed to rename file",
+        details: s3Error.message,
+      });
+    }
+  })
+);
+
+/**
  * POST /api/s3buckets/:bucketId/files
  * Create new file in S3
  */
@@ -1559,6 +2190,11 @@ router.post(
 
     if (fetchError || !bucket) {
       return res.status(404).json({ error: "Bucket not found" });
+    }
+
+    // Snapshot buckets are read-only
+    if (bucket.is_snapshot) {
+      return res.status(403).json({ error: "Snapshot buckets are read-only" });
     }
 
     // Check if user has permission to modify this bucket

@@ -17,6 +17,7 @@ import { sessionMiddleware, waitForRedisConnection } from "./config/session";
 import { logger } from "./utils/logger";
 import { initializeWebSocket } from "./services/websocket";
 import { setupAIWebSocket } from "./routes/ai";
+import { setupAIChatWebSocket } from "./routes/aiChat";
 
 // Validate required environment variables
 const requiredEnvVars = ["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"];
@@ -144,6 +145,7 @@ import autograderRoutes from "./routes/autograder";
 import s3bucketsRoutes from "./routes/s3buckets";
 import ideBlocksRoutes from "./routes/ideBlocks";
 import aiRoutes from "./routes/ai";
+import aiChatRoutes from "./routes/aiChat";
 import organizationRoutes from "./routes/organizations";
 import courseTemplateRoutes from "./routes/courseTemplates";
 import managedStudentsRoutes from "./routes/managedStudents";
@@ -169,6 +171,7 @@ app.use("/api", autograderRoutes);
 app.use("/api/s3buckets", s3bucketsRoutes);
 app.use("/api/ide-blocks", ideBlocksRoutes);
 app.use("/api", aiRoutes);
+app.use("/api", aiChatRoutes);
 app.use("/api", organizationRoutes);
 app.use("/api", courseTemplateRoutes);
 app.use("/api", managedStudentsRoutes);
@@ -181,8 +184,9 @@ app.use(notFoundHandler);
 // Initialize WebSocket server (must be after session middleware is set up)
 const io = initializeWebSocket(server, sessionMiddleware);
 
-// Set up AI WebSocket namespace
+// Set up AI WebSocket namespaces
 setupAIWebSocket(io);
+setupAIChatWebSocket(io);
 
 // Set up OT WebSocket namespace
 const { setupOTWebSocket, saveAllDocuments: saveAllOTDocuments } = require("./services/otProviderService");

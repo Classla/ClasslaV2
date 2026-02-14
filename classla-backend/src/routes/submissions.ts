@@ -17,8 +17,34 @@ import {
   StudentGradesData,
 } from "../types/api";
 import { autogradeSubmission } from "./autograder";
+import { createBucketSnapshot } from "./s3buckets";
 
 const router = Router();
+
+/**
+ * Extract all IDE block IDs from assignment content.
+ * Traverses TipTap document to find ideBlock nodes.
+ */
+function extractAllIDEBlockIds(assignmentContent: string): string[] {
+  try {
+    const content = JSON.parse(assignmentContent);
+    const blockIds: string[] = [];
+
+    function traverse(node: any) {
+      if (node.type === "ideBlock" && node.attrs?.ideData?.id) {
+        blockIds.push(node.attrs.ideData.id);
+      }
+      if (node.content && Array.isArray(node.content)) {
+        node.content.forEach(traverse);
+      }
+    }
+
+    traverse(content);
+    return blockIds;
+  } catch {
+    return [];
+  }
+}
 
 /**
  * Check if user can access a specific submission
@@ -885,10 +911,10 @@ router.post(
         return;
       }
 
-      // Get assignment settings to check if resubmissions are allowed
+      // Get assignment settings and content
       const { data: assignment } = await supabase
         .from("assignments")
-        .select("settings")
+        .select("settings, content")
         .eq("id", existingSubmission.assignment_id)
         .single();
 
@@ -938,6 +964,69 @@ router.post(
 
       if (updateError) {
         throw updateError;
+      }
+
+      // Create S3 bucket snapshots for each IDE block
+      // This preserves the exact code state at submission time
+      try {
+        if (assignment?.content) {
+          const ideBlockIds = extractAllIDEBlockIds(assignment.content);
+
+          if (ideBlockIds.length > 0) {
+            // Find live buckets for each IDE block
+            const { data: liveBuckets } = await supabase
+              .from("s3_buckets")
+              .select("id, block_id")
+              .eq("user_id", existingSubmission.student_id)
+              .eq("assignment_id", existingSubmission.assignment_id)
+              .in("block_id", ideBlockIds)
+              .is("deleted_at", null)
+              .or("is_snapshot.is.null,is_snapshot.eq.false")
+              .eq("is_template", false);
+
+            if (liveBuckets && liveBuckets.length > 0) {
+              // Create snapshots in parallel
+              const snapshotResults = await Promise.allSettled(
+                liveBuckets.map(async (bucket) => {
+                  const snapshotId = await createBucketSnapshot(bucket.id, id);
+                  return { blockId: bucket.block_id, snapshotId };
+                })
+              );
+
+              // Build values update with snapshot bucket IDs
+              const snapshotValues: Record<string, any> = {};
+              for (const result of snapshotResults) {
+                if (result.status === "fulfilled" && result.value.blockId) {
+                  snapshotValues[result.value.blockId] = {
+                    ...(updatedSubmission.values?.[result.value.blockId] || {}),
+                    s3_snapshot_bucket_id: result.value.snapshotId,
+                  };
+                }
+              }
+
+              if (Object.keys(snapshotValues).length > 0) {
+                const mergedValues = {
+                  ...(updatedSubmission.values || {}),
+                  ...snapshotValues,
+                };
+
+                await supabase
+                  .from("submissions")
+                  .update({ values: mergedValues })
+                  .eq("id", id);
+
+                // Update the response object with snapshot data
+                updatedSubmission.values = mergedValues;
+              }
+            }
+          }
+        }
+      } catch (snapshotError) {
+        // Log but don't fail the submission - graceful degradation
+        console.error("Failed to create S3 snapshots for submission:", {
+          submissionId: id,
+          error: snapshotError instanceof Error ? snapshotError.message : "Unknown error",
+        });
       }
 
       // Trigger autograding asynchronously (Requirements 9.1, 9.2, 9.3, 9.4)

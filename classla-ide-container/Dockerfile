@@ -70,9 +70,11 @@ RUN apt-get update && apt-get install -y \
     libsdl2-mixer-2.0-0 \
     libsdl2-ttf-2.0-0 \
     # Node.js will be installed from NodeSource (see below)
-    # Java 17 with JavaFX
+    # Java 17 with JavaFX + JUnit for autograding
     default-jdk \
     openjfx \
+    junit4 \
+    libhamcrest-java \
     # Fonts for better GUI rendering
     fonts-dejavu \
     fonts-liberation \
@@ -722,6 +724,48 @@ RUN echo '#!/usr/bin/env python3' > /usr/local/bin/run-server.py && \
     echo '    if isinstance(expected_output, bytes):' >> /usr/local/bin/run-server.py && \
     echo '        expected_output = expected_output.decode("utf-8")' >> /usr/local/bin/run-server.py && \
     echo '    ' >> /usr/local/bin/run-server.py && \
+    echo '    # Check if this is a Java workspace' >> /usr/local/bin/run-server.py && \
+    echo '    try:' >> /usr/local/bin/run-server.py && \
+    echo '        _ws_files = os.listdir(AUTOGRADER_PATH)' >> /usr/local/bin/run-server.py && \
+    echo '    except Exception:' >> /usr/local/bin/run-server.py && \
+    echo '        _ws_files = os.listdir(WORKSPACE_PATH)' >> /usr/local/bin/run-server.py && \
+    echo '    _java_files = [f for f in _ws_files if f.endswith(".java")]' >> /usr/local/bin/run-server.py && \
+    echo '    if _java_files:' >> /usr/local/bin/run-server.py && \
+    echo '        _main_java = "Main.java" if "Main.java" in _java_files else _java_files[0]' >> /usr/local/bin/run-server.py && \
+    echo '        _classname = os.path.splitext(_main_java)[0]' >> /usr/local/bin/run-server.py && \
+    echo '        lines = [' >> /usr/local/bin/run-server.py && \
+    echo '            "#!/usr/bin/env python3",' >> /usr/local/bin/run-server.py && \
+    echo '            "import subprocess, sys",' >> /usr/local/bin/run-server.py && \
+    echo '            f"test_input = {repr(test_input)}",' >> /usr/local/bin/run-server.py && \
+    echo '            f"expected_output = {repr(expected_output)}",' >> /usr/local/bin/run-server.py && \
+    echo '            "if isinstance(test_input, bytes):",' >> /usr/local/bin/run-server.py && \
+    echo '            "    test_input = test_input.decode(\\"utf-8\\")",' >> /usr/local/bin/run-server.py && \
+    echo '            "try:",' >> /usr/local/bin/run-server.py && \
+    echo '            f"    compile_result = subprocess.run(\\"javac *.java\\", shell=True, capture_output=True, text=True, timeout=30, cwd={repr(AUTOGRADER_PATH)})",' >> /usr/local/bin/run-server.py && \
+    echo '            "    if compile_result.returncode != 0:",' >> /usr/local/bin/run-server.py && \
+    echo '            "        print(f\\"FAIL: Compilation failed: {compile_result.stderr}\\")",' >> /usr/local/bin/run-server.py && \
+    echo '            "        sys.exit(1)",' >> /usr/local/bin/run-server.py && \
+    echo '            f"    result = subprocess.run([\\"java\\", {repr(_classname)}], input=test_input, capture_output=True, text=True, timeout=30, cwd={repr(AUTOGRADER_PATH)})",' >> /usr/local/bin/run-server.py && \
+    echo '            "    actual_output = result.stdout.strip()",' >> /usr/local/bin/run-server.py && \
+    echo '            "    expected_stripped = expected_output.strip()",' >> /usr/local/bin/run-server.py && \
+    echo '            "    if actual_output == expected_stripped:",' >> /usr/local/bin/run-server.py && \
+    echo '            "        print(\\"PASS\\")",' >> /usr/local/bin/run-server.py && \
+    echo '            "        sys.exit(0)",' >> /usr/local/bin/run-server.py && \
+    echo '            "    else:",' >> /usr/local/bin/run-server.py && \
+    echo '            "        print(f\\"FAIL: Expected: {expected_stripped}, Got: {actual_output}\\")",' >> /usr/local/bin/run-server.py && \
+    echo '            "        sys.exit(1)",' >> /usr/local/bin/run-server.py && \
+    echo '            "except subprocess.TimeoutExpired:",' >> /usr/local/bin/run-server.py && \
+    echo '            "    print(\\"ERROR: Test execution timed out\\")",' >> /usr/local/bin/run-server.py && \
+    echo '            "    sys.exit(1)",' >> /usr/local/bin/run-server.py && \
+    echo '            "except Exception as e:",' >> /usr/local/bin/run-server.py && \
+    echo '            "    print(f\\"ERROR: {str(e)}\\")",' >> /usr/local/bin/run-server.py && \
+    echo '            "    sys.exit(1)"' >> /usr/local/bin/run-server.py && \
+    echo '        ]' >> /usr/local/bin/run-server.py && \
+    echo '        with open(test_file_path, "w") as f:' >> /usr/local/bin/run-server.py && \
+    echo '            f.write("\\n".join(lines))' >> /usr/local/bin/run-server.py && \
+    echo '        os.chmod(test_file_path, 0o755)' >> /usr/local/bin/run-server.py && \
+    echo '        return' >> /usr/local/bin/run-server.py && \
+    echo '    ' >> /usr/local/bin/run-server.py && \
     echo '    # Find main Python file in workspace' >> /usr/local/bin/run-server.py && \
     echo '    main_files = ["main.py", "solution.py", "code.py"]' >> /usr/local/bin/run-server.py && \
     echo '    main_file = None' >> /usr/local/bin/run-server.py && \
@@ -876,8 +920,10 @@ RUN echo '#!/usr/bin/env python3' > /usr/local/bin/run-server.py && \
     echo '                            xvfb_process.wait()' >> /usr/local/bin/run-server.py && \
     echo '            elif framework == "junit":' >> /usr/local/bin/run-server.py && \
     echo '                test_basename = os.path.basename(test_file_path)' >> /usr/local/bin/run-server.py && \
+    echo '                # Compile ALL java files (student code + test) together' >> /usr/local/bin/run-server.py && \
     echo '                compile_result = subprocess.run(' >> /usr/local/bin/run-server.py && \
-    echo '                    ["javac", "-cp", ".:/usr/share/java/junit.jar", test_file_path],' >> /usr/local/bin/run-server.py && \
+    echo '                    "javac -cp \\".:/usr/share/java/*\\" *.java",' >> /usr/local/bin/run-server.py && \
+    echo '                    shell=True,' >> /usr/local/bin/run-server.py && \
     echo '                    capture_output=True,' >> /usr/local/bin/run-server.py && \
     echo '                    text=True,' >> /usr/local/bin/run-server.py && \
     echo '                    timeout=30,' >> /usr/local/bin/run-server.py && \
@@ -887,7 +933,7 @@ RUN echo '#!/usr/bin/env python3' > /usr/local/bin/run-server.py && \
     echo '                    return False, compile_result.stdout + compile_result.stderr, "Compilation failed"' >> /usr/local/bin/run-server.py && \
     echo '                test_class = os.path.splitext(test_basename)[0]' >> /usr/local/bin/run-server.py && \
     echo '                result = subprocess.run(' >> /usr/local/bin/run-server.py && \
-    echo '                    ["java", "-cp", ".:/usr/share/java/junit.jar:/usr/share/java/hamcrest-core.jar", "org.junit.runner.JUnitCore", test_class],' >> /usr/local/bin/run-server.py && \
+    echo '                    ["java", "-cp", ".:/usr/share/java/*", "org.junit.runner.JUnitCore", test_class],' >> /usr/local/bin/run-server.py && \
     echo '                    capture_output=True,' >> /usr/local/bin/run-server.py && \
     echo '                    text=True,' >> /usr/local/bin/run-server.py && \
     echo '                    timeout=30,' >> /usr/local/bin/run-server.py && \
@@ -1032,7 +1078,16 @@ RUN echo '#!/usr/bin/env python3' > /usr/local/bin/run-server.py && \
     echo '            if test_type == "manualGrading":' >> /usr/local/bin/run-server.py && \
     echo '                continue' >> /usr/local/bin/run-server.py && \
     echo '            ' >> /usr/local/bin/run-server.py && \
-    echo '            test_filename = f"test_{test_id}.py" if test_type != "unitTest" or test_case.get("framework") == "unittest" else f"Test_{test_id}.java"' >> /usr/local/bin/run-server.py && \
+    echo '            if test_type == "unitTest" and test_case.get("framework") == "junit":' >> /usr/local/bin/run-server.py && \
+    echo '                import re as _re' >> /usr/local/bin/run-server.py && \
+    echo '                _junit_code = test_case.get("code", "")' >> /usr/local/bin/run-server.py && \
+    echo '                _class_match = _re.search(r"public\\s+class\\s+(\\w+)", _junit_code)' >> /usr/local/bin/run-server.py && \
+    echo '                if _class_match:' >> /usr/local/bin/run-server.py && \
+    echo '                    test_filename = _class_match.group(1) + ".java"' >> /usr/local/bin/run-server.py && \
+    echo '                else:' >> /usr/local/bin/run-server.py && \
+    echo '                    test_filename = "Test_" + test_id.replace("-", "_") + ".java"' >> /usr/local/bin/run-server.py && \
+    echo '            else:' >> /usr/local/bin/run-server.py && \
+    echo '                test_filename = f"test_{test_id}.py"' >> /usr/local/bin/run-server.py && \
     echo '            test_file_path = os.path.join(AUTOGRADER_PATH, test_filename)' >> /usr/local/bin/run-server.py && \
     echo '            ' >> /usr/local/bin/run-server.py && \
     echo '            try:' >> /usr/local/bin/run-server.py && \

@@ -8,6 +8,7 @@ import { useToast } from "../../../hooks/use-toast";
 import { apiClient } from "../../../lib/api";
 import CourseEditor from "../components/CourseEditor";
 import CreateJoinLinkModal from "../components/CreateJoinLinkModal";
+import CourseSummarySkeleton from "./CourseSummarySkeleton";
 
 interface CourseSummaryPageProps {
   course?: Course;
@@ -56,12 +57,7 @@ const CourseSummaryPage: React.FC<CourseSummaryPageProps> = ({
   };
   // If props are not provided, show loading or error state
   if (!course || !setCourse) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-600"></div>
-        <span className="ml-3 text-gray-600">Loading course summary...</span>
-      </div>
-    );
+    return <CourseSummarySkeleton />;
   }
 
   // Default to student if userRole is not available yet

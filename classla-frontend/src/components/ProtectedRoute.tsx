@@ -1,6 +1,7 @@
 import { ReactNode } from 'react'
 import { Navigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
+import DashboardSkeleton from '../pages/Dashboard/DashboardSkeleton'
 
 interface ProtectedRouteProps {
   children: ReactNode
@@ -22,23 +23,8 @@ const ProtectedRoute = ({ children, requireAdmin = false }: ProtectedRouteProps)
   // Show loading state while checking authentication
   if (loading) {
     return (
-      <div className="loading-container" style={{ 
-        display: 'flex', 
-        justifyContent: 'center', 
-        alignItems: 'center', 
-        minHeight: '200px',
-        flexDirection: 'column',
-        gap: '1rem'
-      }}>
-        <div className="spinner" style={{
-          width: '32px',
-          height: '32px',
-          border: '3px solid #f3f3f3',
-          borderTop: '3px solid #3498db',
-          borderRadius: '50%',
-          animation: 'spin 1s linear infinite'
-        }}></div>
-        <p>Verifying authentication...</p>
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <DashboardSkeleton />
       </div>
     )
   }

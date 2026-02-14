@@ -18,6 +18,7 @@ import { hasTAPermission } from "../../../lib/taPermissions";
 import { Allotment } from "allotment";
 import "allotment/dist/style.css";
 import { IDEPanelProvider, useIDEPanel } from "../../../contexts/IDEPanelContext";
+import CourseLayoutSkeleton from "./CourseLayoutSkeleton";
 
 interface CourseLayoutProps {
   children: React.ReactNode;
@@ -158,12 +159,7 @@ const CourseLayoutInner: React.FC<CourseLayoutProps> = ({ children }) => {
   ];
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-600"></div>
-        <span className="ml-3 text-gray-600">Loading course...</span>
-      </div>
-    );
+    return <CourseLayoutSkeleton />;
   }
 
   if (!course) {

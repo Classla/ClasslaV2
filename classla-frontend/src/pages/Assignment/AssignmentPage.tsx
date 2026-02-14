@@ -6,7 +6,7 @@ import { useToast } from "../../hooks/use-toast";
 import { Card } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
-import { Calendar, Users, Eye, Settings, X } from "lucide-react";
+import { Calendar, Users, Eye, Settings, X, MessageSquare } from "lucide-react";
 import { Assignment, UserRole, RubricSchema, Course, Grader } from "../../types";
 import { hasTAPermission } from "../../lib/taPermissions";
 import PublishingModal from "../../components/PublishingModal";
@@ -18,6 +18,7 @@ import PublishedStudentsList from "./components/PublishedStudentsList";
 import AssignmentEditor from "./components/AssignmentEditor";
 import AssignmentViewer from "./components/AssignmentViewer";
 import AssignmentPageSkeleton from "./components/AssignmentPageSkeleton";
+import { AIChatPanel } from "../../components/AIChatPanel";
 import { Allotment } from "allotment";
 import "allotment/dist/style.css";
 import { calculateAssignmentPoints } from "../../utils/assignmentPoints";
@@ -84,7 +85,7 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
   const [isPublishModalOpen, setIsPublishModalOpen] = useState(false);
   const [isDueDatesModalOpen, setIsDueDatesModalOpen] = useState(false);
   const [activeSidebarPanel, setActiveSidebarPanel] = useState<
-    "grader" | "settings" | null
+    "grader" | "settings" | "ai-chat" | null
   >(null);
   const [selectedGradingStudent, setSelectedGradingStudent] = useState<
     any | null
@@ -181,6 +182,25 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
       (s: any) => s.id === selectedGradingSubmissionId
     ) || null;
   }, [selectedGradingStudent, selectedGradingSubmissionId]);
+
+  // Extract snapshot bucket map from active submission values
+  // Used by both grading view (instructor viewing student) and student's own locked view
+  const snapshotBucketMap = useMemo(() => {
+    // For grading view: use the active grading submission
+    // For student view: use the selected submission from allSubmissions
+    const submission = activeGradingSubmission
+      || (selectedSubmissionId ? allSubmissions.find(s => s.id === selectedSubmissionId) : null);
+
+    if (!submission?.values) return null;
+
+    const map: Record<string, string> = {};
+    for (const [blockId, value] of Object.entries(submission.values)) {
+      if (value && typeof value === 'object' && 's3_snapshot_bucket_id' in (value as any)) {
+        map[blockId] = (value as any).s3_snapshot_bucket_id;
+      }
+    }
+    return Object.keys(map).length > 0 ? map : null;
+  }, [activeGradingSubmission, selectedSubmissionId, allSubmissions]);
 
   // Set loading immediately when assignmentId changes
   useEffect(() => {
@@ -369,7 +389,7 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
     setIsDueDatesModalOpen(true);
   };
 
-  const toggleSidebarPanel = (panel: "grader" | "settings") => {
+  const toggleSidebarPanel = (panel: "grader" | "settings" | "ai-chat") => {
     // Prevent opening settings panel if TA doesn't have canEdit permission
     if (panel === "settings" && !canEdit) {
       return;
@@ -382,6 +402,19 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
       setSelectedGradingSubmissionId(undefined);
     }
   };
+
+  // Lightweight refetch for AI chat block mutations
+  const refetchAssignment = useCallback(async () => {
+    if (!assignmentId) return;
+    try {
+      const response = effectiveIsInstructor
+        ? await apiClient.getAssignment(assignmentId)
+        : await apiClient.getAssignmentForStudent(assignmentId);
+      setAssignment(response.data);
+    } catch (err) {
+      console.error("Failed to refetch assignment:", err);
+    }
+  }, [assignmentId, effectiveIsInstructor]);
 
   const handleAssignmentUpdated = (updatedAssignment: Assignment) => {
     setAssignment(updatedAssignment);
@@ -666,7 +699,7 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
             <div className="flex-1 mx-6">
               <Card className="h-full p-0 overflow-hidden">
                 {assignment && (
-                  <AssignmentProvider courseId={assignment.course_id} assignmentId={assignment.id} previewMode={isPreviewMode} studentId={selectedGradingStudent?.userId ?? null}>
+                  <AssignmentProvider courseId={assignment.course_id} assignmentId={assignment.id} previewMode={isPreviewMode} studentId={selectedGradingStudent?.userId ?? null} snapshotBucketMap={snapshotBucketMap}>
                     {canEdit ? (
                       selectedGradingStudent ? (
                         <AssignmentViewer
@@ -876,29 +909,31 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
 
         {/* Sidebar Panel - Resizable */}
         {hasInstructionalPrivileges && activeSidebarPanel && assignment && (
-          <Allotment.Pane minSize={280} maxSize={600} preferredSize={320}>
+          <Allotment.Pane minSize={280} maxSize={700} preferredSize={activeSidebarPanel === "ai-chat" ? 420 : 320}>
             <div className="h-full bg-white border-l border-gray-200 shadow-xl flex flex-col">
-              <div className="p-4 border-b bg-gray-50 flex-shrink-0">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-lg font-semibold capitalize">
-                    {activeSidebarPanel === "grader"
-                      ? "Grading"
-                      : activeSidebarPanel}
-                  </h3>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => {
-                      setActiveSidebarPanel(null);
-                      setSelectedGradingStudent(null);
-                      setSelectedGradingSubmissionId(undefined);
-                    }}
-                    className="w-8 h-8 p-0"
-                  >
-                    ×
-                  </Button>
+              {activeSidebarPanel !== "ai-chat" && (
+                <div className="p-4 border-b bg-gray-50 flex-shrink-0">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-lg font-semibold capitalize">
+                      {activeSidebarPanel === "grader"
+                        ? "Grading"
+                        : activeSidebarPanel}
+                    </h3>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        setActiveSidebarPanel(null);
+                        setSelectedGradingStudent(null);
+                        setSelectedGradingSubmissionId(undefined);
+                      }}
+                      className="w-8 h-8 p-0"
+                    >
+                      ×
+                    </Button>
+                  </div>
                 </div>
-              </div>
+              )}
               <div className="flex-1 overflow-y-auto min-h-0">
                 {activeSidebarPanel === "grader" ? (
                   <GradingSidebar
@@ -907,6 +942,12 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
                     onStudentSelect={setSelectedGradingStudent}
                     selectedStudent={selectedGradingStudent}
                     selectedSubmissionId={selectedGradingSubmissionId}
+                  />
+                ) : activeSidebarPanel === "ai-chat" ? (
+                  <AIChatPanel
+                    assignmentId={assignment.id}
+                    courseId={assignment.course_id}
+                    onBlockMutation={refetchAssignment}
                   />
                 ) : canEdit ? (
                   <AssignmentSettingsPanel
@@ -954,6 +995,19 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
               title="Assignment Settings"
             >
               <Settings className="w-5 h-5" />
+            </button>
+          )}
+          {canEdit && (
+            <button
+              onClick={() => toggleSidebarPanel("ai-chat")}
+              className={`w-12 h-12 flex items-center justify-center border-b border-gray-200 transition-colors ${
+                activeSidebarPanel === "ai-chat"
+                  ? "bg-purple-100 text-purple-600"
+                  : "hover:bg-gray-200 text-gray-600"
+              }`}
+              title="AI Assistant"
+            >
+              <MessageSquare className="w-5 h-5" />
             </button>
           )}
         </div>
