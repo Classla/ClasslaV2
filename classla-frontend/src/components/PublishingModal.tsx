@@ -658,12 +658,12 @@ const PublishingModal: React.FC<PublishingModalProps> = ({
         </DialogHeader>
 
         {/* Mode Toggle */}
-        <div className="flex items-center justify-center space-x-4 p-4 border rounded-lg bg-gray-50">
+        <div className="flex items-center justify-center space-x-4 p-4 border rounded-lg bg-muted">
           <button
             className={`flex items-center space-x-2 px-4 py-2 rounded-lg transition-colors ${
               publishMode === "immediate"
-                ? "bg-white border-2 border-purple-500 text-purple-700 shadow-sm"
-                : "text-gray-600 hover:bg-gray-100"
+                ? "bg-card border-2 border-purple-500 text-primary shadow-sm"
+                : "text-muted-foreground hover:bg-accent"
             }`}
             onClick={() => setPublishMode("immediate")}
           >
@@ -673,8 +673,8 @@ const PublishingModal: React.FC<PublishingModalProps> = ({
           <button
             className={`flex items-center space-x-2 px-4 py-2 rounded-lg transition-colors ${
               publishMode === "scheduled"
-                ? "bg-white border-2 border-purple-500 text-purple-700 shadow-sm"
-                : "text-gray-600 hover:bg-gray-100"
+                ? "bg-card border-2 border-purple-500 text-primary shadow-sm"
+                : "text-muted-foreground hover:bg-accent"
             }`}
             onClick={() => setPublishMode("scheduled")}
           >
@@ -703,17 +703,17 @@ const PublishingModal: React.FC<PublishingModalProps> = ({
                   {folderAssignments!.map((a) => (
                     <div
                       key={a.id}
-                      className="flex items-center justify-between p-2 hover:bg-gray-50 rounded"
+                      className="flex items-center justify-between p-2 hover:bg-accent rounded"
                     >
                       <div className="flex items-center space-x-2">
                         <Checkbox
                           checked={selectedAssignments.has(a.id)}
                           onCheckedChange={() => toggleAssignment(a.id)}
                         />
-                        <FileText className="w-4 h-4 text-gray-500" />
+                        <FileText className="w-4 h-4 text-muted-foreground" />
                         <span className="text-sm">{a.name}</span>
                       </div>
-                      <span className="text-xs text-gray-500">
+                      <span className="text-xs text-muted-foreground">
                         {getAssignmentPublishStatus(a)}
                       </span>
                     </div>
@@ -735,7 +735,7 @@ const PublishingModal: React.FC<PublishingModalProps> = ({
           {publishMode === "immediate" && (
             <div className="space-y-4">
               <div className="flex items-center justify-between">
-                <p className="text-sm text-gray-600">
+                <p className="text-sm text-muted-foreground">
                   Select sections and students to publish to:
                 </p>
                 <div className="space-x-2">
@@ -761,7 +761,7 @@ const PublishingModal: React.FC<PublishingModalProps> = ({
                       }
                     }}
                   />
-                  <Users className="w-4 h-4 text-gray-500" />
+                  <Users className="w-4 h-4 text-muted-foreground" />
                   <Label className="font-medium">Entire Course</Label>
                 </div>
               </div>
@@ -770,15 +770,15 @@ const PublishingModal: React.FC<PublishingModalProps> = ({
                 <div className="space-y-2">
                   {sections.map((section) => (
                     <div key={section.id} className="space-y-1">
-                      <div className="flex items-center space-x-2 p-2 hover:bg-gray-50 rounded">
+                      <div className="flex items-center space-x-2 p-2 hover:bg-accent rounded">
                         <button
                           onClick={() => toggleSection(section.id)}
                           className="flex items-center space-x-1"
                         >
                           {expandedSections.has(section.id) ? (
-                            <ChevronDown className="w-4 h-4 text-gray-500" />
+                            <ChevronDown className="w-4 h-4 text-muted-foreground" />
                           ) : (
-                            <ChevronRight className="w-4 h-4 text-gray-500" />
+                            <ChevronRight className="w-4 h-4 text-muted-foreground" />
                           )}
                         </button>
 
@@ -793,7 +793,7 @@ const PublishingModal: React.FC<PublishingModalProps> = ({
                           onCheckedChange={() => toggleSectionSelection(section)}
                         />
 
-                        <Users className="w-4 h-4 text-gray-500" />
+                        <Users className="w-4 h-4 text-muted-foreground" />
                         <Label
                           className="font-medium cursor-pointer"
                           onClick={() => toggleSection(section.id)}
@@ -807,7 +807,7 @@ const PublishingModal: React.FC<PublishingModalProps> = ({
                           {section.enrollments.map((enrollment) => (
                             <div
                               key={enrollment.id}
-                              className="flex items-center space-x-2 p-2 hover:bg-gray-50 rounded"
+                              className="flex items-center space-x-2 p-2 hover:bg-accent rounded"
                             >
                               <Checkbox
                                 checked={selectedItems.has(enrollment.user.id)}
@@ -818,7 +818,7 @@ const PublishingModal: React.FC<PublishingModalProps> = ({
                                   )
                                 }
                               />
-                              <User className="w-4 h-4 text-gray-400" />
+                              <User className="w-4 h-4 text-muted-foreground" />
                               <Label className="cursor-pointer text-sm">
                                 {getStudentDisplayName(enrollment)}
                               </Label>
@@ -842,7 +842,7 @@ const PublishingModal: React.FC<PublishingModalProps> = ({
               </TabsList>
 
               <TabsContent value="hierarchy" className="space-y-4">
-                <p className="text-sm text-gray-600">
+                <p className="text-sm text-muted-foreground">
                   Set publish times hierarchically. Section times override course times,
                   student times override section times.
                 </p>
@@ -850,7 +850,7 @@ const PublishingModal: React.FC<PublishingModalProps> = ({
                 {/* Course-wide time */}
                 <div className="border rounded-lg p-4 space-y-3">
                   <div className="flex items-center space-x-2">
-                    <Users className="w-5 h-5 text-gray-500" />
+                    <Users className="w-5 h-5 text-muted-foreground" />
                     <Label className="text-base font-medium">Course-wide</Label>
                   </div>
                   <div className="flex items-center space-x-2">
@@ -875,7 +875,7 @@ const PublishingModal: React.FC<PublishingModalProps> = ({
                 {/* Section times */}
                 <div className="border rounded-lg p-4 space-y-3">
                   <div className="flex items-center space-x-2">
-                    <Users className="w-5 h-5 text-gray-500" />
+                    <Users className="w-5 h-5 text-muted-foreground" />
                     <Label className="text-base font-medium">Section Overrides</Label>
                   </div>
                   <div className="space-y-2">
@@ -907,7 +907,7 @@ const PublishingModal: React.FC<PublishingModalProps> = ({
                 {/* Student times */}
                 <div className="border rounded-lg p-4 space-y-3">
                   <div className="flex items-center space-x-2">
-                    <User className="w-5 h-5 text-gray-500" />
+                    <User className="w-5 h-5 text-muted-foreground" />
                     <Label className="text-base font-medium">Student Overrides</Label>
                   </div>
                   <ScrollArea className="h-48">
@@ -917,7 +917,7 @@ const PublishingModal: React.FC<PublishingModalProps> = ({
                           <div key={enrollment.id} className="flex items-center space-x-2">
                             <Label className="w-48 text-sm truncate">
                               {getStudentDisplayName(enrollment)}
-                              <span className="text-xs text-gray-500 ml-1">
+                              <span className="text-xs text-muted-foreground ml-1">
                                 ({section.name})
                               </span>
                             </Label>
@@ -952,13 +952,13 @@ const PublishingModal: React.FC<PublishingModalProps> = ({
               </TabsContent>
 
               <TabsContent value="overview" className="space-y-4">
-                <p className="text-sm text-gray-600">
+                <p className="text-sm text-muted-foreground">
                   Students with scheduled publish times:
                 </p>
                 <ScrollArea className="h-64 border rounded-lg p-4">
                   <div className="space-y-2">
                     {Object.keys(studentPublishTimes).filter(id => studentPublishTimes[id]).length === 0 ? (
-                      <p className="text-gray-500 text-center py-8">
+                      <p className="text-muted-foreground text-center py-8">
                         No scheduled publishing times set
                       </p>
                     ) : (
@@ -980,12 +980,12 @@ const PublishingModal: React.FC<PublishingModalProps> = ({
                               className="flex items-center justify-between p-2 border rounded"
                             >
                               <div className="flex items-center space-x-2">
-                                <User className="w-4 h-4 text-gray-500" />
+                                <User className="w-4 h-4 text-muted-foreground" />
                                 <span className="text-sm">{userName}</span>
                               </div>
                               <div className="flex items-center space-x-2">
-                                <Calendar className="w-4 h-4 text-gray-400" />
-                                <span className="text-sm text-gray-600">
+                                <Calendar className="w-4 h-4 text-muted-foreground" />
+                                <span className="text-sm text-muted-foreground">
                                   {new Date(time).toLocaleString()}
                                 </span>
                                 <Button

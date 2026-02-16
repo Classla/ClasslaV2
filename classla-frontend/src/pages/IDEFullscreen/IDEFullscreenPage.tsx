@@ -395,16 +395,16 @@ const IDEFullscreenPage: React.FC = () => {
 
   if (error) {
     return (
-      <div className="h-screen flex items-center justify-center bg-gray-50">
-        <div className="max-w-md p-8 bg-white rounded-lg shadow-lg border border-red-200">
+      <div className="h-screen flex items-center justify-center bg-background">
+        <div className="max-w-md p-8 bg-card rounded-lg shadow-lg border border-red-200">
           <div className="flex items-center gap-3 mb-4">
             <AlertCircle className="w-8 h-8 text-red-600" />
-            <h2 className="text-xl font-bold text-gray-900">Error Loading IDE</h2>
+            <h2 className="text-xl font-bold text-foreground">Error Loading IDE</h2>
           </div>
-          <p className="text-gray-600 mb-6">{error}</p>
+          <p className="text-muted-foreground mb-6">{error}</p>
           <Button
             onClick={handleClose}
-            className="w-full bg-purple-600 hover:bg-purple-700 text-white"
+            className="w-full bg-purple-600 hover:bg-purple-700 dark:bg-purple-800 dark:hover:bg-purple-900 text-white"
           >
             Close
           </Button>
@@ -415,17 +415,17 @@ const IDEFullscreenPage: React.FC = () => {
 
   if (!loaded) {
     return (
-      <div className="h-screen flex items-center justify-center bg-gray-50">
+      <div className="h-screen flex items-center justify-center bg-background">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600 mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading IDE environment...</p>
+          <p className="text-muted-foreground">Loading IDE environment...</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="h-screen flex flex-col bg-white">
+    <div className="h-screen flex flex-col bg-card">
       {/* Header */}
       <header className="bg-purple-600 text-white px-4 py-2 flex items-center justify-between flex-shrink-0 shadow-md">
         <div className="flex items-center gap-3">

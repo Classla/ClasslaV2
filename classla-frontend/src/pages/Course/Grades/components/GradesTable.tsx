@@ -78,7 +78,7 @@ const GradesTable: React.FC<GradesTableProps> = ({
   ) => {
     if (!submission) {
       return (
-        <Badge variant="outline" className="bg-gray-50 text-gray-600">
+        <Badge variant="outline" className="bg-muted text-muted-foreground">
           Not Started
         </Badge>
       );
@@ -136,7 +136,7 @@ const GradesTable: React.FC<GradesTableProps> = ({
     }
 
     return (
-      <Badge variant="outline" className="bg-gray-50 text-gray-600">
+      <Badge variant="outline" className="bg-muted text-muted-foreground">
         {submission.status}
       </Badge>
     );
@@ -187,32 +187,32 @@ const GradesTable: React.FC<GradesTableProps> = ({
   };
 
   return (
-    <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
+    <div className="bg-card rounded-lg border border-border shadow-sm overflow-hidden">
       <div className="overflow-x-auto">
         <table className="w-full">
-          <thead className="bg-gray-50 border-b border-gray-200">
+          <thead className="bg-muted border-b border-border">
             <tr>
-              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
+              <th className="px-6 py-3 text-left text-xs font-semibold text-foreground uppercase tracking-wider">
                 Assignment
               </th>
-              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
+              <th className="px-6 py-3 text-left text-xs font-semibold text-foreground uppercase tracking-wider">
                 Due Date
               </th>
-              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
+              <th className="px-6 py-3 text-left text-xs font-semibold text-foreground uppercase tracking-wider">
                 Status
               </th>
-              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
+              <th className="px-6 py-3 text-left text-xs font-semibold text-foreground uppercase tracking-wider">
                 Grade
               </th>
-              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
+              <th className="px-6 py-3 text-left text-xs font-semibold text-foreground uppercase tracking-wider">
                 Submitted
               </th>
-              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
+              <th className="px-6 py-3 text-left text-xs font-semibold text-foreground uppercase tracking-wider">
                 Feedback
               </th>
             </tr>
           </thead>
-          <tbody className="bg-white divide-y divide-gray-200">
+          <tbody className="bg-card divide-y divide-border">
             {assignments.map((assignment) => {
               const submission = getMostRecentSubmission(assignment.id);
               const grader = submission
@@ -224,15 +224,15 @@ const GradesTable: React.FC<GradesTableProps> = ({
                 <tr
                   key={assignment.id}
                   onClick={() => onAssignmentClick(assignment.id)}
-                  className="hover:bg-purple-50 cursor-pointer transition-colors"
+                  className="hover:bg-primary/10 cursor-pointer transition-colors"
                 >
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm font-medium text-gray-900">
+                    <div className="text-sm font-medium text-foreground">
                       {assignment.name}
                     </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm text-gray-600">
+                    <div className="text-sm text-muted-foreground">
                       {formatDueDate(dueDate)}
                     </div>
                   </td>
@@ -240,12 +240,12 @@ const GradesTable: React.FC<GradesTableProps> = ({
                     {getStatusBadge(submission, grader)}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm font-semibold text-gray-900">
+                    <div className="text-sm font-semibold text-foreground">
                       {getGradeDisplay(submission, grader, assignment)}
                     </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm text-gray-600">
+                    <div className="text-sm text-muted-foreground">
                       {submission
                         ? formatSubmissionDate(submission.timestamp)
                         : "—"}
@@ -263,13 +263,13 @@ const GradesTable: React.FC<GradesTableProps> = ({
                             feedback: grader.feedback,
                           });
                         }}
-                        className="text-purple-600 hover:text-purple-700 hover:bg-purple-50"
+                        className="text-primary hover:text-primary hover:bg-primary/10"
                       >
                         <MessageSquare className="h-4 w-4 mr-1" />
                         View Feedback
                       </Button>
                     ) : (
-                      <span className="text-sm text-gray-400">—</span>
+                      <span className="text-sm text-muted-foreground">—</span>
                     )}
                   </td>
                 </tr>
@@ -294,8 +294,8 @@ const GradesTable: React.FC<GradesTableProps> = ({
             </DialogDescription>
           </DialogHeader>
           <div className="mt-4">
-            <div className="bg-gray-50 rounded-lg p-4 min-h-[200px] max-h-[400px] overflow-y-auto">
-              <p className="text-gray-900 whitespace-pre-wrap">
+            <div className="bg-muted rounded-lg p-4 min-h-[200px] max-h-[400px] overflow-y-auto">
+              <p className="text-foreground whitespace-pre-wrap">
                 {selectedFeedback?.feedback || "No feedback provided."}
               </p>
             </div>

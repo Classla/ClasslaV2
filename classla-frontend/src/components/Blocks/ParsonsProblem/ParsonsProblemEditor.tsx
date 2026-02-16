@@ -288,17 +288,17 @@ const ParsonsProblemEditor: React.FC<ParsonsProblemEditorProps> = memo(
           }
         }}
       >
-        <div className="parsons-problem-editor border border-gray-200 rounded-lg p-3 bg-white shadow-sm select-none">
+        <div className="parsons-problem-editor border border-border rounded-lg p-3 bg-card shadow-sm select-none">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-3 flex-1">
               <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-gradient-to-br from-indigo-500 to-blue-600 text-white shadow-sm">
                 <span className="text-sm font-bold">P</span>
               </div>
               <div className="flex-1">
-                <div className="text-sm font-medium text-gray-900">
+                <div className="text-sm font-medium text-foreground">
                   Parsons Problem Block
                 </div>
-                <div className="text-xs text-gray-500">
+                <div className="text-xs text-muted-foreground">
                   Code ordering exercise
                 </div>
               </div>
@@ -332,7 +332,7 @@ const ParsonsProblemEditor: React.FC<ParsonsProblemEditorProps> = memo(
           )}
 
           <div className="mb-3">
-            <Label className="text-sm font-medium text-gray-700 mb-1 block">
+            <Label className="text-sm font-medium text-foreground mb-1 block">
               Instruction
             </Label>
             <Input
@@ -358,7 +358,7 @@ const ParsonsProblemEditor: React.FC<ParsonsProblemEditorProps> = memo(
 
           <div className="mb-3">
             <div className="flex items-center justify-between mb-1">
-              <Label className="text-sm font-medium text-gray-700">
+              <Label className="text-sm font-medium text-foreground">
                 Correct Solution Code
               </Label>
               <Button
@@ -390,27 +390,27 @@ const ParsonsProblemEditor: React.FC<ParsonsProblemEditorProps> = memo(
               className="w-full font-mono text-sm"
               rows={8}
             />
-            <div className="text-xs text-gray-500 mt-1">
+            <div className="text-xs text-muted-foreground mt-1">
               Click "Split into Blocks" to automatically create blocks from your code
             </div>
           </div>
 
           {parsonsProblemData.blocks.length > 0 && (
             <div className="mb-3">
-              <Label className="text-sm font-medium text-gray-700 mb-2 block">
+              <Label className="text-sm font-medium text-foreground mb-2 block">
                 Code Blocks ({parsonsProblemData.blocks.length})
               </Label>
               <div className="space-y-2 max-h-60 overflow-y-auto">
                 {parsonsProblemData.blocks.map((block, index) => (
                   <div
                     key={block.id}
-                    className="flex items-center gap-2 p-2 bg-gray-50 border border-gray-200 rounded"
+                    className="flex items-center gap-2 p-2 bg-muted border border-border rounded"
                   >
-                    <GripVertical className="w-4 h-4 text-gray-400" />
-                    <span className="text-xs text-gray-500 w-8">
+                    <GripVertical className="w-4 h-4 text-muted-foreground" />
+                    <span className="text-xs text-muted-foreground w-8">
                       {index + 1}
                     </span>
-                    <code className="flex-1 text-sm font-mono bg-white px-2 py-1 rounded border">
+                    <code className="flex-1 text-sm font-mono bg-background px-2 py-1 rounded border">
                       {" ".repeat(block.indentLevel * (parsonsProblemData.indentSpaces || 4))}
                       {block.code}
                     </code>
@@ -436,7 +436,7 @@ const ParsonsProblemEditor: React.FC<ParsonsProblemEditorProps> = memo(
                               <p>Decrease indentation (outdent)</p>
                             </TooltipContent>
                           </Tooltip>
-                          <span className="text-xs text-gray-500 w-8 text-center">
+                          <span className="text-xs text-muted-foreground w-8 text-center">
                             {block.indentLevel}
                           </span>
                           <Tooltip>
@@ -477,7 +477,7 @@ const ParsonsProblemEditor: React.FC<ParsonsProblemEditorProps> = memo(
 
           <div className="mb-3">
             <div className="flex items-center justify-between mb-2">
-              <Label className="text-sm font-medium text-gray-700">
+              <Label className="text-sm font-medium text-foreground">
                 Distractor Blocks (Optional)
               </Label>
               <Button
@@ -531,25 +531,25 @@ const ParsonsProblemEditor: React.FC<ParsonsProblemEditorProps> = memo(
           </div>
 
           {/* Grading Setup - Collapsible - At Bottom */}
-          <div className="mt-4 border border-gray-200 rounded-md">
+          <div className="mt-4 border border-border rounded-md">
             <button
               type="button"
               onClick={() => setShowGradingSetup(!showGradingSetup)}
-              className="w-full flex items-center justify-between p-3 bg-gray-50 hover:bg-gray-100 transition-colors"
+              className="w-full flex items-center justify-between p-3 bg-muted hover:bg-accent transition-colors"
             >
-              <span className="text-sm font-medium text-gray-700">
+              <span className="text-sm font-medium text-foreground">
                 Grading Setup
               </span>
               {showGradingSetup ? (
-                <ChevronUp className="w-4 h-4 text-gray-600" />
+                <ChevronUp className="w-4 h-4 text-muted-foreground" />
               ) : (
-                <ChevronDown className="w-4 h-4 text-gray-600" />
+                <ChevronDown className="w-4 h-4 text-muted-foreground" />
               )}
             </button>
             {showGradingSetup && (
-              <div className="p-3 space-y-3 border-t border-gray-200">
+              <div className="p-3 space-y-3 border-t border-border">
                 <div className="flex items-center justify-between">
-                  <Label className="text-sm text-gray-700">Points</Label>
+                  <Label className="text-sm text-foreground">Points</Label>
                   <Input
                     type="number"
                     min="0"
@@ -590,7 +590,7 @@ const ParsonsProblemEditor: React.FC<ParsonsProblemEditorProps> = memo(
                 </div>
                 {parsonsProblemData.enableIndentation && (
                   <div className="flex items-center justify-between">
-                    <Label className="text-sm text-gray-700">
+                    <Label className="text-sm text-foreground">
                       Spaces per Indent
                     </Label>
                     <Input
@@ -636,7 +636,7 @@ const ParsonsProblemEditor: React.FC<ParsonsProblemEditorProps> = memo(
             )}
           </div>
 
-          <div className="mt-4 pt-3 border-t border-gray-200 text-xs text-gray-500 select-none">
+          <div className="mt-4 pt-3 border-t border-border text-xs text-muted-foreground select-none">
             <div className="flex justify-between items-center">
               <span>
                 {parsonsProblemData.blocks.length} block

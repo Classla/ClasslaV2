@@ -18,6 +18,7 @@ import { sessionMiddleware, waitForRedisConnection } from "./config/session";
 import { logger } from "./utils/logger";
 import { initializeWebSocket } from "./services/websocket";
 import { setupAIChatWebSocket } from "./routes/aiChat";
+import { setupCourseTreeSocket } from "./services/courseTreeSocket";
 
 // Validate required environment variables
 const requiredEnvVars = ["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"];
@@ -199,6 +200,9 @@ const io = initializeWebSocket(server, sessionMiddleware);
 
 // Set up AI Chat WebSocket namespace
 setupAIChatWebSocket(io);
+
+// Set up Course Tree WebSocket namespace (real-time module tree updates)
+setupCourseTreeSocket(io);
 
 // Set up OT WebSocket namespace
 const { setupOTWebSocket, saveAllDocuments: saveAllOTDocuments } = require("./services/otProviderService");

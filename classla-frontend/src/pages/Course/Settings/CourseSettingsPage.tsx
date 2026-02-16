@@ -21,12 +21,14 @@ import {
   CardTitle,
   CardDescription,
 } from "../../../components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../../components/ui/tabs";
 import { apiClient } from "../../../lib/api";
 import { useToast } from "../../../hooks/use-toast";
 import { Trash2, Save, Users, RotateCcw, FileText, Download } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../../components/ui/select";
 import { TAPermissions, UserRole, CourseEnrollment, User } from "../../../types";
 import { getDisplayName } from "../../../lib/utils";
+import AIMemoryTab from "./AIMemoryTab";
 
 interface CourseSettingsPageProps {
   course?: any;
@@ -150,7 +152,7 @@ const CourseSettingsPage: React.FC<CourseSettingsPageProps> = ({
   // Only instructors can access settings
   if (!isInstructor) {
     return (
-      <div className="p-8 text-center text-gray-600">
+      <div className="p-8 text-center text-muted-foreground">
         <p>You don't have permission to access course settings.</p>
       </div>
     );
@@ -314,54 +316,203 @@ const CourseSettingsPage: React.FC<CourseSettingsPageProps> = ({
   return (
     <div className="p-8 max-w-2xl mx-auto">
       <div className="mb-8">
-        <h1 className="text-2xl font-bold text-gray-900 mb-2">
+        <h1 className="text-2xl font-bold text-foreground mb-2">
           Course Settings
         </h1>
-        <p className="text-gray-600">
+        <p className="text-muted-foreground">
           Manage your course information and settings.
         </p>
       </div>
 
-      <div className="space-y-6">
-        {/* Course Name */}
-        <div>
-          <label
-            htmlFor="name"
-            className="block text-sm font-medium text-gray-700 mb-2"
-          >
-            Course Name
-          </label>
-          <Input
-            id="name"
-            name="name"
-            value={formData.name}
-            onChange={handleInputChange}
-            placeholder="Enter course name"
-            className="w-full"
-          />
-        </div>
+      <Tabs defaultValue="general">
+        <TabsList className="mb-6">
+          <TabsTrigger value="general">General</TabsTrigger>
+          <TabsTrigger value="ta-permissions">TA Permissions</TabsTrigger>
+          <TabsTrigger value="ai-memory">AI Memory</TabsTrigger>
+        </TabsList>
 
-        {/* Course Description */}
-        <div>
-          <label
-            htmlFor="description"
-            className="block text-sm font-medium text-gray-700 mb-2"
-          >
-            Description
-          </label>
-          <Textarea
-            id="description"
-            name="description"
-            value={formData.description}
-            onChange={handleInputChange}
-            placeholder="Enter course description"
-            className="w-full"
-            rows={4}
-          />
-        </div>
+        {/* General Tab */}
+        <TabsContent value="general">
+          <div className="space-y-6">
+            {/* Course Name */}
+            <div>
+              <label
+                htmlFor="name"
+                className="block text-sm font-medium text-foreground mb-2"
+              >
+                Course Name
+              </label>
+              <Input
+                id="name"
+                name="name"
+                value={formData.name}
+                onChange={handleInputChange}
+                placeholder="Enter course name"
+                className="w-full"
+              />
+            </div>
 
-        {/* TA Permissions Section */}
-        <div className="pt-6 border-t">
+            {/* Course Description */}
+            <div>
+              <label
+                htmlFor="description"
+                className="block text-sm font-medium text-foreground mb-2"
+              >
+                Description
+              </label>
+              <Textarea
+                id="description"
+                name="description"
+                value={formData.description}
+                onChange={handleInputChange}
+                placeholder="Enter course description"
+                className="w-full"
+                rows={4}
+              />
+            </div>
+
+            {/* Export to Template Section */}
+            {!course?.is_template && (
+              <div className="pt-6 border-t">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <FileText className="h-5 w-5" />
+                      Export to Template
+                    </CardTitle>
+                    <CardDescription>
+                      Create a template from this course to share with your organization
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <Dialog open={exportDialogOpen} onOpenChange={setExportDialogOpen}>
+                      <DialogTrigger asChild>
+                        <Button variant="outline" className="flex items-center gap-2">
+                          <Download className="h-4 w-4" />
+                          Export Course to Template
+                        </Button>
+                      </DialogTrigger>
+                      <DialogContent>
+                        <DialogHeader>
+                          <DialogTitle>Export Course to Template</DialogTitle>
+                          <DialogDescription>
+                            Create a template from this course. All assignments and folders will be copied, but student enrollments and grades will not be included.
+                          </DialogDescription>
+                        </DialogHeader>
+                        <div className="space-y-4 py-4">
+                          <div>
+                            <Label htmlFor="export-org">Organization</Label>
+                            <Select
+                              value={exportFormData.organizationId}
+                              onValueChange={(value) =>
+                                setExportFormData((prev) => ({ ...prev, organizationId: value }))
+                              }
+                            >
+                              <SelectTrigger id="export-org">
+                                <SelectValue placeholder="Select an organization" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {loadingOrganizations ? (
+                                  <SelectItem value="loading" disabled>Loading...</SelectItem>
+                                ) : organizations.length === 0 ? (
+                                  <SelectItem value="none" disabled>No organizations available</SelectItem>
+                                ) : (
+                                  organizations.map((org: any) => (
+                                    <SelectItem key={org.id} value={org.id}>
+                                      {org.name}
+                                    </SelectItem>
+                                  ))
+                                )}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div>
+                            <Label htmlFor="export-name">Template Name</Label>
+                            <Input
+                              id="export-name"
+                              value={exportFormData.name}
+                              onChange={(e) =>
+                                setExportFormData((prev) => ({ ...prev, name: e.target.value }))
+                              }
+                              placeholder="Enter template name"
+                            />
+                          </div>
+                        </div>
+                        <DialogFooter>
+                          <Button
+                            variant="outline"
+                            onClick={() => setExportDialogOpen(false)}
+                            disabled={isExporting}
+                          >
+                            Cancel
+                          </Button>
+                          <Button
+                            onClick={handleExportToTemplate}
+                            disabled={isExporting || !exportFormData.organizationId || !exportFormData.name.trim()}
+                            className="flex items-center gap-2"
+                          >
+                            <Download className="h-4 w-4" />
+                            {isExporting ? "Exporting..." : "Export to Template"}
+                          </Button>
+                        </DialogFooter>
+                      </DialogContent>
+                    </Dialog>
+                  </CardContent>
+                </Card>
+              </div>
+            )}
+
+            {/* Action Buttons */}
+            <div className="flex justify-between pt-6 border-t">
+              <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+                <DialogTrigger asChild>
+                  <Button variant="destructive" className="flex items-center gap-2">
+                    <Trash2 className="h-4 w-4" />
+                    Delete Course
+                  </Button>
+                </DialogTrigger>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>Delete Course</DialogTitle>
+                    <DialogDescription>
+                      Are you sure you want to delete "{course?.name}"? This action
+                      cannot be undone. All assignments, submissions, and
+                      enrollments will be permanently removed.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <DialogFooter>
+                    <Button
+                      variant="outline"
+                      onClick={() => setDeleteDialogOpen(false)}
+                      disabled={isDeleting}
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      variant="destructive"
+                      onClick={handleDelete}
+                      disabled={isDeleting}
+                    >
+                      {isDeleting ? "Deleting..." : "Delete Course"}
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+
+              <Button
+                onClick={handleSave}
+                disabled={isLoading}
+                className="flex items-center gap-2"
+              >
+                <Save className="h-4 w-4" />
+                {isLoading ? "Saving..." : "Save Changes"}
+              </Button>
+            </div>
+          </div>
+        </TabsContent>
+
+        {/* TA Permissions Tab */}
+        <TabsContent value="ta-permissions">
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -375,7 +526,7 @@ const CourseSettingsPage: React.FC<CourseSettingsPageProps> = ({
             <CardContent className="space-y-6">
               {/* Default Permissions */}
               <div>
-                <h3 className="text-sm font-semibold text-gray-900 mb-3">
+                <h3 className="text-sm font-semibold text-foreground mb-3">
                   Default Permissions (Apply to All TAs)
                 </h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -444,14 +595,14 @@ const CourseSettingsPage: React.FC<CourseSettingsPageProps> = ({
 
               {/* Individual TA Permissions */}
               {loadingTAs ? (
-                <div className="text-center text-gray-500 py-4">Loading TAs...</div>
+                <div className="text-center text-muted-foreground py-4">Loading TAs...</div>
               ) : tas.length === 0 ? (
-                <div className="text-center text-gray-500 py-4">
+                <div className="text-center text-muted-foreground py-4">
                   No TAs enrolled in this course
                 </div>
               ) : (
                 <div>
-                  <h3 className="text-sm font-semibold text-gray-900 mb-3">
+                  <h3 className="text-sm font-semibold text-foreground mb-3">
                     Individual TA Permissions
                   </h3>
                   <div className="space-y-4">
@@ -463,10 +614,10 @@ const CourseSettingsPage: React.FC<CourseSettingsPageProps> = ({
                           <CardContent className="pt-4">
                             <div className="flex items-center justify-between mb-3">
                               <div>
-                                <div className="font-medium text-gray-900">
+                                <div className="font-medium text-foreground">
                                   {getDisplayName(ta)}
                                 </div>
-                                <div className="text-sm text-gray-500">{ta.email}</div>
+                                <div className="text-sm text-muted-foreground">{ta.email}</div>
                               </div>
                               {hasOverride && (
                                 <Button
@@ -588,148 +739,27 @@ const CourseSettingsPage: React.FC<CourseSettingsPageProps> = ({
                   </div>
                 </div>
               )}
+
+              {/* Save button for TA permissions */}
+              <div className="flex justify-end pt-4 border-t">
+                <Button
+                  onClick={handleSave}
+                  disabled={isLoading}
+                  className="flex items-center gap-2"
+                >
+                  <Save className="h-4 w-4" />
+                  {isLoading ? "Saving..." : "Save Changes"}
+                </Button>
+              </div>
             </CardContent>
           </Card>
-        </div>
+        </TabsContent>
 
-        {/* Export to Template Section */}
-        {!course?.is_template && (
-          <div className="pt-6 border-t">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <FileText className="h-5 w-5" />
-                  Export to Template
-                </CardTitle>
-                <CardDescription>
-                  Create a template from this course to share with your organization
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <Dialog open={exportDialogOpen} onOpenChange={setExportDialogOpen}>
-                  <DialogTrigger asChild>
-                    <Button variant="outline" className="flex items-center gap-2">
-                      <Download className="h-4 w-4" />
-                      Export Course to Template
-                    </Button>
-                  </DialogTrigger>
-                  <DialogContent>
-                    <DialogHeader>
-                      <DialogTitle>Export Course to Template</DialogTitle>
-                      <DialogDescription>
-                        Create a template from this course. All assignments and folders will be copied, but student enrollments and grades will not be included.
-                      </DialogDescription>
-                    </DialogHeader>
-                    <div className="space-y-4 py-4">
-                      <div>
-                        <Label htmlFor="export-org">Organization</Label>
-                        <Select
-                          value={exportFormData.organizationId}
-                          onValueChange={(value) =>
-                            setExportFormData((prev) => ({ ...prev, organizationId: value }))
-                          }
-                        >
-                          <SelectTrigger id="export-org">
-                            <SelectValue placeholder="Select an organization" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {loadingOrganizations ? (
-                              <SelectItem value="loading" disabled>Loading...</SelectItem>
-                            ) : organizations.length === 0 ? (
-                              <SelectItem value="none" disabled>No organizations available</SelectItem>
-                            ) : (
-                              organizations.map((org: any) => (
-                                <SelectItem key={org.id} value={org.id}>
-                                  {org.name}
-                                </SelectItem>
-                              ))
-                            )}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div>
-                        <Label htmlFor="export-name">Template Name</Label>
-                        <Input
-                          id="export-name"
-                          value={exportFormData.name}
-                          onChange={(e) =>
-                            setExportFormData((prev) => ({ ...prev, name: e.target.value }))
-                          }
-                          placeholder="Enter template name"
-                        />
-                      </div>
-                    </div>
-                    <DialogFooter>
-                      <Button
-                        variant="outline"
-                        onClick={() => setExportDialogOpen(false)}
-                        disabled={isExporting}
-                      >
-                        Cancel
-                      </Button>
-                      <Button
-                        onClick={handleExportToTemplate}
-                        disabled={isExporting || !exportFormData.organizationId || !exportFormData.name.trim()}
-                        className="flex items-center gap-2"
-                      >
-                        <Download className="h-4 w-4" />
-                        {isExporting ? "Exporting..." : "Export to Template"}
-                      </Button>
-                    </DialogFooter>
-                  </DialogContent>
-                </Dialog>
-              </CardContent>
-            </Card>
-          </div>
-        )}
-
-        {/* Action Buttons */}
-        <div className="flex justify-between pt-6 border-t">
-          <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
-            <DialogTrigger asChild>
-              <Button variant="destructive" className="flex items-center gap-2">
-                <Trash2 className="h-4 w-4" />
-                Delete Course
-              </Button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Delete Course</DialogTitle>
-                <DialogDescription>
-                  Are you sure you want to delete "{course?.name}"? This action
-                  cannot be undone. All assignments, submissions, and
-                  enrollments will be permanently removed.
-                </DialogDescription>
-              </DialogHeader>
-              <DialogFooter>
-                <Button
-                  variant="outline"
-                  onClick={() => setDeleteDialogOpen(false)}
-                  disabled={isDeleting}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  variant="destructive"
-                  onClick={handleDelete}
-                  disabled={isDeleting}
-                >
-                  {isDeleting ? "Deleting..." : "Delete Course"}
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
-
-          <Button
-            onClick={handleSave}
-            disabled={isLoading}
-            className="flex items-center gap-2"
-          >
-            <Save className="h-4 w-4" />
-            {isLoading ? "Saving..." : "Save Changes"}
-          </Button>
-        </div>
-      </div>
+        {/* AI Memory Tab */}
+        <TabsContent value="ai-memory">
+          <AIMemoryTab course={course} setCourse={setCourse} />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 };

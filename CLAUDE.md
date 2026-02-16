@@ -110,6 +110,77 @@ if (resource.student_id !== userId && !permissions.canGrade) {
 
 ---
 
+## Dark Mode Support (REQUIRED)
+
+### All New Components Must Support Dark Mode
+
+The app uses a **purple-tinted dark theme** with softer contrast. Always use semantic CSS variables instead of hardcoded colors.
+
+### Color Mapping
+
+| Element Type | Light Mode | Dark Mode |
+|---|---|---|
+| **Backgrounds** | | |
+| Page background | `bg-background` | Auto (260° 25% 9%) |
+| Elevated surfaces (cards, modals) | `bg-card` | Auto (260° 22% 12%) |
+| Muted backgrounds | `bg-muted` | Auto (260° 18% 18%) |
+| Accent/hover states | `bg-accent` | Auto (260° 18% 18%) |
+| **Text** | | |
+| Primary text | `text-foreground` | Auto (260° 15% 85%) |
+| Secondary/muted text | `text-muted-foreground` | Auto (260° 10% 55%) |
+| **Borders** | | |
+| All borders | `border-border` | Auto (260° 18% 20%) |
+| Dividers | `divide-border` | Auto (260° 18% 20%) |
+| **Purple Branding** | | |
+| Headers/cards | `bg-purple-600 dark:bg-purple-900` | purple-900 |
+| Buttons | `bg-purple-600 hover:bg-purple-700 dark:bg-purple-800 dark:hover:bg-purple-900` | purple-800/900 |
+| Accents/highlights | `bg-primary/10 dark:bg-primary/20` | More opacity |
+| Selected states | `bg-purple-100 dark:bg-purple-900` | purple-900 |
+| Active indicators | `text-primary dark:text-purple-300` | purple-300 |
+| Borders | `border-purple-500 dark:border-purple-700` | purple-700 |
+
+### What to Keep Unchanged
+- **Status colors**: `bg-green-600`, `bg-red-600`, `bg-yellow-600`, `bg-blue-600` (no dark variants)
+- **White text on colored backgrounds**: `text-white` (always white)
+- **Semi-transparent overlays**: `bg-white/10`, `bg-white/20` (for frosted glass effect)
+- **Terminal/code backgrounds**: Dark colors like `bg-gray-900`, `bg-[#1e1e1e]` (intentionally dark)
+
+### Pattern for New Components
+
+```tsx
+// ❌ BAD - Hardcoded colors
+<div className="bg-white text-gray-900 border border-gray-200">
+  <h2 className="text-gray-700">Title</h2>
+  <button className="bg-purple-600 hover:bg-purple-700">Click</button>
+</div>
+
+// ✅ GOOD - Semantic variables with dark mode support
+<div className="bg-card text-foreground border border-border">
+  <h2 className="text-foreground">Title</h2>
+  <button className="bg-purple-600 hover:bg-purple-700 dark:bg-purple-800 dark:hover:bg-purple-900 text-white">
+    Click
+  </button>
+</div>
+```
+
+### Dark Mode Testing
+- Toggle with Sun/Moon icon in header
+- Theme persists in localStorage (`classla-theme`)
+- Verify all states: default, hover, active, disabled
+- Check Monaco editor switches to `vs-dark` theme
+- Ensure separators/dividers are visible
+
+### useTheme Hook
+Access dark mode state in components:
+```tsx
+import { useTheme } from '@/hooks/useTheme';
+
+const { isDark, toggle } = useTheme();
+// Use isDark for conditional logic (e.g., Monaco theme)
+```
+
+---
+
 ## Updating This File
 
 **When to update**:

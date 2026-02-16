@@ -138,7 +138,7 @@ const ShortAnswerEditor: React.FC<ShortAnswerEditorProps> = memo(
         }}
       >
         <div
-          className="short-answer-editor border border-gray-200 rounded-lg p-3 bg-white shadow-sm select-none"
+          className="short-answer-editor border border-border rounded-lg p-3 bg-card shadow-sm select-none"
           role="group"
           aria-label="Short answer question editor"
           style={{ cursor: "default" }}
@@ -159,7 +159,7 @@ const ShortAnswerEditor: React.FC<ShortAnswerEditorProps> = memo(
                 )}
               </div>
               <div className="select-none">
-                <div className="text-sm font-medium text-gray-900">
+                <div className="text-sm font-medium text-foreground">
                   Short Answer Question
                 </div>
               </div>
@@ -175,7 +175,7 @@ const ShortAnswerEditor: React.FC<ShortAnswerEditorProps> = memo(
           </div>
 
           <div className="mb-3">
-            <Label className="text-sm font-medium text-gray-700 mb-1 block select-none">
+            <Label className="text-sm font-medium text-foreground mb-1 block select-none">
               Prompt
             </Label>
             <div className="select-text">
@@ -192,25 +192,25 @@ const ShortAnswerEditor: React.FC<ShortAnswerEditorProps> = memo(
           </div>
 
           {/* Grading Setup - Collapsible - At Bottom */}
-          <div className="mt-4 border border-gray-200 rounded-md">
+          <div className="mt-4 border border-border rounded-md">
             <button
               type="button"
               onClick={() => setShowGradingSetup(!showGradingSetup)}
-              className="w-full flex items-center justify-between p-3 bg-gray-50 hover:bg-gray-100 transition-colors"
+              className="w-full flex items-center justify-between p-3 bg-muted hover:bg-accent transition-colors"
             >
-              <span className="text-sm font-medium text-gray-700">
+              <span className="text-sm font-medium text-foreground">
                 Grading Setup
               </span>
               {showGradingSetup ? (
-                <ChevronUp className="w-4 h-4 text-gray-600" />
+                <ChevronUp className="w-4 h-4 text-muted-foreground" />
               ) : (
-                <ChevronDown className="w-4 h-4 text-gray-600" />
+                <ChevronDown className="w-4 h-4 text-muted-foreground" />
               )}
             </button>
             {showGradingSetup && (
-              <div className="p-3 space-y-3 border-t border-gray-200">
+              <div className="p-3 space-y-3 border-t border-border">
                 <div className="flex items-center justify-between">
-                  <Label className="text-sm text-gray-700">Points</Label>
+                  <Label className="text-sm text-foreground">Points</Label>
                   <Input
                     type="number"
                     min="0"
@@ -236,7 +236,7 @@ const ShortAnswerEditor: React.FC<ShortAnswerEditorProps> = memo(
                   />
                 </div>
                 <div className="flex items-center justify-between">
-                  <Label className="text-sm text-gray-700">Minimum Words (optional)</Label>
+                  <Label className="text-sm text-foreground">Minimum Words (optional)</Label>
                   <Input
                     type="number"
                     min="0"
@@ -264,7 +264,7 @@ const ShortAnswerEditor: React.FC<ShortAnswerEditorProps> = memo(
                   />
                 </div>
                 <div className="flex items-center justify-between">
-                  <Label className="text-sm text-gray-700">Maximum Words (optional)</Label>
+                  <Label className="text-sm text-foreground">Maximum Words (optional)</Label>
                   <Input
                     type="number"
                     min="0"
@@ -292,7 +292,7 @@ const ShortAnswerEditor: React.FC<ShortAnswerEditorProps> = memo(
                   />
                 </div>
                 <div>
-                  <Label className="text-sm text-gray-700 mb-1 block">
+                  <Label className="text-sm text-foreground mb-1 block">
                     Sample Answer (hidden from students)
                   </Label>
                   <Input
@@ -318,7 +318,7 @@ const ShortAnswerEditor: React.FC<ShortAnswerEditorProps> = memo(
                   />
                 </div>
                 <div>
-                  <Label className="text-sm text-gray-700 mb-2 block">
+                  <Label className="text-sm text-foreground mb-2 block">
                     Grading Method
                   </Label>
                   <div className="flex gap-2 mb-3">
@@ -330,7 +330,7 @@ const ShortAnswerEditor: React.FC<ShortAnswerEditorProps> = memo(
                       className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${
                         (shortAnswerData.gradingType === "manual" || !shortAnswerData.gradingType)
                           ? "bg-purple-600 text-white"
-                          : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                          : "bg-muted text-foreground hover:bg-accent"
                       }`}
                     >
                       Manual grading
@@ -343,7 +343,7 @@ const ShortAnswerEditor: React.FC<ShortAnswerEditorProps> = memo(
                       className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${
                         shortAnswerData.gradingType === "keyword"
                           ? "bg-purple-600 text-white"
-                          : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                          : "bg-muted text-foreground hover:bg-accent"
                       }`}
                     >
                       Keyword matching
@@ -356,7 +356,7 @@ const ShortAnswerEditor: React.FC<ShortAnswerEditorProps> = memo(
                       className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${
                         shortAnswerData.gradingType === "regex"
                           ? "bg-purple-600 text-white"
-                          : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                          : "bg-muted text-foreground hover:bg-accent"
                       }`}
                     >
                       Regex pattern
@@ -365,14 +365,14 @@ const ShortAnswerEditor: React.FC<ShortAnswerEditorProps> = memo(
                 </div>
                 {shortAnswerData.gradingType === "keyword" && (
                   <div>
-                    <Label className="text-sm text-gray-700 mb-1 block">
+                    <Label className="text-sm text-foreground mb-1 block">
                       Required Keywords/Phrases
                     </Label>
                     <div className="flex flex-wrap gap-2 mb-2">
                       {(shortAnswerData.keywordMatches || []).map((keyword, idx) => (
                         <div
                           key={idx}
-                          className="flex items-center gap-1 bg-white px-2 py-1 rounded border border-gray-300"
+                          className="flex items-center gap-1 bg-card px-2 py-1 rounded border border-border"
                         >
                           <span className="text-sm">{keyword}</span>
                           <Button
@@ -456,7 +456,7 @@ const ShortAnswerEditor: React.FC<ShortAnswerEditorProps> = memo(
                             caseSensitive: e.target.checked,
                           })
                         }
-                        className="text-purple-600"
+                        className="text-primary"
                       />
                       <Label htmlFor="caseSensitive" className="text-sm">
                         Case sensitive
@@ -466,7 +466,7 @@ const ShortAnswerEditor: React.FC<ShortAnswerEditorProps> = memo(
                 )}
                 {shortAnswerData.gradingType === "regex" && (
                   <div>
-                    <Label className="text-sm text-gray-700 mb-1 block">
+                    <Label className="text-sm text-foreground mb-1 block">
                       Regex Pattern
                     </Label>
                     <Input
@@ -490,7 +490,7 @@ const ShortAnswerEditor: React.FC<ShortAnswerEditorProps> = memo(
                       placeholder="^[A-Z].*$"
                       className="w-full font-mono text-sm"
                     />
-                    <p className="text-xs text-gray-500 mt-1">
+                    <p className="text-xs text-muted-foreground mt-1">
                       Use a valid JavaScript regex pattern. The answer will match if it satisfies this pattern.
                     </p>
                     <div className="flex items-center space-x-2 mt-2">
@@ -503,7 +503,7 @@ const ShortAnswerEditor: React.FC<ShortAnswerEditorProps> = memo(
                             caseSensitive: e.target.checked,
                           })
                         }
-                        className="text-purple-600"
+                        className="text-primary"
                       />
                       <Label htmlFor="regexCaseSensitive" className="text-sm">
                         Case sensitive
@@ -535,7 +535,7 @@ const ShortAnswerEditor: React.FC<ShortAnswerEditorProps> = memo(
           )}
 
           {/* Footer info */}
-          <div className="mt-4 pt-3 border-t border-gray-200 text-xs text-gray-500 space-y-2 select-none">
+          <div className="mt-4 pt-3 border-t border-border text-xs text-muted-foreground space-y-2 select-none">
             <div className="flex justify-between items-center">
               <span>Short answer question</span>
               <span>{shortAnswerData.points} points</span>

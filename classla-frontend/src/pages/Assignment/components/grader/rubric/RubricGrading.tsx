@@ -54,12 +54,12 @@ const RubricGrading: React.FC<RubricGradingProps> = ({
   );
 
   return (
-    <div className="space-y-4 p-4 border border-gray-200 rounded-lg bg-white">
-      <div className="flex items-center justify-between border-b border-gray-200 pb-3">
-        <h4 className="text-sm font-bold text-gray-900">
+    <div className="space-y-4 p-4 border border-border rounded-lg bg-card">
+      <div className="flex items-center justify-between border-b border-border pb-3">
+        <h4 className="text-sm font-bold text-foreground">
           {rubricSchema.title}
         </h4>
-        <div className="text-sm font-semibold text-purple-700">
+        <div className="text-sm font-semibold text-primary">
           {totalScore} / {maxScore} pts
         </div>
       </div>
@@ -78,7 +78,7 @@ const RubricGrading: React.FC<RubricGradingProps> = ({
                   ? "border-red-200 bg-red-50"
                   : isExtraCredit
                   ? "border-blue-200 bg-blue-50"
-                  : "border-purple-200 bg-purple-50"
+                  : "border-primary/30 bg-primary/10"
               }`}
             >
               {rubricSchema.type === RubricType.CHECKBOX ? (
@@ -101,7 +101,7 @@ const RubricGrading: React.FC<RubricGradingProps> = ({
                   <div className="flex-1">
                     <Label
                       htmlFor={`rubric-item-${index}`}
-                      className="text-sm font-medium text-gray-900 cursor-pointer"
+                      className="text-sm font-medium text-foreground cursor-pointer"
                     >
                       {item.title}
                     </Label>
@@ -111,7 +111,7 @@ const RubricGrading: React.FC<RubricGradingProps> = ({
                           ? "text-red-700"
                           : isExtraCredit
                           ? "text-blue-700"
-                          : "text-purple-700"
+                          : "text-primary"
                       }`}
                     >
                       {isNegative ? "" : "+"}
@@ -124,7 +124,7 @@ const RubricGrading: React.FC<RubricGradingProps> = ({
                 <div className="space-y-2">
                   <Label
                     htmlFor={`rubric-item-${index}`}
-                    className="text-sm font-medium text-gray-900"
+                    className="text-sm font-medium text-foreground"
                   >
                     {item.title}
                   </Label>
@@ -142,7 +142,7 @@ const RubricGrading: React.FC<RubricGradingProps> = ({
                       step={0.5}
                       className="w-24"
                     />
-                    <span className="text-sm text-gray-600">
+                    <span className="text-sm text-muted-foreground">
                       / {item.points} pts
                     </span>
                   </div>
@@ -154,8 +154,8 @@ const RubricGrading: React.FC<RubricGradingProps> = ({
       </div>
 
       {rubricSchema.use_for_grading && (
-        <div className="pt-3 border-t border-gray-200">
-          <p className="text-xs text-gray-600">
+        <div className="pt-3 border-t border-border">
+          <p className="text-xs text-muted-foreground">
             This rubric score is included in the final grade calculation
           </p>
         </div>

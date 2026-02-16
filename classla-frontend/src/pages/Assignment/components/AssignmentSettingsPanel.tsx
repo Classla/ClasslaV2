@@ -294,24 +294,24 @@ const AssignmentSettingsPanel: React.FC<AssignmentSettingsPanelProps> = ({
           <div className="flex items-start gap-2">
             <HelpCircle className="w-4 h-4 text-purple-600 mt-0.5 flex-shrink-0" />
             <div className="flex-1">
-              <h3 className="text-sm font-medium text-gray-900 mb-1">
+              <h3 className="text-sm font-medium text-foreground mb-1">
                 Allow Late Submissions
               </h3>
-              <p className="text-xs text-gray-600 mb-2">
+              <p className="text-xs text-muted-foreground mb-2">
                 Students can submit their work after the due date has passed.
               </p>
             </div>
           </div>
           <button
             onClick={() => handleToggle("allowLateSubmissions")}
-            className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 ${
-              settings.allowLateSubmissions ? "bg-purple-600" : "bg-gray-200"
+            className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 ${
+              settings.allowLateSubmissions ? "bg-purple-600" : "bg-accent"
             }`}
             role="switch"
             aria-checked={settings.allowLateSubmissions ? "true" : "false"}
           >
             <span
-              className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+              className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-card shadow ring-0 transition duration-200 ease-in-out ${
                 settings.allowLateSubmissions
                   ? "translate-x-5"
                   : "translate-x-0"
@@ -325,10 +325,10 @@ const AssignmentSettingsPanel: React.FC<AssignmentSettingsPanelProps> = ({
           <div className="flex items-start gap-2">
             <HelpCircle className="w-4 h-4 text-purple-600 mt-0.5 flex-shrink-0" />
             <div className="flex-1">
-              <h3 className="text-sm font-medium text-gray-900 mb-1">
+              <h3 className="text-sm font-medium text-foreground mb-1">
                 Allow Resubmissions
               </h3>
-              <p className="text-xs text-gray-600 mb-2">
+              <p className="text-xs text-muted-foreground mb-2">
                 Students can submit multiple times. Each submission creates a
                 new entry.
               </p>
@@ -336,14 +336,14 @@ const AssignmentSettingsPanel: React.FC<AssignmentSettingsPanelProps> = ({
           </div>
           <button
             onClick={() => handleToggle("allowResubmissions")}
-            className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 ${
-              settings.allowResubmissions ? "bg-purple-600" : "bg-gray-200"
+            className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 ${
+              settings.allowResubmissions ? "bg-purple-600" : "bg-accent"
             }`}
             role="switch"
             aria-checked={settings.allowResubmissions ? "true" : "false"}
           >
             <span
-              className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+              className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-card shadow ring-0 transition duration-200 ease-in-out ${
                 settings.allowResubmissions ? "translate-x-5" : "translate-x-0"
               }`}
             />
@@ -355,20 +355,20 @@ const AssignmentSettingsPanel: React.FC<AssignmentSettingsPanelProps> = ({
           <div className="flex items-start gap-2">
             <HelpCircle className="w-4 h-4 text-purple-600 mt-0.5 flex-shrink-0" />
             <div className="flex-1">
-              <h3 className="text-sm font-medium text-gray-900 mb-1">
+              <h3 className="text-sm font-medium text-foreground mb-1">
                 Show Responses After Submission
               </h3>
-              <p className="text-xs text-gray-600 mb-2">
+              <p className="text-xs text-muted-foreground mb-2">
                 After submitting, students can view their answers.
               </p>
             </div>
           </div>
           <button
             onClick={() => handleToggle("showResponsesAfterSubmission")}
-            className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 ${
+            className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 ${
               settings.showResponsesAfterSubmission
                 ? "bg-purple-600"
-                : "bg-gray-200"
+                : "bg-accent"
             }`}
             role="switch"
             aria-checked={
@@ -376,7 +376,7 @@ const AssignmentSettingsPanel: React.FC<AssignmentSettingsPanelProps> = ({
             }
           >
             <span
-              className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+              className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-card shadow ring-0 transition duration-200 ease-in-out ${
                 settings.showResponsesAfterSubmission
                   ? "translate-x-5"
                   : "translate-x-0"
@@ -390,10 +390,10 @@ const AssignmentSettingsPanel: React.FC<AssignmentSettingsPanelProps> = ({
           <div className="flex items-start gap-2">
             <HelpCircle className="w-4 h-4 text-purple-600 mt-0.5 flex-shrink-0" />
             <div className="flex-1">
-              <h3 className="text-sm font-medium text-gray-900 mb-1">
+              <h3 className="text-sm font-medium text-foreground mb-1">
                 Show Score After Submission
               </h3>
-              <p className="text-xs text-gray-600 mb-2">
+              <p className="text-xs text-muted-foreground mb-2">
                 When enabled, students will see their autograded score
                 immediately after submitting. When disabled, scores are hidden
                 until you manually release them.
@@ -402,16 +402,16 @@ const AssignmentSettingsPanel: React.FC<AssignmentSettingsPanelProps> = ({
           </div>
           <button
             onClick={() => handleToggle("showScoreAfterSubmission")}
-            className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 ${
+            className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 ${
               settings.showScoreAfterSubmission
                 ? "bg-purple-600"
-                : "bg-gray-200"
+                : "bg-accent"
             }`}
             role="switch"
             aria-checked={settings.showScoreAfterSubmission ? "true" : "false"}
           >
             <span
-              className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+              className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-card shadow ring-0 transition duration-200 ease-in-out ${
                 settings.showScoreAfterSubmission
                   ? "translate-x-5"
                   : "translate-x-0"
@@ -421,7 +421,7 @@ const AssignmentSettingsPanel: React.FC<AssignmentSettingsPanelProps> = ({
         </div>
 
         {/* Rubric Configuration */}
-        <div className="space-y-2 pt-4 border-t border-gray-200">
+        <div className="space-y-2 pt-4 border-t border-border">
           <button
             onClick={() => setShowRubricSection(!showRubricSection)}
             className="w-full flex items-center justify-between text-left"
@@ -429,25 +429,25 @@ const AssignmentSettingsPanel: React.FC<AssignmentSettingsPanelProps> = ({
             <div className="flex items-start gap-2">
               <HelpCircle className="w-4 h-4 text-purple-600 mt-0.5 flex-shrink-0" />
               <div className="flex-1">
-                <h3 className="text-sm font-medium text-gray-900 mb-1">
+                <h3 className="text-sm font-medium text-foreground mb-1">
                   Grading Rubric
                 </h3>
-                <p className="text-xs text-gray-600">
+                <p className="text-xs text-muted-foreground">
                   Configure criteria and point values for manual grading
                 </p>
               </div>
             </div>
             {showRubricSection ? (
-              <ChevronDown className="w-5 h-5 text-gray-400" />
+              <ChevronDown className="w-5 h-5 text-muted-foreground" />
             ) : (
-              <ChevronRight className="w-5 h-5 text-gray-400" />
+              <ChevronRight className="w-5 h-5 text-muted-foreground" />
             )}
           </button>
 
           {showRubricSection && (
             <div className="pl-6 pt-2">
               {isLoadingRubric ? (
-                <div className="text-sm text-gray-600">Loading rubric...</div>
+                <div className="text-sm text-muted-foreground">Loading rubric...</div>
               ) : (
                 <RubricEditor
                   rubricSchema={rubricSchema}
@@ -461,14 +461,14 @@ const AssignmentSettingsPanel: React.FC<AssignmentSettingsPanelProps> = ({
 
         {/* Clone to Another Course (Instructors/Admins only) */}
         {canClone && !course?.is_template && (
-          <div className="space-y-2 pt-4 border-t border-gray-200">
+          <div className="space-y-2 pt-4 border-t border-border">
             <div className="flex items-start gap-2">
               <HelpCircle className="w-4 h-4 text-purple-600 mt-0.5 flex-shrink-0" />
               <div className="flex-1">
-                <h3 className="text-sm font-medium text-gray-900 mb-1">
+                <h3 className="text-sm font-medium text-foreground mb-1">
                   Clone to Another Course
                 </h3>
-                <p className="text-xs text-gray-600 mb-3">
+                <p className="text-xs text-muted-foreground mb-3">
                   Copy this assignment to another course. Student data and grades will not be copied.
                 </p>
                 <Dialog open={cloneDialogOpen} onOpenChange={setCloneDialogOpen}>
@@ -536,14 +536,14 @@ const AssignmentSettingsPanel: React.FC<AssignmentSettingsPanelProps> = ({
         )}
 
         {/* Delete Assignment Section */}
-        <div className="space-y-2 pt-4 border-t border-gray-200">
+        <div className="space-y-2 pt-4 border-t border-border">
           <div className="flex items-start gap-2">
             <HelpCircle className="w-4 h-4 text-purple-600 mt-0.5 flex-shrink-0" />
             <div className="flex-1">
-              <h3 className="text-sm font-medium text-gray-900 mb-1">
+              <h3 className="text-sm font-medium text-foreground mb-1">
                 Delete Assignment
               </h3>
-              <p className="text-xs text-gray-500 mb-3">
+              <p className="text-xs text-muted-foreground mb-3">
                 This action cannot be undone. All submissions and grades will be permanently deleted.
               </p>
               <Button
@@ -562,8 +562,8 @@ const AssignmentSettingsPanel: React.FC<AssignmentSettingsPanelProps> = ({
 
       {/* Save Status */}
       {isSaving && (
-        <div className="border-t border-gray-200 p-4">
-          <div className="text-sm text-gray-600 text-center">Saving...</div>
+        <div className="border-t border-border p-4">
+          <div className="text-sm text-muted-foreground text-center">Saving...</div>
         </div>
       )}
 

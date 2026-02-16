@@ -15,7 +15,7 @@ const ModuleTreeSkeleton: React.FC = () => {
   return (
     <div className="space-y-1">
       <div className="flex items-center justify-between mb-3">
-        <div className="animate-pulse h-4 bg-gray-200 rounded w-28"></div>
+        <div className="animate-pulse h-4 bg-accent rounded w-28"></div>
       </div>
 
       <div className="animate-pulse space-y-2">
@@ -25,8 +25,8 @@ const ModuleTreeSkeleton: React.FC = () => {
             className="flex items-center py-1.5"
             style={{ paddingLeft: `${row.indent * 20 + 4}px` }}
           >
-            <div className="w-4 h-4 bg-gray-200 rounded flex-shrink-0 mr-2"></div>
-            <div className={`h-4 bg-gray-200 rounded ${row.width}`}></div>
+            <div className="w-4 h-4 bg-accent rounded flex-shrink-0 mr-2"></div>
+            <div className={`h-4 bg-accent rounded ${row.width}`}></div>
           </div>
         ))}
       </div>

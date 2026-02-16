@@ -82,7 +82,7 @@ const SortableBlock: React.FC<SortableBlockProps> = ({
 
   const bgColor = isDistractor
     ? "bg-yellow-50 border-yellow-300"
-    : "bg-white border-gray-300";
+    : "bg-card border-border";
 
   return (
     <div
@@ -94,9 +94,9 @@ const SortableBlock: React.FC<SortableBlockProps> = ({
         isDragging ? "shadow-lg" : ""
       }`}
     >
-      <GripVertical className="w-4 h-4 text-gray-400 flex-shrink-0" />
+      <GripVertical className="w-4 h-4 text-muted-foreground flex-shrink-0" />
       {showLineNumbers && (
-        <span className="text-xs text-gray-500 w-6 text-right flex-shrink-0">
+        <span className="text-xs text-muted-foreground w-6 text-right flex-shrink-0">
           {block.indentLevel + 1}
         </span>
       )}
@@ -280,7 +280,7 @@ const ParsonsProblemViewer: React.FC<ParsonsProblemViewerProps> = memo(
         draggable={false}
         contentEditable={false}
       >
-        <div className="parsons-problem-viewer border border-gray-200 rounded-lg p-4 bg-white shadow-sm my-4">
+        <div className="parsons-problem-viewer border border-border rounded-lg p-4 bg-card shadow-sm my-4">
           {hasDataError && (
             <div className="mb-3 p-2 bg-yellow-50 border border-yellow-200 rounded text-xs text-yellow-800">
               <AlertTriangle className="w-4 h-4 inline mr-1" />
@@ -289,7 +289,7 @@ const ParsonsProblemViewer: React.FC<ParsonsProblemViewerProps> = memo(
           )}
 
           {parsonsProblemData.instruction && (
-            <div className="mb-4 text-sm text-gray-700">
+            <div className="mb-4 text-sm text-foreground">
               {parsonsProblemData.instruction}
             </div>
           )}
@@ -303,11 +303,11 @@ const ParsonsProblemViewer: React.FC<ParsonsProblemViewerProps> = memo(
             <div className="grid grid-cols-2 gap-4 mb-4">
               {/* Available Blocks */}
               <div>
-                <div className="text-sm font-medium text-gray-700 mb-2">
+                <div className="text-sm font-medium text-foreground mb-2">
                   Available Blocks
                 </div>
                 <DroppableArea id="available-area">
-                  <div className="min-h-[200px] p-3 bg-gray-50 border-2 border-dashed border-gray-300 rounded">
+                  <div className="min-h-[200px] p-3 bg-muted border-2 border-dashed border-border rounded">
                     <SortableContext
                       items={availableBlocks.map((b) => b.id)}
                       strategy={verticalListSortingStrategy}
@@ -330,7 +330,7 @@ const ParsonsProblemViewer: React.FC<ParsonsProblemViewerProps> = memo(
                       </div>
                     </SortableContext>
                     {availableBlocks.length === 0 && (
-                      <div className="text-sm text-gray-400 text-center py-8">
+                      <div className="text-sm text-muted-foreground text-center py-8">
                         All blocks used
                       </div>
                     )}
@@ -340,7 +340,7 @@ const ParsonsProblemViewer: React.FC<ParsonsProblemViewerProps> = memo(
 
               {/* Solution Area */}
               <div>
-                <div className="text-sm font-medium text-gray-700 mb-2">
+                <div className="text-sm font-medium text-foreground mb-2">
                   Your Solution
                 </div>
                 <DroppableArea id="solution-area">
@@ -377,7 +377,7 @@ const ParsonsProblemViewer: React.FC<ParsonsProblemViewerProps> = memo(
                       </div>
                     </SortableContext>
                     {solutionBlocks.length === 0 && (
-                      <div className="text-sm text-gray-400 text-center py-8">
+                      <div className="text-sm text-muted-foreground text-center py-8">
                         Drag blocks here
                       </div>
                     )}
@@ -387,8 +387,8 @@ const ParsonsProblemViewer: React.FC<ParsonsProblemViewerProps> = memo(
             </div>
             <DragOverlay>
               {activeId ? (
-                <div className="flex items-center gap-2 p-2 rounded border bg-white border-gray-300 shadow-lg">
-                  <GripVertical className="w-4 h-4 text-gray-400 flex-shrink-0" />
+                <div className="flex items-center gap-2 p-2 rounded border bg-card border-border shadow-lg">
+                  <GripVertical className="w-4 h-4 text-muted-foreground flex-shrink-0" />
                   <code className="text-sm font-mono">
                     {[...availableBlocks, ...solutionBlocks].find((b) => b.id === activeId)?.code || ""}
                   </code>

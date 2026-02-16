@@ -123,7 +123,7 @@ const ClickableAreaViewer: React.FC<ClickableAreaViewerProps> = memo(
         draggable={false}
         contentEditable={false}
       >
-        <div className="clickable-area-viewer border border-gray-200 rounded-lg p-4 bg-white shadow-sm my-4">
+        <div className="clickable-area-viewer border border-border rounded-lg p-4 bg-card shadow-sm my-4">
           {hasDataError && (
             <div className="mb-3 p-2 bg-yellow-50 border border-yellow-200 rounded text-xs text-yellow-800">
               <AlertTriangle className="w-4 h-4 inline mr-1" />
@@ -132,7 +132,7 @@ const ClickableAreaViewer: React.FC<ClickableAreaViewerProps> = memo(
           )}
 
           {clickableAreaData.instruction && (
-            <div className="mb-3 text-sm text-gray-700">
+            <div className="mb-3 text-sm text-foreground">
               {clickableAreaData.instruction}
             </div>
           )}
@@ -173,7 +173,7 @@ const ClickableAreaViewer: React.FC<ClickableAreaViewerProps> = memo(
           </div>
 
           {selectedLines.length > 0 && (
-            <div className="mt-3 text-xs text-gray-500">
+            <div className="mt-3 text-xs text-muted-foreground">
               {selectedLines.length} line{selectedLines.length !== 1 ? "s" : ""} selected
             </div>
           )}

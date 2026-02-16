@@ -4,7 +4,6 @@ import { PollData, PollOption, validatePollData } from "../../extensions/PollBlo
 import { generateUUID } from "../../extensions/blockUtils";
 import { Plus, Trash2, AlertTriangle, X, GripVertical } from "lucide-react";
 import { Button } from "../../ui/button";
-import { Input } from "../../ui/input";
 import { Label } from "../../ui/label";
 import RichTextEditor from "../../RichTextEditor";
 
@@ -61,39 +60,6 @@ const PollEditor: React.FC<PollEditorProps> = memo(
       [pollData, updatePollData]
     );
 
-    const handleInputMouseDown = useCallback(
-      (e: React.MouseEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-        e.stopPropagation();
-        if ((e.target as HTMLElement).tagName === "TEXTAREA") {
-          return;
-        }
-        e.preventDefault();
-        setTimeout(() => {
-          (e.target as HTMLInputElement | HTMLTextAreaElement)?.focus();
-        }, 0);
-      },
-      []
-    );
-
-    const handleInputClick = useCallback(
-      (e: React.MouseEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-        e.stopPropagation();
-        (e.target as HTMLInputElement | HTMLTextAreaElement)?.focus();
-      },
-      []
-    );
-
-    const handleInputEvent = useCallback((e: React.SyntheticEvent) => {
-      e.stopPropagation();
-    }, []);
-
-    const handlePaste = useCallback(
-      (e: React.ClipboardEvent<HTMLInputElement>) => {
-        e.stopPropagation();
-      },
-      []
-    );
-
     return (
       <NodeViewWrapper
         className="poll-editor-wrapper"
@@ -134,7 +100,7 @@ const PollEditor: React.FC<PollEditorProps> = memo(
           }
         }}
       >
-        <div className="poll-editor border border-gray-200 rounded-lg p-3 bg-white shadow-sm select-none">
+        <div className="poll-editor border border-border rounded-lg p-3 bg-card shadow-sm select-none">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-3">
               <div
@@ -151,7 +117,7 @@ const PollEditor: React.FC<PollEditorProps> = memo(
                 )}
               </div>
               <div className="select-none">
-                <div className="text-sm font-medium text-gray-900">Poll/Survey</div>
+                <div className="text-sm font-medium text-foreground">Poll/Survey</div>
                 {validationErrors.length > 0 && (
                   <div className="text-xs text-red-600 mt-0.5">
                     {validationErrors.length} error
@@ -171,7 +137,7 @@ const PollEditor: React.FC<PollEditorProps> = memo(
           </div>
 
           <div className="mb-3">
-            <Label className="text-sm font-medium text-gray-700 mb-1 block">
+            <Label className="text-sm font-medium text-foreground mb-1 block">
               Question
             </Label>
             <RichTextEditor
@@ -187,52 +153,30 @@ const PollEditor: React.FC<PollEditorProps> = memo(
 
           <div className="mb-3">
             <div className="flex items-center justify-between mb-2">
-              <Label className="text-sm font-medium text-gray-700">Options</Label>
+              <Label className="text-sm font-medium text-foreground">Options</Label>
               <Button variant="outline" size="sm" onClick={addOption} className="text-xs">
                 <Plus className="w-3 h-3 mr-1" />
                 Add Option
               </Button>
             </div>
             <div className="space-y-2">
-              {pollData.options.map((option) => (
+              {pollData.options.map((option, index) => (
                 <div
                   key={option.id}
-                  className="flex items-center gap-2 p-2 bg-gray-50 border border-gray-200 rounded"
+                  className="flex items-center gap-2 p-2 bg-muted border border-border rounded"
                 >
-                  <GripVertical className="w-4 h-4 text-gray-400" />
-                  <Input
-                    value={option.text}
-                    onChange={(e) => updateOption(option.id, e.target.value)}
-                    onMouseDown={handleInputMouseDown}
-                    onClick={handleInputClick}
-                    onFocus={handleInputEvent}
-                    onBlur={handleInputEvent}
-                    onKeyDown={(e) => {
-                      e.stopPropagation();
-                      if (e.key === "Enter") {
-                        e.preventDefault();
-                        if (option.text.trim()) {
-                          addOption();
-                          // Focus will be on the new option's input after state update
-                          setTimeout(() => {
-                            const inputs = document.querySelectorAll(
-                              'input[placeholder="Option text..."]'
-                            );
-                            const lastInput = inputs[inputs.length - 1] as HTMLInputElement;
-                            lastInput?.focus();
-                          }, 0);
-                        }
-                      }
-                    }}
-                    onKeyUp={handleInputEvent}
-                    onKeyPress={handleInputEvent}
-                    onInput={handleInputEvent}
-                    onMouseUp={handleInputEvent}
-                    onMouseMove={handleInputEvent}
-                    onPaste={handlePaste}
-                    placeholder="Option text..."
-                    className="flex-1"
-                  />
+                  <GripVertical className="w-4 h-4 text-muted-foreground" />
+                  <div className="flex-1 select-text">
+                    <RichTextEditor
+                      content={option.text || ""}
+                      onChange={(text) => updateOption(option.id, text)}
+                      placeholder={`Option ${index + 1}`}
+                      className=""
+                      minHeight="28px"
+                      maxHeight="150px"
+                      showToolbar={true}
+                    />
+                  </div>
                   <Button
                     variant="ghost"
                     size="sm"
@@ -247,7 +191,7 @@ const PollEditor: React.FC<PollEditorProps> = memo(
           </div>
 
           <div className="mb-3">
-            <Label className="text-sm font-medium text-gray-700 mb-2 block">
+            <Label className="text-sm font-medium text-foreground mb-2 block">
               Selection Type
             </Label>
             <div className="flex gap-2 mb-3">
@@ -257,7 +201,7 @@ const PollEditor: React.FC<PollEditorProps> = memo(
                 className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${
                   pollData.selectionType === "single"
                     ? "bg-purple-600 text-white"
-                    : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                    : "bg-muted text-foreground hover:bg-accent"
                 }`}
               >
                 Single choice
@@ -268,7 +212,7 @@ const PollEditor: React.FC<PollEditorProps> = memo(
                 className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${
                   pollData.selectionType === "multiple"
                     ? "bg-purple-600 text-white"
-                    : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                    : "bg-muted text-foreground hover:bg-accent"
                 }`}
               >
                 Multiple choice

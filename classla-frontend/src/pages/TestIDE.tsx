@@ -222,7 +222,7 @@ const TestIDE: React.FC = () => {
 
   return (
     <div className="flex flex-col h-screen">
-      {/* Test Controls Header */}
+      {/* Test Controls Header - Keep yellow background for visibility in test page */}
       <div className="bg-yellow-100 border-b border-yellow-300 p-4">
         <div className="max-w-7xl mx-auto">
           <h1 className="text-2xl font-bold text-yellow-900 mb-2">IDE Test Page</h1>
@@ -328,10 +328,10 @@ const TestIDE: React.FC = () => {
             currentUser={{ id: "test-user", name: "Test User", color: "#FF6B6B" }}
           />
         ) : (
-          <div className="flex items-center justify-center h-full bg-gray-50">
+          <div className="flex items-center justify-center h-full bg-background">
             <div className="text-center">
-              <Loader2 className="w-8 h-8 mx-auto mb-4 animate-spin text-gray-400" />
-              <p className="text-gray-600">Setting up test environment...</p>
+              <Loader2 className="w-8 h-8 mx-auto mb-4 animate-spin text-muted-foreground" />
+              <p className="text-muted-foreground">Setting up test environment...</p>
             </div>
           </div>
         )}

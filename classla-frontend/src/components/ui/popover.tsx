@@ -88,7 +88,7 @@ export const Popover: React.FC<PopoverProps> = ({
         createPortal(
           <div
             ref={popoverRef}
-            className={`fixed z-[9999] bg-white border border-gray-200 rounded-lg shadow-lg ${className}`}
+            className={`fixed z-[9999] bg-card border border-border rounded-lg shadow-lg ${className}`}
             style={{
               top: `${position.top}px`,
               left: `${position.left}px`,

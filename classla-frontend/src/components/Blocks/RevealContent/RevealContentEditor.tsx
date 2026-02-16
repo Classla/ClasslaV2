@@ -88,7 +88,7 @@ const RevealContentEditor: React.FC<RevealContentEditorProps> = memo(
           }
         }}
       >
-        <div className="reveal-content-editor border border-gray-200 rounded-lg p-3 bg-white shadow-sm select-none">
+        <div className="reveal-content-editor border border-border rounded-lg p-3 bg-card shadow-sm select-none">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-3">
               <div
@@ -105,7 +105,7 @@ const RevealContentEditor: React.FC<RevealContentEditorProps> = memo(
                 )}
               </div>
               <div className="select-none">
-                <div className="text-sm font-medium text-gray-900">
+                <div className="text-sm font-medium text-foreground">
                   Reveal/Collapsible Content
                 </div>
                 {validationErrors.length > 0 && (
@@ -127,7 +127,7 @@ const RevealContentEditor: React.FC<RevealContentEditorProps> = memo(
           </div>
 
           <div className="mb-3">
-            <Label className="text-sm font-medium text-gray-700 mb-1 block">
+            <Label className="text-sm font-medium text-foreground mb-1 block">
               Button Text
             </Label>
             <Input
@@ -152,7 +152,7 @@ const RevealContentEditor: React.FC<RevealContentEditorProps> = memo(
           </div>
 
           <div className="mb-3">
-            <Label className="text-sm font-medium text-gray-700 mb-1 block">
+            <Label className="text-sm font-medium text-foreground mb-1 block">
               Content
             </Label>
             <RichTextEditor

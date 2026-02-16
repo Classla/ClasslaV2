@@ -217,7 +217,7 @@ class Classla_Unit_Test(unittest.TestCase):
                   onChange={(e) => setTestName(e.target.value)}
                 />
               </div>
-              <p className="text-sm text-gray-600">
+              <p className="text-sm text-muted-foreground">
                 Manual grading selected. No additional input required.
               </p>
             </TabsContent>
@@ -240,7 +240,7 @@ class Classla_Unit_Test(unittest.TestCase):
             <Button
               onClick={handleSave}
               disabled={!testName.trim()}
-              className="bg-purple-600 hover:bg-purple-700 text-white"
+              className="bg-purple-600 hover:bg-purple-700 dark:bg-purple-800 dark:hover:bg-purple-900 text-white"
             >
               {testCase ? "Save" : "+ Create"}
             </Button>

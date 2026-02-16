@@ -239,7 +239,7 @@ const FillInTheBlankEditor: React.FC<FillInTheBlankEditorProps> = memo(
         }}
       >
         <div
-          className="fill-in-the-blank-editor border border-gray-200 rounded-lg p-3 bg-white shadow-sm select-none"
+          className="fill-in-the-blank-editor border border-border rounded-lg p-3 bg-card shadow-sm select-none"
           role="group"
           aria-label="Fill-in-the-blank question editor"
           style={{ cursor: "default" }}
@@ -261,10 +261,10 @@ const FillInTheBlankEditor: React.FC<FillInTheBlankEditorProps> = memo(
                 )}
               </div>
               <div className="flex-1">
-                <div className="text-sm font-medium text-gray-900">
+                <div className="text-sm font-medium text-foreground">
                   Fill-in-the-Blank Question
                 </div>
-                <div className="text-xs text-gray-500">
+                <div className="text-xs text-muted-foreground">
                   {fillInTheBlankData.blanks.length} blank
                   {fillInTheBlankData.blanks.length !== 1 ? "s" : ""}
                 </div>
@@ -411,7 +411,7 @@ const FillInTheBlankEditor: React.FC<FillInTheBlankEditorProps> = memo(
           {/* Question editor */}
           <div className="mb-3">
             <div className="flex items-center justify-between mb-1">
-              <Label className="text-sm font-medium text-gray-700 select-none">
+              <Label className="text-sm font-medium text-foreground select-none">
                 Question Text
               </Label>
               <Button
@@ -477,7 +477,7 @@ const FillInTheBlankEditor: React.FC<FillInTheBlankEditorProps> = memo(
                 onEditorReady={setQuestionEditor}
               />
             </div>
-            <div className="text-xs text-gray-500 mt-1 select-none">
+            <div className="text-xs text-muted-foreground mt-1 select-none">
               Use the "Insert Blank" button to add [BLANK:...] markers in your
               question
             </div>
@@ -485,36 +485,36 @@ const FillInTheBlankEditor: React.FC<FillInTheBlankEditorProps> = memo(
 
 
           {/* Grading Setup - Collapsible - At Bottom */}
-          <div className="mt-4 border border-gray-200 rounded-md">
+          <div className="mt-4 border border-border rounded-md">
             <button
               type="button"
               onClick={() => setShowGradingSetup(!showGradingSetup)}
-              className="w-full flex items-center justify-between p-3 bg-gray-50 hover:bg-gray-100 transition-colors"
+              className="w-full flex items-center justify-between p-3 bg-muted hover:bg-accent transition-colors"
             >
-              <span className="text-sm font-medium text-gray-700">
+              <span className="text-sm font-medium text-foreground">
                 Grading Setup
               </span>
               {showGradingSetup ? (
-                <ChevronUp className="w-4 h-4 text-gray-600" />
+                <ChevronUp className="w-4 h-4 text-muted-foreground" />
               ) : (
-                <ChevronDown className="w-4 h-4 text-gray-600" />
+                <ChevronDown className="w-4 h-4 text-muted-foreground" />
               )}
             </button>
             {showGradingSetup && (
-              <div className="p-3 space-y-3 border-t border-gray-200">
+              <div className="p-3 space-y-3 border-t border-border">
                 {/* Blank configurations */}
                 {fillInTheBlankData.blanks.length > 0 ? (
                   <div className="space-y-3">
-                    <Label className="text-sm font-medium text-gray-700 select-none">
+                    <Label className="text-sm font-medium text-foreground select-none">
                       Blank Configurations
                     </Label>
                     {fillInTheBlankData.blanks.map((blank, index) => (
                       <div
                         key={blank.id}
-                        className="p-3 border border-gray-200 rounded-md bg-gray-50"
+                        className="p-3 border border-border rounded-md bg-muted"
                       >
                         <div className="flex items-center justify-between mb-2">
-                          <span className="text-sm font-medium text-gray-700">
+                          <span className="text-sm font-medium text-foreground">
                             Blank {index + 1}
                           </span>
                           <Button
@@ -529,14 +529,14 @@ const FillInTheBlankEditor: React.FC<FillInTheBlankEditorProps> = memo(
 
                         <div className="space-y-2">
                           <div>
-                            <Label className="text-xs text-gray-600">
+                            <Label className="text-xs text-muted-foreground">
                               Accepted Answers
                             </Label>
                             <div className="flex flex-wrap gap-2 mt-1">
                               {blank.acceptedAnswers.map((answer, answerIndex) => (
                                 <div
                                   key={answerIndex}
-                                  className="flex items-center gap-1 bg-white px-2 py-1 rounded border border-gray-300"
+                                  className="flex items-center gap-1 bg-card px-2 py-1 rounded border border-border"
                                 >
                                   <span className="text-sm">{answer}</span>
                                   <Button
@@ -643,7 +643,7 @@ const FillInTheBlankEditor: React.FC<FillInTheBlankEditorProps> = memo(
                           </div>
 
                           <div>
-                            <Label className="text-xs text-gray-600">
+                            <Label className="text-xs text-muted-foreground">
                               Feedback (optional)
                             </Label>
                             <Input
@@ -699,7 +699,7 @@ const FillInTheBlankEditor: React.FC<FillInTheBlankEditorProps> = memo(
                     ))}
                   </div>
                 ) : (
-                  <div className="text-sm text-gray-500 text-center py-4">
+                  <div className="text-sm text-muted-foreground text-center py-4">
                     No blanks configured. Add blanks to your question first.
                   </div>
                 )}
@@ -708,7 +708,7 @@ const FillInTheBlankEditor: React.FC<FillInTheBlankEditorProps> = memo(
           </div>
 
           {/* Footer info */}
-          <div className="mt-4 pt-3 border-t border-gray-200 text-xs text-gray-500 space-y-2 select-none">
+          <div className="mt-4 pt-3 border-t border-border text-xs text-muted-foreground space-y-2 select-none">
             <div className="flex justify-between items-center">
               <span>
                 {fillInTheBlankData.blanks.length} blank

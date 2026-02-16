@@ -346,7 +346,7 @@ const DueDatesModal: React.FC<DueDatesModalProps> = ({
           </TabsList>
 
           <TabsContent value="hierarchy" className="space-y-4 flex-1 overflow-y-auto min-h-0">
-            <div className="text-sm text-gray-600 mb-4">
+            <div className="text-sm text-muted-foreground mb-4">
               Set due dates hierarchically. Section dates override course dates,
               and individual student dates override section dates.
             </div>
@@ -354,7 +354,7 @@ const DueDatesModal: React.FC<DueDatesModalProps> = ({
             {/* Course-wide Due Date */}
             <div className="border rounded-lg p-4 space-y-3">
               <div className="flex items-center space-x-2">
-                <Users className="w-5 h-5 text-gray-500" />
+                <Users className="w-5 h-5 text-muted-foreground" />
                 <Label className="text-base font-medium">
                   Course-wide Due Date
                 </Label>
@@ -381,7 +381,7 @@ const DueDatesModal: React.FC<DueDatesModalProps> = ({
             {/* Section Due Dates */}
             <div className="border rounded-lg p-4 space-y-3">
               <div className="flex items-center space-x-2">
-                <Users className="w-5 h-5 text-gray-500" />
+                <Users className="w-5 h-5 text-muted-foreground" />
                 <Label className="text-base font-medium">
                   Section Overrides
                 </Label>
@@ -415,7 +415,7 @@ const DueDatesModal: React.FC<DueDatesModalProps> = ({
             {/* Individual Student Overrides */}
             <div className="border rounded-lg p-4 space-y-3">
               <div className="flex items-center space-x-2">
-                <User className="w-5 h-5 text-gray-500" />
+                <User className="w-5 h-5 text-muted-foreground" />
                 <Label className="text-base font-medium">
                   Individual Student Overrides
                 </Label>
@@ -430,7 +430,7 @@ const DueDatesModal: React.FC<DueDatesModalProps> = ({
                       >
                         <Label className="w-48 text-sm truncate">
                           {getStudentDisplayName(enrollment)}
-                          <span className="text-xs text-gray-500 ml-1">
+                          <span className="text-xs text-muted-foreground ml-1">
                             ({section.name})
                           </span>
                         </Label>
@@ -465,7 +465,7 @@ const DueDatesModal: React.FC<DueDatesModalProps> = ({
           </TabsContent>
 
           <TabsContent value="overrides" className="space-y-4 flex-1 overflow-y-auto min-h-0">
-            <div className="text-sm text-gray-600 mb-4">
+            <div className="text-sm text-muted-foreground mb-4">
               Current due date overrides. Remove overrides to inherit from
               higher levels.
             </div>
@@ -473,7 +473,7 @@ const DueDatesModal: React.FC<DueDatesModalProps> = ({
             <ScrollArea className="h-96 border rounded-lg p-4">
               <div className="space-y-2">
                 {overrides.length === 0 ? (
-                  <p className="text-gray-500 text-center py-8">
+                  <p className="text-muted-foreground text-center py-8">
                     No due dates set
                   </p>
                 ) : (
@@ -494,7 +494,7 @@ const DueDatesModal: React.FC<DueDatesModalProps> = ({
                         )}
                         <div>
                           <div className="font-medium">{override.name}</div>
-                          <div className="text-sm text-gray-500 capitalize">
+                          <div className="text-sm text-muted-foreground capitalize">
                             {override.type} level
                           </div>
                         </div>

@@ -94,6 +94,8 @@ function toolLabel(name: string, input?: any): string {
       return "Updating autograder tests...";
     case "web_search":
       return `Searching "${input?.query || "web"}"...`;
+    case "save_memory":
+      return "Saving to memory...";
     default:
       return `${name}...`;
   }
@@ -123,6 +125,8 @@ function toolCompleteLabel(name: string, input?: any): string {
       return `Set ${input?.tests?.length || ""} autograder tests`;
     case "web_search":
       return `Searched "${input?.query || "web"}"`;
+    case "save_memory":
+      return "Saved to memory";
     default:
       return name;
   }
@@ -606,19 +610,19 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-full">
-        <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
+        <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
       </div>
     );
   }
 
   return (
-    <div className="flex flex-col h-full bg-white">
+    <div className="flex flex-col h-full bg-card">
       {/* Session Header */}
-      <div className="flex items-center gap-2 px-3 py-2 border-b bg-gray-50 flex-shrink-0">
+      <div className="flex items-center gap-2 px-3 py-2 border-b bg-muted flex-shrink-0">
         <div className="relative flex-1" ref={dropdownRef}>
           <button
             onClick={() => setShowSessionDropdown(!showSessionDropdown)}
-            className="flex items-center gap-1 text-sm text-gray-700 hover:text-gray-900 truncate max-w-full"
+            className="flex items-center gap-1 text-sm text-foreground hover:text-foreground truncate max-w-full"
           >
             <MessageSquare className="w-3.5 h-3.5 flex-shrink-0" />
             <span className="truncate">
@@ -629,12 +633,12 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
           </button>
 
           {showSessionDropdown && (
-            <div className="absolute left-0 top-full mt-1 w-64 bg-white border border-gray-200 rounded-md shadow-lg z-50 max-h-60 overflow-y-auto">
+            <div className="absolute left-0 top-full mt-1 w-64 bg-card border border-border rounded-md shadow-lg z-50 max-h-60 overflow-y-auto">
               {sessions.map((session, idx) => (
                 <div
                   key={session.id}
-                  className={`flex items-center justify-between px-3 py-2 text-sm cursor-pointer hover:bg-gray-50 ${
-                    session.id === activeSessionId ? "bg-purple-50" : ""
+                  className={`flex items-center justify-between px-3 py-2 text-sm cursor-pointer hover:bg-accent ${
+                    session.id === activeSessionId ? "bg-primary/10" : ""
                   }`}
                   onClick={() => {
                     loadSession(session.id);
@@ -646,7 +650,7 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
                   </span>
                   <button
                     onClick={(e) => handleDeleteSession(session.id, e)}
-                    className="ml-2 p-1 text-gray-400 hover:text-red-500 rounded"
+                    className="ml-2 p-1 text-muted-foreground hover:text-red-500 rounded"
                   >
                     <Trash2 className="w-3 h-3" />
                   </button>
@@ -670,7 +674,7 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
       {/* Messages */}
       <div className="flex-1 overflow-y-auto px-3 py-3 space-y-3 min-h-0">
         {messages.length === 0 && !isStreaming && (
-          <div className="flex flex-col items-center justify-center h-full text-gray-400 text-sm">
+          <div className="flex flex-col items-center justify-center h-full text-muted-foreground text-sm">
             <MessageSquare className="w-8 h-8 mb-2 opacity-50" />
             <p>Ask me to help build your assignment.</p>
             <p className="text-xs mt-1">
@@ -689,7 +693,7 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
             <AssistantLabel />
             <div className="space-y-1.5">
               {streamingParts.length === 0 && (
-                <div className="flex items-center gap-2 text-gray-400 text-sm">
+                <div className="flex items-center gap-2 text-muted-foreground text-sm">
                   <Loader2 className="w-3.5 h-3.5 animate-spin" />
                   Thinking...
                 </div>
@@ -723,11 +727,11 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
                 <img
                   src={img.preview}
                   alt={`Attachment ${idx + 1}`}
-                  className="w-16 h-16 object-cover rounded-md border border-gray-200"
+                  className="w-16 h-16 object-cover rounded-md border border-border"
                 />
                 <button
                   onClick={() => removePendingImage(idx)}
-                  className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-gray-700 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                  className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-muted text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
                 >
                   <X className="w-3 h-3" />
                 </button>
@@ -748,7 +752,7 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
           <button
             onClick={() => fileInputRef.current?.click()}
             disabled={isStreaming}
-            className="h-[38px] px-2 text-gray-400 hover:text-gray-600 disabled:opacity-50 flex items-center justify-center"
+            className="h-[38px] px-2 text-muted-foreground hover:text-foreground disabled:opacity-50 flex items-center justify-center"
             title="Attach image"
           >
             <Paperclip className="w-4 h-4" />
@@ -760,7 +764,7 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
             onKeyDown={handleKeyDown}
             onPaste={handlePaste}
             placeholder="Describe what you want to create or change..."
-            className="flex-1 resize-none border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent min-h-[38px] max-h-[150px]"
+            className="flex-1 resize-none border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent min-h-[38px] max-h-[150px]"
             rows={1}
             disabled={isStreaming}
           />
@@ -768,7 +772,7 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
             onClick={handleSend}
             disabled={(!inputValue.trim() && pendingImages.length === 0) || isStreaming}
             size="sm"
-            className="h-[38px] px-3 bg-purple-600 hover:bg-purple-700"
+            className="h-[38px] px-3 bg-purple-600 hover:bg-purple-700 dark:bg-purple-800 dark:hover:bg-purple-900"
           >
             {isStreaming ? (
               <Loader2 className="w-4 h-4 animate-spin" />
@@ -784,7 +788,7 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
 
 // Markdown prose classes shared between components
 const PROSE_CLASSES =
-  "text-sm text-gray-800 prose prose-sm max-w-none prose-p:my-1 prose-ul:my-1 prose-ol:my-1 prose-li:my-0.5 prose-headings:my-2 prose-pre:my-1 prose-code:text-xs prose-code:bg-gray-100 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-pre:bg-gray-800 prose-pre:text-gray-100 prose-pre:p-2 prose-pre:rounded-md";
+  "text-sm text-foreground prose prose-sm max-w-none prose-p:my-1 prose-ul:my-1 prose-ol:my-1 prose-li:my-0.5 prose-headings:my-2 prose-pre:my-1 prose-code:text-xs prose-code:bg-muted prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-pre:bg-muted prose-pre:text-foreground prose-pre:p-2 prose-pre:rounded-md";
 
 // Render a single content part (text or tool call)
 const ContentPartRenderer: React.FC<{ part: ContentPart }> = ({ part }) => {
@@ -866,8 +870,8 @@ const ToolCallPill: React.FC<{ toolCall: ToolCallDisplay }> = ({
         toolCall.isError
           ? "bg-red-50 text-red-700"
           : isRunning
-            ? "bg-purple-50 text-purple-700"
-            : "bg-purple-50 text-purple-700"
+            ? "bg-primary/10 text-primary"
+            : "bg-primary/10 text-primary"
       }`}
     >
       {isRunning ? (

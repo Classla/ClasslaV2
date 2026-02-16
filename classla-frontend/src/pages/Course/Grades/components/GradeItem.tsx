@@ -72,13 +72,13 @@ const GradeItem: React.FC<GradeItemProps> = React.memo(
         const finalGrade = calculateFinalGrade(grader);
         const totalPoints = getTotalPoints(assignment);
         return (
-          <span className="text-gray-900 text-lg font-semibold">
+          <span className="text-foreground text-lg font-semibold">
             {finalGrade}/{totalPoints}
           </span>
         );
       }
 
-      return <span className="text-gray-500 text-sm">No status</span>;
+      return <span className="text-muted-foreground text-sm">No status</span>;
     };
 
     const dueDate = getDueDate();
@@ -87,15 +87,15 @@ const GradeItem: React.FC<GradeItemProps> = React.memo(
     return (
       <div
         onClick={onClick}
-        className="border border-gray-200 rounded-lg p-5 hover:bg-purple-50 hover:border-purple-300 cursor-pointer transition-all duration-200 bg-white shadow-sm hover:shadow-md"
+        className="border border-border rounded-lg p-5 hover:bg-primary/10 hover:border-primary/40 cursor-pointer transition-all duration-200 bg-card shadow-sm hover:shadow-md"
       >
         <div className="flex items-start justify-between gap-4">
           <div className="flex-1 min-w-0">
-            <h3 className="text-lg font-bold text-gray-900 mb-2 truncate">
+            <h3 className="text-lg font-bold text-foreground mb-2 truncate">
               {assignment.name}
             </h3>
             {dueDate && (
-              <p className="text-sm text-gray-600 mb-3 flex items-center gap-1">
+              <p className="text-sm text-muted-foreground mb-3 flex items-center gap-1">
                 <svg
                   className="w-4 h-4"
                   fill="none"

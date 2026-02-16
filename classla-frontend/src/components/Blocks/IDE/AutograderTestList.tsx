@@ -73,13 +73,13 @@ const AutograderTestList: React.FC<AutograderTestListProps> = ({
       <div className="flex items-center justify-between">
         <div>
           <h3 className="text-xl font-bold">Autograder</h3>
-          <p className="text-sm text-gray-600">Total Points: {totalPoints}</p>
+          <p className="text-sm text-muted-foreground">Total Points: {totalPoints}</p>
         </div>
         {onTestModelSolution && (
           <Button
             onClick={onTestModelSolution}
             disabled={isTestingModelSolution}
-            className="bg-purple-600 hover:bg-purple-700 text-white"
+            className="bg-purple-600 hover:bg-purple-700 dark:bg-purple-800 dark:hover:bg-purple-900 text-white"
             size="sm"
           >
             {isTestingModelSolution && (
@@ -93,7 +93,7 @@ const AutograderTestList: React.FC<AutograderTestListProps> = ({
       {/* Test Cases List */}
       <div className="space-y-3">
         {tests.length === 0 ? (
-          <div className="text-center py-8 text-gray-500">
+          <div className="text-center py-8 text-muted-foreground">
             <p>No test cases yet. Add your first test case below.</p>
           </div>
         ) : (
@@ -102,19 +102,19 @@ const AutograderTestList: React.FC<AutograderTestListProps> = ({
             return (
               <div
                 key={test.id}
-                className="border border-gray-200 rounded-lg p-4 bg-white"
+                className="border border-border rounded-lg p-4 bg-card"
               >
                 <div className="flex items-center justify-between">
                   <div className="flex-1">
                     <div className="flex items-center gap-2">
-                      <h4 className="font-medium text-gray-900">{test.name}</h4>
+                      <h4 className="font-medium text-foreground">{test.name}</h4>
                       <Badge variant={getTestTypeBadgeVariant(test.type)}>
                         {getTestTypeLabel(test.type)}
                       </Badge>
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium text-gray-700">
+                    <span className="text-sm font-medium text-foreground">
                       {test.points} {test.points === 1 ? "Point" : "Points"}
                     </span>
                     <Button
@@ -152,18 +152,18 @@ const AutograderTestList: React.FC<AutograderTestListProps> = ({
 
                 {/* Expanded Content */}
                 {isExpanded && (
-                  <div className="mt-4 pt-4 border-t border-gray-200 space-y-3">
+                  <div className="mt-4 pt-4 border-t border-border space-y-3">
                     {test.type === "inputOutput" && (
                       <>
                         <div>
-                          <p className="text-xs font-medium text-gray-700 mb-1">Input:</p>
-                          <pre className="text-xs bg-gray-50 p-2 rounded border font-mono whitespace-pre-wrap">
+                          <p className="text-xs font-medium text-foreground mb-1">Input:</p>
+                          <pre className="text-xs bg-muted p-2 rounded border font-mono whitespace-pre-wrap">
                             {test.input || "(empty)"}
                           </pre>
                         </div>
                         <div>
-                          <p className="text-xs font-medium text-gray-700 mb-1">Expected Output:</p>
-                          <pre className="text-xs bg-gray-50 p-2 rounded border font-mono whitespace-pre-wrap">
+                          <p className="text-xs font-medium text-foreground mb-1">Expected Output:</p>
+                          <pre className="text-xs bg-muted p-2 rounded border font-mono whitespace-pre-wrap">
                             {test.expectedOutput || "(empty)"}
                           </pre>
                         </div>
@@ -171,14 +171,14 @@ const AutograderTestList: React.FC<AutograderTestListProps> = ({
                     )}
                     {test.type === "unitTest" && (
                       <div>
-                        <p className="text-xs font-medium text-gray-700 mb-1">Unit Test Code:</p>
-                        <pre className="text-xs bg-gray-50 p-2 rounded border font-mono whitespace-pre-wrap max-h-64 overflow-y-auto">
+                        <p className="text-xs font-medium text-foreground mb-1">Unit Test Code:</p>
+                        <pre className="text-xs bg-muted p-2 rounded border font-mono whitespace-pre-wrap max-h-64 overflow-y-auto">
                           {test.code || "(empty)"}
                         </pre>
                       </div>
                     )}
                     {test.type === "manualGrading" && (
-                      <p className="text-xs text-gray-600">
+                      <p className="text-xs text-muted-foreground">
                         This test case requires manual grading.
                       </p>
                     )}

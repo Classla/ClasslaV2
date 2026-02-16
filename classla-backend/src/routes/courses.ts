@@ -1016,6 +1016,15 @@ router.get(
         };
       });
 
+      enrolledUsers.sort((a: any, b: any) => {
+        const lastA = (a.last_name || "").toLowerCase();
+        const lastB = (b.last_name || "").toLowerCase();
+        if (lastA !== lastB) return lastA.localeCompare(lastB);
+        const firstA = (a.first_name || "").toLowerCase();
+        const firstB = (b.first_name || "").toLowerCase();
+        return firstA.localeCompare(firstB);
+      });
+
       res.json({
         data: enrolledUsers,
       });

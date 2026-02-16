@@ -415,8 +415,8 @@ const TemplatesPage: React.FC = () => {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-600"></div>
-        <span className="ml-3 text-gray-600">Loading templates...</span>
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+        <span className="ml-3 text-muted-foreground">Loading templates...</span>
       </div>
     );
   }
@@ -426,8 +426,8 @@ const TemplatesPage: React.FC = () => {
       {/* Header */}
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Templates</h1>
-          <p className="text-gray-600 mt-1">
+          <h1 className="text-3xl font-bold text-foreground">Templates</h1>
+          <p className="text-muted-foreground mt-1">
             Create and manage course templates organized by organization
           </p>
         </div>
@@ -437,7 +437,7 @@ const TemplatesPage: React.FC = () => {
             <DialogTrigger asChild>
               <Button
                 variant="outline"
-                className="border-purple-600 text-purple-600 hover:bg-purple-50"
+                className="border-primary text-primary hover:bg-primary/10"
               >
                 <Users className="w-4 h-4 mr-2" />
                 Join Organization
@@ -478,7 +478,7 @@ const TemplatesPage: React.FC = () => {
                 <Button
                   onClick={handleJoinOrganization}
                   disabled={joinCode.length !== 6}
-                  className="bg-purple-600 hover:bg-purple-700"
+                  className="bg-purple-600 hover:bg-purple-700 dark:bg-purple-800 dark:hover:bg-purple-900"
                 >
                   Join Organization
                 </Button>
@@ -510,7 +510,7 @@ const TemplatesPage: React.FC = () => {
                     onChange={(e) => setNewOrgName(e.target.value)}
                     maxLength={150}
                   />
-                  <p className="text-sm text-gray-500 text-right">
+                  <p className="text-sm text-muted-foreground text-right">
                     {newOrgName.length}/150
                   </p>
                 </div>
@@ -525,7 +525,7 @@ const TemplatesPage: React.FC = () => {
                 <Button
                   onClick={handleCreateOrganization}
                   disabled={!newOrgName.trim()}
-                  className="bg-purple-600 hover:bg-purple-700"
+                  className="bg-purple-600 hover:bg-purple-700 dark:bg-purple-800 dark:hover:bg-purple-900"
                 >
                   Create Organization
                 </Button>
@@ -538,18 +538,18 @@ const TemplatesPage: React.FC = () => {
       {/* Templates by Organization */}
       {organizationsWithTemplates.length === 0 ? (
         <div className="text-center py-12">
-          <Building2 className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-          <h3 className="text-lg font-medium text-gray-900 mb-2">
+          <Building2 className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
+          <h3 className="text-lg font-medium text-foreground mb-2">
             No organizations found
           </h3>
-          <p className="text-gray-600 mb-6">
+          <p className="text-muted-foreground mb-6">
             Create or join an organization to start creating course templates!
           </p>
           <div className="flex justify-center space-x-3">
             <Button
               variant="outline"
               onClick={() => setJoinOrgDialogOpen(true)}
-              className="border-purple-600 text-purple-600 hover:bg-purple-50"
+              className="border-primary text-primary hover:bg-primary/10"
             >
               Join Organization
             </Button>
@@ -568,19 +568,19 @@ const TemplatesPage: React.FC = () => {
               <AccordionTrigger>
                 <div className="flex items-center justify-between w-full pr-4">
                   <div className="flex items-center space-x-3">
-                    <Building2 className="h-5 w-5 text-purple-600" />
+                    <Building2 className="h-5 w-5 text-primary" />
                     <div className="text-left">
-                      <h3 className="text-lg font-semibold text-gray-900">
+                      <h3 className="text-lg font-semibold text-foreground">
                         {orgData.organization.name}
                       </h3>
                       <div className="flex items-center space-x-2">
-                        <p className="text-sm text-gray-500">
+                        <p className="text-sm text-muted-foreground">
                           {orgData.templates.length}{" "}
                           {orgData.templates.length === 1 ? "template" : "templates"}
                         </p>
-                        <span className="text-gray-400">•</span>
-                        <p className="text-sm text-gray-500">
-                          Join code: <span className="font-mono font-semibold text-purple-600">{orgData.organization.slug}</span>
+                        <span className="text-muted-foreground">•</span>
+                        <p className="text-sm text-muted-foreground">
+                          Join code: <span className="font-mono font-semibold text-primary">{orgData.organization.slug}</span>
                         </p>
                       </div>
                     </div>
@@ -617,11 +617,11 @@ const TemplatesPage: React.FC = () => {
               <AccordionContent>
                 {orgData.templates.length === 0 ? (
                   <div className="text-center py-8">
-                    <FileText className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-                    <h3 className="text-lg font-medium text-gray-900 mb-2">
+                    <FileText className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
+                    <h3 className="text-lg font-medium text-foreground mb-2">
                       No Templates
                     </h3>
-                    <p className="text-gray-600 mb-4">
+                    <p className="text-muted-foreground mb-4">
                       Create your first template for this organization.
                     </p>
                     <Button
@@ -629,7 +629,7 @@ const TemplatesPage: React.FC = () => {
                         setSelectedOrgId(orgData.organization.id);
                         setCreateTemplateDialogOpen(true);
                       }}
-                      className="bg-purple-600 hover:bg-purple-700"
+                      className="bg-purple-600 hover:bg-purple-700 dark:bg-purple-800 dark:hover:bg-purple-900"
                     >
                       <Plus className="w-4 h-4 mr-2" />
                       Create Template
@@ -644,10 +644,10 @@ const TemplatesPage: React.FC = () => {
                         onClick={() => navigate(`/course/${template.id}/summary`)}
                       >
                         <CardHeader className="pb-3">
-                          <div className="w-full h-48 rounded-md mb-3 overflow-hidden bg-gray-100 flex items-center justify-center">
-                            <FileText className="h-16 w-16 text-gray-400" />
+                          <div className="w-full h-48 rounded-md mb-3 overflow-hidden bg-muted flex items-center justify-center">
+                            <FileText className="h-16 w-16 text-muted-foreground" />
                           </div>
-                          <CardTitle className="text-lg group-hover:text-purple-600 transition-colors">
+                          <CardTitle className="text-lg group-hover:text-primary transition-colors">
                             {template.name}
                           </CardTitle>
                           <CardDescription>
@@ -706,7 +706,7 @@ const TemplatesPage: React.FC = () => {
                   }
                 }}
               />
-              <p className="text-sm text-gray-500 text-right">
+              <p className="text-sm text-muted-foreground text-right">
                 {newTemplateName.length}/150
               </p>
             </div>
@@ -743,11 +743,11 @@ const TemplatesPage: React.FC = () => {
           
           <div className="space-y-4 py-4">
             <div>
-              <h3 className="text-sm font-semibold text-gray-900 mb-3">Members</h3>
+              <h3 className="text-sm font-semibold text-foreground mb-3">Members</h3>
               {loadingMembers ? (
                 <div className="text-center py-8">Loading members...</div>
               ) : (
-                <div className="bg-white rounded-lg border">
+                <div className="bg-card rounded-lg border">
                   <Table>
                     <TableHeader>
                       <TableRow>
@@ -831,7 +831,7 @@ const TemplatesPage: React.FC = () => {
             {/* Templates with delete options */}
             {selectedOrgForManagement && selectedOrgForManagement.templates.length > 0 && (
               <div>
-                <h3 className="text-sm font-semibold text-gray-900 mb-3">Templates</h3>
+                <h3 className="text-sm font-semibold text-foreground mb-3">Templates</h3>
                 <div className="space-y-2">
                   {selectedOrgForManagement.templates.map((template) => {
                     const isAdmin = selectedOrgForManagement.membership.role === OrganizationRole.ADMIN;
@@ -844,8 +844,8 @@ const TemplatesPage: React.FC = () => {
                         className="flex items-center justify-between p-3 border rounded-lg"
                       >
                         <div>
-                          <div className="font-medium text-gray-900">{template.name}</div>
-                          <div className="text-sm text-gray-500">
+                          <div className="font-medium text-foreground">{template.name}</div>
+                          <div className="text-sm text-muted-foreground">
                             Created {new Date(template.created_at).toLocaleDateString()}
                           </div>
                         </div>

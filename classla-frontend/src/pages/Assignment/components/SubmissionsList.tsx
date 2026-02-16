@@ -75,7 +75,7 @@ const SubmissionsList: React.FC<SubmissionsListProps> = ({
       case "in-progress":
         return <Clock className="w-5 h-5 text-yellow-600" />;
       default:
-        return <FileText className="w-5 h-5 text-gray-600" />;
+        return <FileText className="w-5 h-5 text-muted-foreground" />;
     }
   };
 
@@ -101,7 +101,7 @@ const SubmissionsList: React.FC<SubmissionsListProps> = ({
       case "in-progress":
         return "text-yellow-600 bg-yellow-50";
       default:
-        return "text-gray-600 bg-gray-50";
+        return "text-muted-foreground bg-muted";
     }
   };
 
@@ -120,7 +120,7 @@ const SubmissionsList: React.FC<SubmissionsListProps> = ({
     return (
       <div className="flex items-center justify-center h-64">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-600"></div>
-        <span className="ml-3 text-gray-600">Loading submissions...</span>
+        <span className="ml-3 text-muted-foreground">Loading submissions...</span>
       </div>
     );
   }
@@ -137,11 +137,11 @@ const SubmissionsList: React.FC<SubmissionsListProps> = ({
         >
           ← Back to Assignment
         </Button>
-        <h1 className="text-3xl font-bold text-gray-900 mb-2">
+        <h1 className="text-3xl font-bold text-foreground mb-2">
           Submission History
         </h1>
         {assignment && (
-          <p className="text-gray-600">
+          <p className="text-muted-foreground">
             Assignment: <span className="font-medium">{assignment.name}</span>
           </p>
         )}
@@ -149,18 +149,18 @@ const SubmissionsList: React.FC<SubmissionsListProps> = ({
 
       {submissions.length === 0 ? (
         <Card className="p-8 text-center">
-          <FileText className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-          <h3 className="text-lg font-medium text-gray-900 mb-2">
+          <FileText className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
+          <h3 className="text-lg font-medium text-foreground mb-2">
             No Submissions Yet
           </h3>
-          <p className="text-gray-600 mb-4">
+          <p className="text-muted-foreground mb-4">
             You haven't submitted this assignment yet.
           </p>
           <Button
             onClick={() =>
               navigate(`/course/${courseSlug}/assignment/${assignmentId}`)
             }
-            className="bg-purple-600 hover:bg-purple-700 text-white"
+            className="bg-purple-600 hover:bg-purple-700 dark:bg-purple-800 dark:hover:bg-purple-900 text-white"
           >
             Start Assignment
           </Button>
@@ -185,12 +185,12 @@ const SubmissionsList: React.FC<SubmissionsListProps> = ({
                         {getStatusText(submission.status)}
                       </span>
                       {submission.grade !== null && (
-                        <span className="text-lg font-semibold text-gray-900">
+                        <span className="text-lg font-semibold text-foreground">
                           Grade: {submission.grade}
                         </span>
                       )}
                     </div>
-                    <div className="flex items-center gap-4 text-sm text-gray-600">
+                    <div className="flex items-center gap-4 text-sm text-muted-foreground">
                       <div className="flex items-center gap-1">
                         <Calendar className="w-4 h-4" />
                         <span>

@@ -73,14 +73,14 @@ const SignUpPage = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-purple-50 to-indigo-100 flex items-center justify-center p-4">
+    <div className="min-h-screen bg-gradient-to-br from-muted to-background dark:from-gray-900 dark:to-gray-800 flex items-center justify-center p-4">
       <div className="w-full max-w-md">
         {/* Logo and Brand */}
         <div className="text-center mb-8">
           <div className="flex justify-center mb-4">
             <Logo size="lg" />
           </div>
-          <h1 className="text-3xl font-bold text-gray-900">
+          <h1 className="text-3xl font-bold text-foreground">
             Create your account
           </h1>
         </div>
@@ -105,13 +105,13 @@ const SignUpPage = () => {
               <div className="space-y-2">
                 <label
                   htmlFor="email"
-                  className="text-sm font-medium text-gray-700"
+                  className="text-sm font-medium text-foreground"
                 >
                   Email address
                 </label>
                 <div className="relative">
                   {/* @ts-expect-error - react-icons type issue */}
-                  <MdEmail className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
+                  <MdEmail className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground" />
                   <Input
                     type="email"
                     id="email"
@@ -128,13 +128,13 @@ const SignUpPage = () => {
               <div className="space-y-2">
                 <label
                   htmlFor="password"
-                  className="text-sm font-medium text-gray-700"
+                  className="text-sm font-medium text-foreground"
                 >
                   Password
                 </label>
                 <div className="relative">
                   {/* @ts-expect-error - react-icons type issue */}
-                  <MdLock className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
+                  <MdLock className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground" />
                   <Input
                     type={showPassword ? "text" : "password"}
                     id="password"
@@ -148,7 +148,7 @@ const SignUpPage = () => {
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                    className="absolute right-3 top-1/2 transform -translate-y-1/2 text-muted-foreground hover:text-foreground"
                   >
                     {/* @ts-expect-error - react-icons type issue */}
                     {showPassword ? <FaEyeSlash /> : <FaEye />}
@@ -159,13 +159,13 @@ const SignUpPage = () => {
               <div className="space-y-2">
                 <label
                   htmlFor="confirmPassword"
-                  className="text-sm font-medium text-gray-700"
+                  className="text-sm font-medium text-foreground"
                 >
                   Confirm password
                 </label>
                 <div className="relative">
                   {/* @ts-expect-error - react-icons type issue */}
-                  <MdLock className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
+                  <MdLock className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground" />
                   <Input
                     type={showConfirmPassword ? "text" : "password"}
                     id="confirmPassword"
@@ -179,7 +179,7 @@ const SignUpPage = () => {
                   <button
                     type="button"
                     onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                    className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                    className="absolute right-3 top-1/2 transform -translate-y-1/2 text-muted-foreground hover:text-foreground"
                   >
                     {/* @ts-expect-error - react-icons type issue */}
                     {showConfirmPassword ? <FaEyeSlash /> : <FaEye />}
@@ -205,10 +205,10 @@ const SignUpPage = () => {
 
             <div className="relative">
               <div className="absolute inset-0 flex items-center">
-                <span className="w-full border-t border-gray-300" />
+                <span className="w-full border-t border-border" />
               </div>
               <div className="relative flex justify-center text-xs uppercase">
-                <span className="bg-white px-2 text-gray-500">
+                <span className="bg-card px-2 text-muted-foreground">
                   Or continue with
                 </span>
               </div>
@@ -222,7 +222,7 @@ const SignUpPage = () => {
             >
               {googleLoading ? (
                 <div className="flex items-center">
-                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-600 mr-2"></div>
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-muted-foreground mr-2"></div>
                   Creating Account...
                 </div>
               ) : (
@@ -235,7 +235,7 @@ const SignUpPage = () => {
             </Button>
 
             <div className="text-center pt-4">
-              <p className="text-sm text-gray-600">
+              <p className="text-sm text-muted-foreground">
                 Already have an account?{" "}
                 <Link
                   to="/signin"
@@ -249,7 +249,7 @@ const SignUpPage = () => {
         </Card>
 
         <div className="text-center mt-8">
-          <p className="text-xs text-gray-500">
+          <p className="text-xs text-muted-foreground">
             By creating an account, you agree to our{" "}
             <a href="#" className="text-primary hover:underline">
               Terms of Service

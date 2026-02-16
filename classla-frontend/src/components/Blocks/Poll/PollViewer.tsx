@@ -98,13 +98,13 @@ const PollViewer: React.FC<PollViewerProps> = memo(({ node, editor, onAnswerChan
       draggable={false}
       contentEditable={false}
     >
-      <div className="poll-viewer border border-gray-200 rounded-lg p-4 bg-white">
+      <div className="poll-viewer border border-border rounded-lg p-4 bg-card">
         <div
           className="prose max-w-none mb-4"
           dangerouslySetInnerHTML={{ __html: pollData.question }}
         />
         <div className="space-y-2 mb-4">
-          {pollData.options.map((option) => {
+          {pollData.options.map((option, index) => {
             const isSelected = selectedOptions.includes(option.id);
             return (
               <label
@@ -112,7 +112,7 @@ const PollViewer: React.FC<PollViewerProps> = memo(({ node, editor, onAnswerChan
                 className={`flex items-center gap-2 p-3 rounded border cursor-pointer ${
                   isSelected
                     ? "bg-blue-50 border-blue-400"
-                    : "bg-gray-50 border-gray-300 hover:bg-gray-100"
+                    : "bg-muted border-border hover:bg-accent"
                 } ${(editor?.storage as any)?.isReadOnly ? "cursor-not-allowed opacity-60" : ""}`}
               >
                 <input
@@ -122,7 +122,12 @@ const PollViewer: React.FC<PollViewerProps> = memo(({ node, editor, onAnswerChan
                   disabled={(editor?.storage as any)?.isReadOnly}
                   className="text-blue-600"
                 />
-                <span className="flex-1">{option.text}</span>
+                <div
+                  className="flex-1 select-text"
+                  dangerouslySetInnerHTML={{
+                    __html: option.text || `Option ${index + 1}`
+                  }}
+                />
                 {isSelected && (
                   <Check className="w-4 h-4 text-blue-600" />
                 )}

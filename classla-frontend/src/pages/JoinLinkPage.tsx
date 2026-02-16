@@ -97,16 +97,16 @@ const JoinLinkPage: React.FC = () => {
     currentStep === "enrolling"
   ) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="min-h-screen bg-background flex items-center justify-center">
         <Card className="p-8 max-w-md w-full mx-4">
           <div className="text-center space-y-4">
             <div className="flex justify-center">
               <Loader2 className="w-12 h-12 text-purple-600 animate-spin" />
             </div>
-            <h2 className="text-xl font-semibold text-gray-900">
+            <h2 className="text-xl font-semibold text-foreground">
               Processing Join Link
             </h2>
-            <p className="text-gray-600">{processingMessage}</p>
+            <p className="text-muted-foreground">{processingMessage}</p>
 
             {/* Progress indicator */}
             <div className="space-y-2">
@@ -119,7 +119,7 @@ const JoinLinkPage: React.FC = () => {
                           currentStep
                         )
                       ? "bg-green-500"
-                      : "bg-gray-300"
+                      : "bg-muted-foreground"
                   }`}
                 />
                 <div
@@ -128,11 +128,11 @@ const JoinLinkPage: React.FC = () => {
                       ? "bg-purple-600 animate-pulse"
                       : currentStep === "complete"
                       ? "bg-green-500"
-                      : "bg-gray-300"
+                      : "bg-muted-foreground"
                   }`}
                 />
               </div>
-              <p className="text-xs text-gray-500">
+              <p className="text-xs text-muted-foreground">
                 {currentStep === "validating" && "Validating link..."}
                 {currentStep === "enrolling" && "Creating enrollment..."}
               </p>
@@ -145,14 +145,14 @@ const JoinLinkPage: React.FC = () => {
 
   if (isExpired) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="min-h-screen bg-background flex items-center justify-center">
         <Card className="p-8 max-w-md w-full mx-4">
           <div className="text-center space-y-4">
             <div className="flex justify-center">
               <Clock className="w-16 h-16 text-orange-500" />
             </div>
-            <h1 className="text-2xl font-bold text-gray-900">Link Expired</h1>
-            <p className="text-gray-600">
+            <h1 className="text-2xl font-bold text-foreground">Link Expired</h1>
+            <p className="text-muted-foreground">
               This join link has expired. Please contact your instructor for a
               new link or the course join code.
             </p>
@@ -170,16 +170,16 @@ const JoinLinkPage: React.FC = () => {
 
   if (error) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="min-h-screen bg-background flex items-center justify-center">
         <Card className="p-8 max-w-md w-full mx-4">
           <div className="text-center space-y-4">
             <div className="flex justify-center">
               <XCircle className="w-16 h-16 text-red-500" />
             </div>
-            <h1 className="text-2xl font-bold text-gray-900">
+            <h1 className="text-2xl font-bold text-foreground">
               Unable to Join Course
             </h1>
-            <p className="text-gray-600">{error}</p>
+            <p className="text-muted-foreground">{error}</p>
             <div className="space-y-2">
               <button
                 onClick={() => {
@@ -193,7 +193,7 @@ const JoinLinkPage: React.FC = () => {
               </button>
               <button
                 onClick={handleGoToDashboard}
-                className="w-full py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                className="w-full py-2 border border-border text-foreground rounded-lg hover:bg-accent transition-colors"
               >
                 Go to Dashboard
               </button>
@@ -206,19 +206,19 @@ const JoinLinkPage: React.FC = () => {
 
   if (currentStep === "complete" && result) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="min-h-screen bg-background flex items-center justify-center">
         <Card className="p-8 max-w-md w-full mx-4">
           <div className="text-center space-y-4">
             <div className="flex justify-center">
               <CheckCircle className="w-16 h-16 text-green-500" />
             </div>
-            <h1 className="text-2xl font-bold text-gray-900">
+            <h1 className="text-2xl font-bold text-foreground">
               {result.already_enrolled
                 ? "Already Enrolled!"
                 : "Successfully Joined!"}
             </h1>
             <div className="space-y-2">
-              <p className="text-gray-600">
+              <p className="text-muted-foreground">
                 {result.already_enrolled
                   ? `You are already enrolled in`
                   : `You have been enrolled in`}{" "}
@@ -227,11 +227,11 @@ const JoinLinkPage: React.FC = () => {
                   <span> (Section: {result.section_slug})</span>
                 )}
               </p>
-              <div className="flex items-center justify-center space-x-2 text-sm text-gray-500">
+              <div className="flex items-center justify-center space-x-2 text-sm text-muted-foreground">
                 <Users className="w-4 h-4" />
                 <span>Enrolled as Student</span>
               </div>
-              <p className="text-sm text-gray-500 mt-2">
+              <p className="text-sm text-muted-foreground mt-2">
                 Redirecting to course in 2 seconds...
               </p>
             </div>
@@ -244,7 +244,7 @@ const JoinLinkPage: React.FC = () => {
               </button>
               <button
                 onClick={handleGoToDashboard}
-                className="w-full py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                className="w-full py-2 border border-border text-foreground rounded-lg hover:bg-accent transition-colors"
               >
                 Go to Dashboard
               </button>

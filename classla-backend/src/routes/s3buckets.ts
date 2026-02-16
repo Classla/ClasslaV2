@@ -20,10 +20,13 @@ import {
   GetObjectCommand,
   PutObjectCommand,
   HeadObjectCommand,
+  HeadBucketCommand,
   PutBucketVersioningCommand,
   ListObjectVersionsCommand,
   PutBucketLifecycleConfigurationCommand,
+  PutBucketCorsCommand,
 } from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { Readable } from "stream";
 import { asyncHandler } from "../middleware/errorHandler";
 import { logger } from "../utils/logger";
@@ -282,6 +285,246 @@ export async function createBucketSnapshot(
     throw new Error(`Failed to create snapshot bucket: ${error.message}`);
   }
 }
+
+// ─── Image Block Presigned URL Endpoints ───────────────────────────────────
+
+const ALLOWED_IMAGE_TYPES = new Set([
+  "image/png",
+  "image/jpeg",
+  "image/gif",
+  "image/webp",
+]);
+const MAX_IMAGE_SIZE = 10 * 1024 * 1024; // 10 MB
+
+/**
+ * Ensure the assignment-level image bucket exists.
+ * Creates it with CORS if it doesn't already exist.
+ */
+async function ensureImageBucket(assignmentId: string): Promise<string> {
+  const bucketName = `classla-images-${assignmentId}`;
+
+  try {
+    await s3Client.send(new HeadBucketCommand({ Bucket: bucketName }));
+    // Bucket already exists
+    return bucketName;
+  } catch (err: any) {
+    if (err.name === "NotFound" || err.$metadata?.httpStatusCode === 404 || err.name === "NoSuchBucket") {
+      // Create the bucket
+      await s3Client.send(
+        new CreateBucketCommand({
+          Bucket: bucketName,
+          // us-east-1 doesn't need LocationConstraint
+        })
+      );
+
+      // Configure CORS for direct browser uploads
+      const allowedOrigins: string[] = [];
+      if (process.env.NODE_ENV === "development") {
+        allowedOrigins.push("http://localhost:5173", "http://localhost:3000");
+      }
+      if (process.env.FRONTEND_URL) {
+        try {
+          allowedOrigins.push(new URL(process.env.FRONTEND_URL).origin);
+        } catch { /* ignore invalid URL */ }
+      }
+      allowedOrigins.push("https://app.classla.org");
+
+      await s3Client.send(
+        new PutBucketCorsCommand({
+          Bucket: bucketName,
+          CORSConfiguration: {
+            CORSRules: [
+              {
+                AllowedHeaders: ["*"],
+                AllowedMethods: ["PUT", "GET"],
+                AllowedOrigins: allowedOrigins,
+                ExposeHeaders: ["ETag"],
+                MaxAgeSeconds: 3600,
+              },
+            ],
+          },
+        })
+      );
+
+      return bucketName;
+    }
+    throw err;
+  }
+}
+
+/**
+ * POST /api/s3buckets/image-upload-url
+ * Get a presigned PUT URL for uploading an image to the assignment's image bucket.
+ * Auth: session-based. Authorization: canWrite on the course.
+ */
+router.post(
+  "/image-upload-url",
+  asyncHandler(async (req: Request, res: Response) => {
+    const { assignmentId, filename, contentType } = req.body;
+
+    if (!assignmentId || !filename || !contentType) {
+      return res.status(400).json({ error: "assignmentId, filename, and contentType are required" });
+    }
+
+    if (!ALLOWED_IMAGE_TYPES.has(contentType)) {
+      return res.status(400).json({ error: "Invalid content type. Allowed: png, jpeg, gif, webp" });
+    }
+
+    // Authenticate via session
+    let userId: string | undefined;
+    let isAdmin: boolean = false;
+    try {
+      const sessionData = await sessionManagementService.validateSession(req);
+      if (!sessionData) {
+        throw new AuthenticationError("Valid session is required");
+      }
+      if (sessionData.isManagedStudent) {
+        userId = sessionData.userId;
+        isAdmin = false;
+      } else {
+        const { data: userData } = await supabase
+          .from("users")
+          .select("id, is_admin")
+          .eq("workos_user_id", sessionData.workosUserId)
+          .single();
+        if (userData) {
+          userId = userData.id;
+          isAdmin = userData.is_admin || false;
+        }
+      }
+      if (!userId) {
+        throw new AuthenticationError("User not found");
+      }
+    } catch (error) {
+      return res.status(401).json({ error: "Valid session is required" });
+    }
+
+    // Look up assignment to get course_id
+    const { data: assignment, error: assignmentError } = await supabase
+      .from("assignments")
+      .select("course_id")
+      .eq("id", assignmentId)
+      .single();
+
+    if (assignmentError || !assignment) {
+      return res.status(404).json({ error: "Assignment not found" });
+    }
+
+    // Authorization: canWrite on the course
+    const permissions = await getCoursePermissions(userId, assignment.course_id, isAdmin);
+    if (!permissions.canWrite) {
+      return res.status(403).json({ error: "Insufficient permissions to upload images" });
+    }
+
+    try {
+      const bucketName = await ensureImageBucket(assignmentId);
+
+      // Generate S3 key
+      const ext = filename.split(".").pop()?.toLowerCase() || "png";
+      const s3Key = `images/${uuidv4()}.${ext}`;
+
+      // Generate presigned PUT URL
+      const command = new PutObjectCommand({
+        Bucket: bucketName,
+        Key: s3Key,
+        ContentType: contentType,
+      });
+
+      const uploadUrl = await getSignedUrl(s3Client, command, { expiresIn: 300 });
+
+      return res.json({
+        uploadUrl,
+        s3Key,
+        bucketName,
+        expiresIn: 300,
+      });
+    } catch (error: any) {
+      logger.error("[Image Upload] Failed to generate presigned URL:", error);
+      return res.status(500).json({ error: "Failed to generate upload URL", details: error.message });
+    }
+  })
+);
+
+/**
+ * GET /api/s3buckets/image-url
+ * Get a presigned GET URL for reading an image from the assignment's image bucket.
+ * Auth: session-based. Authorization: canRead on the assignment's course.
+ */
+router.get(
+  "/image-url",
+  asyncHandler(async (req: Request, res: Response) => {
+    const { assignmentId, s3Key } = req.query;
+
+    if (!assignmentId || !s3Key) {
+      return res.status(400).json({ error: "assignmentId and s3Key are required" });
+    }
+
+    // Authenticate via session
+    let userId: string | undefined;
+    let isAdmin: boolean = false;
+    try {
+      const sessionData = await sessionManagementService.validateSession(req);
+      if (!sessionData) {
+        throw new AuthenticationError("Valid session is required");
+      }
+      if (sessionData.isManagedStudent) {
+        userId = sessionData.userId;
+        isAdmin = false;
+      } else {
+        const { data: userData } = await supabase
+          .from("users")
+          .select("id, is_admin")
+          .eq("workos_user_id", sessionData.workosUserId)
+          .single();
+        if (userData) {
+          userId = userData.id;
+          isAdmin = userData.is_admin || false;
+        }
+      }
+      if (!userId) {
+        throw new AuthenticationError("User not found");
+      }
+    } catch (error) {
+      return res.status(401).json({ error: "Valid session is required" });
+    }
+
+    // Look up assignment to get course_id for authorization
+    const { data: assignment, error: assignmentError } = await supabase
+      .from("assignments")
+      .select("course_id")
+      .eq("id", assignmentId as string)
+      .single();
+
+    if (assignmentError || !assignment) {
+      return res.status(404).json({ error: "Assignment not found" });
+    }
+
+    // Authorization: canRead on the course
+    const permissions = await getCoursePermissions(userId, assignment.course_id, isAdmin);
+    if (!permissions.canRead) {
+      return res.status(403).json({ error: "Insufficient permissions to view images" });
+    }
+
+    try {
+      const bucketName = `classla-images-${assignmentId}`;
+
+      const command = new GetObjectCommand({
+        Bucket: bucketName,
+        Key: s3Key as string,
+      });
+
+      const url = await getSignedUrl(s3Client, command, { expiresIn: 3600 });
+
+      return res.json({
+        url,
+        expiresIn: 3600,
+      });
+    } catch (error: any) {
+      logger.error("[Image URL] Failed to generate presigned URL:", error);
+      return res.status(500).json({ error: "Failed to generate image URL", details: error.message });
+    }
+  })
+);
 
 /**
  * POST /api/s3buckets
@@ -1173,6 +1416,84 @@ router.get(
 );
 
 /**
+ * POST /api/s3buckets/:bucketId/files/flush-for-container
+ * Force-save all OT documents for this bucket to S3 and return the file list.
+ * Called by the container before running code to ensure S3 is up-to-date.
+ */
+router.post(
+  "/:bucketId/files/flush-for-container",
+  asyncHandler(async (req: Request, res: Response) => {
+    const { bucketId } = req.params;
+    const serviceToken = req.headers["x-container-service-token"] as string;
+
+    const expectedToken = process.env.CONTAINER_SERVICE_TOKEN;
+    if (!expectedToken || serviceToken !== expectedToken) {
+      return res.status(401).json({ error: "Invalid or missing service token" });
+    }
+
+    const { data: bucket, error: fetchError } = await supabase
+      .from("s3_buckets")
+      .select("*")
+      .eq("id", bucketId)
+      .is("deleted_at", null)
+      .single();
+
+    if (fetchError || !bucket) {
+      return res.status(404).json({ error: "Bucket not found" });
+    }
+
+    try {
+      // Step 1: Force-save all OT documents for this bucket to S3
+      let savedPaths: string[] = [];
+      try {
+        const { forceSaveDocumentsForBucket } = await import("../services/otProviderService");
+        savedPaths = await forceSaveDocumentsForBucket(bucketId);
+      } catch (otError: any) {
+        logger.warn(`[Flush] Failed to force-save OT documents:`, otError);
+      }
+
+      // Step 2: List all objects in bucket (now with up-to-date content)
+      const bucketRegion = bucket.region || S3_DEFAULT_REGION;
+      const bucketS3Client = new S3Client({
+        region: bucketRegion,
+        credentials:
+          process.env.IDE_MANAGER_ACCESS_KEY_ID && process.env.IDE_MANAGER_SECRET_ACCESS_KEY
+            ? {
+                accessKeyId: process.env.IDE_MANAGER_ACCESS_KEY_ID,
+                secretAccessKey: process.env.IDE_MANAGER_SECRET_ACCESS_KEY,
+              }
+            : undefined,
+      });
+
+      const listCommand = new ListObjectsV2Command({
+        Bucket: bucket.bucket_name,
+      });
+      const listResponse = await bucketS3Client.send(listCommand);
+
+      const filePaths: string[] = [];
+      if (listResponse.Contents) {
+        for (const object of listResponse.Contents) {
+          if (object.Key &&
+              !object.Key.startsWith(".yjs/") &&
+              object.Key !== ".yjs" &&
+              !object.Key.endsWith(".partial")) {
+            filePaths.push(object.Key);
+          }
+        }
+      }
+
+      return res.json({ files: filePaths, otSaved: savedPaths.length });
+    } catch (error: any) {
+      logger.error("Failed to flush for container:", error);
+      return res.status(500).json({
+        error: "Failed to flush",
+        details: error.message,
+      });
+    }
+  })
+);
+
+/**
  * GET /api/s3buckets/:bucketId/files
  * List all files in bucket, return file tree structure
  */
@@ -1414,9 +1735,27 @@ router.get(
     }
 
     try {
+      // For container requests on text files: prefer OT in-memory content (source of truth)
+      // This avoids stale S3 content when OT save debounce hasn't fired yet
+      if (isContainerRequest && !isBinaryFile(filePath)) {
+        try {
+          const { getDocumentContent } = await import("../services/otProviderService");
+          const otContent = getDocumentContent(bucketId, filePath);
+          if (otContent !== null) {
+            res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+            res.setHeader("Pragma", "no-cache");
+            res.setHeader("Expires", "0");
+            return res.json({ content: otContent, path: filePath, source: 'ot' });
+          }
+        } catch (otError: any) {
+          // Fall through to S3 read
+          logger.debug(`[File Read] OT lookup failed for ${filePath}, falling back to S3`);
+        }
+      }
+
       // Create S3 client with bucket's specific region
       const bucketRegion = bucket.region || S3_DEFAULT_REGION;
-      
+
       const bucketS3Client = new S3Client({
         region: bucketRegion,
         credentials:
@@ -1427,7 +1766,7 @@ router.get(
               }
             : undefined,
       });
-      
+
       // Get file content from S3
       const getCommand = new GetObjectCommand({
         Bucket: bucket.bucket_name,
@@ -1435,7 +1774,7 @@ router.get(
       });
 
       const response = await bucketS3Client.send(getCommand);
-      
+
       // Convert stream to buffer
       let content = "";
       if (response.Body) {
@@ -1818,6 +2157,19 @@ router.delete(
         logger.warn(`[File Delete] Failed to clean up OT document:`, otError);
       }
 
+      // Broadcast file-tree-change so other clients update their tree
+      try {
+        const { getIO } = await import("../services/websocket");
+        const io = getIO();
+        io.of("/ot").to(`bucket:${bucketId}`).emit("file-tree-change", {
+          bucketId,
+          filePath,
+          action: "delete",
+        });
+      } catch (error: any) {
+        logger.warn(`[File Delete] Failed to broadcast file-tree-change:`, error);
+      }
+
       return res.json({ message: "File deleted successfully", path: filePath });
     } catch (s3Error: any) {
       logger.error("S3 file delete failed:", s3Error);
@@ -2065,7 +2417,19 @@ router.post(
     }
 
     try {
-      // Copy object to new key
+      // Force save OT document to S3 BEFORE the rename
+      // This ensures the CopyObject gets the latest editor content,
+      // not stale S3 content from before the user's recent edits
+      try {
+        const { forceSaveDocument: forceSaveOT } = await import("../services/otProviderService");
+        await forceSaveOT(bucketId, oldPath);
+        logger.info(`[File Rename] Force saved OT document to S3 before rename: ${oldPath}`);
+      } catch (saveError: any) {
+        // Non-fatal: document may not be open in OT (e.g. binary files)
+        logger.debug(`[File Rename] OT force save skipped for ${oldPath}: ${saveError.message}`);
+      }
+
+      // Copy object to new key (now with up-to-date content)
       await s3Client.send(new CopyObjectCommand({
         CopySource: `${bucket.bucket_name}/${oldPath}`,
         Bucket: bucket.bucket_name,
@@ -2078,7 +2442,7 @@ router.post(
         Key: oldPath,
       }));
 
-      // Clean up OT document for old path
+      // Clean up OT document for old path (skipSave=true since we already force-saved above)
       try {
         const { cleanupDocument: cleanupOTDocument, getDocumentId: getOTDocumentId } = await import("../services/otProviderService");
         cleanupOTDocument(getOTDocumentId(bucketId, oldPath), true);
@@ -2086,6 +2450,10 @@ router.post(
       } catch (otError: any) {
         logger.warn(`[File Rename] Failed to clean up OT document:`, otError);
       }
+
+      // Note: We intentionally do NOT delete build artifacts (.class, .js, .pyc) from S3
+      // during rename. The Dockerfile's `rm -f *.class` handles cleanup before compilation,
+      // and deleting them here causes confusing UI where files vanish from the tree.
 
       // Broadcast file-tree-change events
       try {

@@ -67,7 +67,7 @@ const CourseSummaryPage: React.FC<CourseSummaryPageProps> = ({
   return (
     <div className="h-full flex flex-col">
       {/* Course Header */}
-      <Card className="bg-purple-600 text-white border-0 rounded-3xl mx-6 mt-6 flex-shrink-0">
+      <Card className="bg-purple-600 dark:bg-purple-900 text-white border-0 rounded-3xl mx-6 mt-6 flex-shrink-0">
         <div className="p-6">
           <div className="flex justify-between items-start">
             <div className="space-y-4">
@@ -91,7 +91,7 @@ const CourseSummaryPage: React.FC<CourseSummaryPageProps> = ({
               <Button
                 onClick={handleUseTemplate}
                 disabled={isUsingTemplate}
-                className="bg-white text-purple-600 hover:bg-purple-50"
+                className="bg-white text-purple-600 hover:bg-primary/10"
                 size="lg"
               >
                 <Sparkles className="w-5 h-5 mr-2" />

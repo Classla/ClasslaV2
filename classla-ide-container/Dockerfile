@@ -593,7 +593,7 @@ RUN echo '#!/usr/bin/env python3' > /usr/local/bin/run-server.py && \
     echo '        try:' >> /usr/local/bin/run-server.py && \
     echo '            import urllib.request' >> /usr/local/bin/run-server.py && \
     echo '            flush_req = urllib.request.Request("http://127.0.0.1:3001/flush", method="POST")' >> /usr/local/bin/run-server.py && \
-    echo '            flush_resp = urllib.request.urlopen(flush_req, timeout=10)' >> /usr/local/bin/run-server.py && \
+    echo '            flush_resp = urllib.request.urlopen(flush_req, timeout=30)' >> /usr/local/bin/run-server.py && \
     echo '            print(f"Flushed and pulled files before run: {flush_resp.read().decode()}")' >> /usr/local/bin/run-server.py && \
     echo '        except Exception as e:' >> /usr/local/bin/run-server.py && \
     echo '            print(f"WARNING: Failed to flush/pull files before run: {e}")' >> /usr/local/bin/run-server.py && \
@@ -614,7 +614,7 @@ RUN echo '#!/usr/bin/env python3' > /usr/local/bin/run-server.py && \
     echo '        # Build and send command' >> /usr/local/bin/run-server.py && \
     echo '        if language == "java":' >> /usr/local/bin/run-server.py && \
     echo '            classname = os.path.splitext(filename)[0]' >> /usr/local/bin/run-server.py && \
-    echo '            command = f"javac *.java && java {shlex.quote(classname)}"' >> /usr/local/bin/run-server.py && \
+    echo '            command = f"rm -f *.class && javac *.java && java {shlex.quote(classname)}"' >> /usr/local/bin/run-server.py && \
     echo '        else:' >> /usr/local/bin/run-server.py && \
     echo '            command = f"{cmd} {shlex.quote(filename)}"' >> /usr/local/bin/run-server.py && \
     echo '        send_command(command)' >> /usr/local/bin/run-server.py && \
@@ -741,6 +741,7 @@ RUN echo '#!/usr/bin/env python3' > /usr/local/bin/run-server.py && \
     echo '            "if isinstance(test_input, bytes):",' >> /usr/local/bin/run-server.py && \
     echo '            "    test_input = test_input.decode(\\"utf-8\\")",' >> /usr/local/bin/run-server.py && \
     echo '            "try:",' >> /usr/local/bin/run-server.py && \
+    echo '            f"    subprocess.run(\\"rm -f *.class\\", shell=True, cwd={repr(AUTOGRADER_PATH)})",' >> /usr/local/bin/run-server.py && \
     echo '            f"    compile_result = subprocess.run(\\"javac *.java\\", shell=True, capture_output=True, text=True, timeout=30, cwd={repr(AUTOGRADER_PATH)})",' >> /usr/local/bin/run-server.py && \
     echo '            "    if compile_result.returncode != 0:",' >> /usr/local/bin/run-server.py && \
     echo '            "        print(f\\"FAIL: Compilation failed: {compile_result.stderr}\\")",' >> /usr/local/bin/run-server.py && \
@@ -920,6 +921,8 @@ RUN echo '#!/usr/bin/env python3' > /usr/local/bin/run-server.py && \
     echo '                            xvfb_process.wait()' >> /usr/local/bin/run-server.py && \
     echo '            elif framework == "junit":' >> /usr/local/bin/run-server.py && \
     echo '                test_basename = os.path.basename(test_file_path)' >> /usr/local/bin/run-server.py && \
+    echo '                # Clean stale .class files before compiling' >> /usr/local/bin/run-server.py && \
+    echo '                subprocess.run("rm -f *.class", shell=True, cwd=AUTOGRADER_PATH)' >> /usr/local/bin/run-server.py && \
     echo '                # Compile ALL java files (student code + test) together' >> /usr/local/bin/run-server.py && \
     echo '                compile_result = subprocess.run(' >> /usr/local/bin/run-server.py && \
     echo '                    "javac -cp \\".:/usr/share/java/*\\" *.java",' >> /usr/local/bin/run-server.py && \
@@ -1056,7 +1059,7 @@ RUN echo '#!/usr/bin/env python3' > /usr/local/bin/run-server.py && \
     echo '        try:' >> /usr/local/bin/run-server.py && \
     echo '            import urllib.request' >> /usr/local/bin/run-server.py && \
     echo '            flush_req = urllib.request.Request("http://127.0.0.1:3001/flush", method="POST")' >> /usr/local/bin/run-server.py && \
-    echo '            flush_resp = urllib.request.urlopen(flush_req, timeout=10)' >> /usr/local/bin/run-server.py && \
+    echo '            flush_resp = urllib.request.urlopen(flush_req, timeout=30)' >> /usr/local/bin/run-server.py && \
     echo '            print(f"Flushed and pulled files before tests: {flush_resp.read().decode()}")' >> /usr/local/bin/run-server.py && \
     echo '        except Exception as e:' >> /usr/local/bin/run-server.py && \
     echo '            print(f"WARNING: Failed to flush/pull files before tests: {e}")' >> /usr/local/bin/run-server.py && \

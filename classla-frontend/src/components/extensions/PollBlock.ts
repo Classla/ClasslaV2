@@ -1,7 +1,7 @@
 import { Node, mergeAttributes } from "@tiptap/core";
 import { ReactNodeViewRenderer } from "@tiptap/react";
 import PollEditorComponent from "../Blocks/Poll/PollEditor";
-import { generateUUID } from "./blockUtils";
+import { generateUUID, isEmptyContent } from "./blockUtils";
 
 export interface PollOption {
   id: string;
@@ -36,11 +36,18 @@ export const validatePollData = (data: any): { isValid: boolean; errors: string[
   if (!data.id || typeof data.id !== "string") {
     errors.push("Poll must have a valid ID");
   }
-  if (typeof data.question !== "string" || data.question.trim() === "") {
+  if (typeof data.question !== "string" || isEmptyContent(data.question)) {
     errors.push("Poll must have a question");
   }
   if (!Array.isArray(data.options) || data.options.length < 2) {
     errors.push("Poll must have at least 2 options");
+  }
+  // Check for empty option text (including empty HTML like <p></p>)
+  const hasEmptyOptions = data.options?.some((opt: any) =>
+    !opt.text || isEmptyContent(opt.text)
+  );
+  if (hasEmptyOptions) {
+    errors.push("All options must have text");
   }
   return { isValid: errors.length === 0, errors };
 };

@@ -19,11 +19,11 @@ const DiscussionViewer: React.FC<DiscussionViewerProps> = memo(({ node }) => {
       draggable={false}
       contentEditable={false}
     >
-      <div className="discussion-viewer border border-gray-200 rounded-lg p-4 bg-white">
-        <div className="p-6 bg-gray-50 rounded-lg border border-dashed border-gray-300 text-center">
-          <MessageSquare className="w-12 h-12 text-gray-400 mx-auto mb-3" />
-          <h3 className="text-lg font-semibold text-gray-900 mb-2">Coming Soon</h3>
-          <p className="text-sm text-gray-600">
+      <div className="discussion-viewer border border-border rounded-lg p-4 bg-card">
+        <div className="p-6 bg-muted rounded-lg border border-dashed border-border text-center">
+          <MessageSquare className="w-12 h-12 text-muted-foreground mx-auto mb-3" />
+          <h3 className="text-lg font-semibold text-foreground mb-2">Coming Soon</h3>
+          <p className="text-sm text-muted-foreground">
             Discussion/Forum functionality is under development. This feature will allow students to engage in threaded discussions and peer collaboration.
           </p>
         </div>

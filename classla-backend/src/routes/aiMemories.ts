@@ -5,7 +5,7 @@ import { logger } from "../utils/logger";
 
 const router = Router();
 
-const DEFAULT_MAX_CHARS = 10000;
+const DEFAULT_MAX_CHARS = 5000;
 const MAX_ENTRY_CHARS = 500;
 
 /**

@@ -56,6 +56,24 @@ export class OTPersistence {
   private tablesAvailable = true;
 
   /**
+   * Sanitize a string for PostgreSQL storage.
+   * Strips null bytes (\u0000) and replaces lone surrogates with U+FFFD.
+   * PostgreSQL TEXT rejects null bytes, and JSONB rejects both null bytes and lone surrogates.
+   */
+  private sanitizeForPostgres(str: string): string {
+    // eslint-disable-next-line no-control-regex
+    return str.replace(/\u0000/g, "").replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, "\uFFFD");
+  }
+
+  /**
+   * Sanitize operation components for JSONB storage.
+   * Only string components need sanitization; numbers pass through.
+   */
+  private sanitizeOperations(ops: Component[]): Component[] {
+    return ops.map(op => typeof op === "string" ? this.sanitizeForPostgres(op) : op);
+  }
+
+  /**
    * Check if the error is a "table not found" error from Supabase/PostgREST
    */
   private isTableNotFoundError(error: any): boolean {
@@ -110,7 +128,7 @@ export class OTPersistence {
         bucket_id: doc.bucket_id,
         file_path: doc.file_path,
         current_revision: doc.current_revision,
-        content: doc.content,
+        content: this.sanitizeForPostgres(doc.content),
         updated_at: new Date().toISOString(),
       },
       { onConflict: "id" }
@@ -136,7 +154,7 @@ export class OTPersistence {
       document_id: record.document_id,
       revision: record.revision,
       author_id: record.author_id,
-      operations: record.operations,
+      operations: this.sanitizeOperations(record.operations),
     });
 
     if (error) {
@@ -267,6 +285,28 @@ export class OTPersistence {
       logger.info(
         `[OTPersistence] Compacted operations for ${documentId}, deleted revisions < ${deleteBeforeRevision}`
       );
+    }
+  }
+
+  /**
+   * Clear all operations for a document (used when reloading from DB to prevent stale revision conflicts)
+   */
+  async clearOperations(documentId: string): Promise<void> {
+    if (!this.tablesAvailable) return;
+
+    const { error } = await supabase
+      .from("ot_operations")
+      .delete()
+      .eq("document_id", documentId);
+
+    if (error) {
+      if (this.isTableNotFoundError(error)) {
+        this.tablesAvailable = false;
+        return;
+      }
+      logger.error(`[OTPersistence] Failed to clear operations for ${documentId}:`, error);
+    } else {
+      logger.info(`[OTPersistence] Cleared all operations for ${documentId}`);
     }
   }
 

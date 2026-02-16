@@ -274,7 +274,7 @@ const GradingSidebar: React.FC<GradingSidebarProps> = ({
   if (isLoading) {
     return (
       <div className="flex items-center justify-center p-8">
-        <Loader2 className="h-8 w-8 animate-spin text-purple-600" />
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
       </div>
     );
   }
@@ -296,7 +296,7 @@ const GradingSidebar: React.FC<GradingSidebarProps> = ({
             variant="ghost"
             size="sm"
             onClick={() => onStudentSelect(null)}
-            className="justify-start px-0 h-auto text-gray-500 hover:text-gray-700"
+            className="justify-start px-0 h-auto text-muted-foreground hover:text-foreground"
           >
             <ArrowLeft className="w-4 h-4 mr-1" />
             Back to Students
@@ -313,10 +313,10 @@ const GradingSidebar: React.FC<GradingSidebarProps> = ({
               <ChevronLeft className="w-4 h-4" />
             </Button>
             <div className="flex-1 text-center min-w-0">
-              <div className="font-semibold text-gray-900 truncate">
+              <div className="font-semibold text-foreground truncate">
                 {selectedStudent.firstName} {selectedStudent.lastName}
               </div>
-              <div className="text-xs text-gray-500">
+              <div className="text-xs text-muted-foreground">
                 {currentStudentIndex + 1} of {filteredStudents.length}
               </div>
             </div>
@@ -361,7 +361,7 @@ const GradingSidebar: React.FC<GradingSidebarProps> = ({
     <div className="h-full flex flex-col">
       <div className="p-4 space-y-3 border-b">
         <div className="relative">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
             type="text"
             placeholder="Search students..."
@@ -392,7 +392,7 @@ const GradingSidebar: React.FC<GradingSidebarProps> = ({
 
       <div className="flex-1 overflow-y-auto">
         {filteredStudents.length === 0 ? (
-          <div className="p-8 text-center text-gray-500">No students found</div>
+          <div className="p-8 text-center text-muted-foreground">No students found</div>
         ) : (
           <div className="divide-y">
             {filteredStudents.map((student) => {
@@ -412,13 +412,13 @@ const GradingSidebar: React.FC<GradingSidebarProps> = ({
                 <button
                   key={student.userId}
                   onClick={() => onStudentSelect(student)}
-                  className="w-full p-4 text-left hover:bg-gray-50 transition-colors flex items-start justify-between"
+                  className="w-full p-4 text-left hover:bg-accent transition-colors flex items-start justify-between"
                 >
                   <div className="flex-1">
-                    <div className="font-medium text-gray-900">
+                    <div className="font-medium text-foreground">
                       {student.lastName}, {student.firstName}
                       {student.submissions.length > 1 && (
-                        <span className="ml-2 text-xs bg-gray-200 text-gray-600 rounded-full px-1.5 py-0.5">
+                        <span className="ml-2 text-xs bg-accent text-muted-foreground rounded-full px-1.5 py-0.5">
                           {student.submissions.length} submissions
                         </span>
                       )}

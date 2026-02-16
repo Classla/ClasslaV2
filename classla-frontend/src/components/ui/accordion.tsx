@@ -113,14 +113,14 @@ export const AccordionTrigger: React.FC<AccordionTriggerProps> = ({
       type="button"
       onClick={() => context.toggleItem(itemContext.value)}
       className={cn(
-        "flex w-full items-center justify-between p-4 text-left hover:bg-gray-50 transition-colors",
+        "flex w-full items-center justify-between p-4 text-left hover:bg-accent transition-colors",
         className
       )}
     >
       {children}
       <ChevronDown
         className={cn(
-          "h-4 w-4 text-gray-500 transition-transform",
+          "h-4 w-4 text-muted-foreground transition-transform",
           isOpen && "transform rotate-180"
         )}
       />

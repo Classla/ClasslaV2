@@ -63,8 +63,26 @@ class ContainerFileSync {
     console.log(`[ContainerSync] Backend: ${BACKEND_API_URL}`);
     console.log(`[ContainerSync] Bucket: ${BUCKET_ID}`);
 
-    await this.startFileWatcher();
     await this.startFlushServer();
+
+    // Initial sync: pull all files from S3 before starting the watcher
+    // Retry up to 3 times in case backend isn't ready yet or network is slow
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        console.log(`[ContainerSync] Initial sync attempt ${attempt}/3...`);
+        const count = await this.flushFiles();
+        console.log(`[ContainerSync] Initial sync complete: ${count} operations`);
+        break;
+      } catch (err) {
+        console.error(`[ContainerSync] Initial sync attempt ${attempt} failed:`, err.message);
+        if (attempt < 3) {
+          await new Promise(r => setTimeout(r, 2000)); // Wait 2s before retry
+        }
+      }
+    }
+
+    // Start watching AFTER initial sync so we don't push stale local state
+    await this.startFileWatcher();
 
     // Write marker file to signal initial sync is ready
     const markerPath = "/tmp/yjs-initial-sync-complete";
@@ -270,11 +288,15 @@ class ContainerFileSync {
       }
     }
 
-    // 2. Pull latest file list from backend and update container filesystem
+    // 2. Call flush-for-container (force-saves OT docs to S3, returns file list)
+    //    Then pull ALL files to mirror S3 → container (S3 is source of truth)
     let pulledCount = 0;
     let fileList = [];
+    let fileListValid = false;
     try {
-      fileList = await this.fetchFileList();
+      fileList = await this.flushAndFetchFileList();
+      fileListValid = fileList.length > 0;
+      console.log(`[ContainerSync] Got file list from backend: ${fileList.length} files: [${fileList.join(', ')}]`);
       for (const filePath of fileList) {
         try {
           const result = await this.fetchFileContent(filePath);
@@ -299,30 +321,35 @@ class ContainerFileSync {
         }
       }
     } catch (err) {
-      console.error("[ContainerSync] Error fetching file list:", err.message);
+      console.error("[ContainerSync] Error fetching file list — SKIPPING cleanup to avoid deleting all files:", err.message);
     }
 
-    // 3. Delete local files that no longer exist in S3
+    // 3. Delete local files that no longer exist in S3 (container mirrors S3)
+    //    ONLY if we successfully got a valid file list — otherwise we'd delete everything
     let deletedCount = 0;
-    try {
-      const s3FileSet = new Set(fileList);
-      const localFiles = await this.scanWorkspaceFiles();
-      for (const localFile of localFiles) {
-        if (!s3FileSet.has(localFile) && !this.syncingFiles.has(localFile)) {
-          const fullPath = path.join(WORKSPACE_PATH, localFile);
-          try {
-            await fs.unlink(fullPath);
-            deletedCount++;
-            console.log(`[ContainerSync] Deleted stale file: ${localFile}`);
-          } catch (err) {
-            if (err.code !== "ENOENT") {
-              console.error(`[ContainerSync] Error deleting ${localFile}:`, err.message);
+    if (fileListValid) {
+      try {
+        const s3FileSet = new Set(fileList);
+        const localFiles = await this.scanWorkspaceFiles();
+        for (const localFile of localFiles) {
+          if (!s3FileSet.has(localFile) && !this.syncingFiles.has(localFile)) {
+            const fullPath = path.join(WORKSPACE_PATH, localFile);
+            try {
+              await fs.unlink(fullPath);
+              deletedCount++;
+              console.log(`[ContainerSync] Deleted stale file: ${localFile}`);
+            } catch (err) {
+              if (err.code !== "ENOENT") {
+                console.error(`[ContainerSync] Error deleting ${localFile}:`, err.message);
+              }
             }
           }
         }
+      } catch (err) {
+        console.error("[ContainerSync] Error cleaning up stale files:", err.message);
       }
-    } catch (err) {
-      console.error("[ContainerSync] Error cleaning up stale files:", err.message);
+    } else {
+      console.log("[ContainerSync] Skipping cleanup: empty or failed file list");
     }
 
     console.log(`[ContainerSync] Flush complete: pushed ${pendingPaths.length}, pulled ${pulledCount}, deleted ${deletedCount} file(s)`);
@@ -330,10 +357,29 @@ class ContainerFileSync {
   }
 
   /**
-   * Fetch the list of files in the bucket from backend
+   * Flush OT documents and fetch file list in one call.
+   * The backend force-saves all OT docs to S3 first, then returns the file list.
+   * Retries up to 2 times on failure (3 attempts total).
    */
-  async fetchFileList() {
-    const url = `${BACKEND_API_URL}/s3buckets/${BUCKET_ID}/files/list-for-container`;
+  async flushAndFetchFileList() {
+    const url = `${BACKEND_API_URL}/s3buckets/${BUCKET_ID}/files/flush-for-container`;
+    let lastError;
+
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        const files = await this._httpPost(url, 20000);
+        return files;
+      } catch (err) {
+        lastError = err;
+        console.error(`[ContainerSync] flushAndFetchFileList attempt ${attempt}/3 failed:`, err.message);
+        if (attempt < 3) await new Promise(r => setTimeout(r, 1000));
+      }
+    }
+    throw lastError;
+  }
+
+  /** HTTP POST helper — returns parsed file list */
+  _httpPost(url, timeoutMs = 20000) {
     const parsedUrl = new URL(url);
     const transport = parsedUrl.protocol === "https:" ? https : http;
 
@@ -343,11 +389,13 @@ class ContainerFileSync {
           hostname: parsedUrl.hostname,
           port: parsedUrl.port,
           path: parsedUrl.pathname,
-          method: "GET",
+          method: "POST",
           headers: {
+            "Content-Type": "application/json",
+            "Content-Length": 0,
             "x-container-service-token": CONTAINER_SERVICE_TOKEN,
           },
-          timeout: 10000,
+          timeout: timeoutMs,
         },
         (res) => {
           let data = "";
@@ -356,6 +404,9 @@ class ContainerFileSync {
             if (res.statusCode >= 200 && res.statusCode < 300) {
               try {
                 const parsed = JSON.parse(data);
+                if (parsed.otSaved > 0) {
+                  console.log(`[ContainerSync] Backend force-saved ${parsed.otSaved} OT documents before flush`);
+                }
                 resolve(parsed.files || []);
               } catch (e) {
                 reject(new Error(`Invalid JSON response: ${data.substring(0, 100)}`));
@@ -367,7 +418,7 @@ class ContainerFileSync {
         }
       );
       req.on("error", reject);
-      req.on("timeout", () => { req.destroy(); reject(new Error("Timeout")); });
+      req.on("timeout", () => { req.destroy(); reject(new Error(`Timeout after ${timeoutMs}ms`)); });
       req.end();
     });
   }
@@ -390,7 +441,7 @@ class ContainerFileSync {
           headers: {
             "x-container-service-token": CONTAINER_SERVICE_TOKEN,
           },
-          timeout: 10000,
+          timeout: 15000,
         },
         (res) => {
           let data = "";
@@ -414,7 +465,7 @@ class ContainerFileSync {
         }
       );
       req.on("error", reject);
-      req.on("timeout", () => { req.destroy(); reject(new Error("Timeout")); });
+      req.on("timeout", () => { req.destroy(); reject(new Error("Timeout fetching file content")); });
       req.end();
     });
   }

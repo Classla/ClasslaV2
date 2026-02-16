@@ -505,16 +505,16 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
   if (!assignment) {
     return (
       <div className="text-center py-12">
-        <h3 className="text-lg font-medium text-gray-900 mb-2">
+        <h3 className="text-lg font-medium text-foreground mb-2">
           Assignment not found
         </h3>
-        <p className="text-gray-600 mb-6">
+        <p className="text-muted-foreground mb-6">
           The assignment you're looking for doesn't exist or you don't have
           access to it.
         </p>
         <Button
           onClick={() => navigate(`/course/${courseSlug}/summary`)}
-          className="bg-purple-600 hover:bg-purple-700"
+          className="bg-purple-600 hover:bg-purple-700 dark:bg-purple-800 dark:hover:bg-purple-900"
         >
           Back to Course
         </Button>
@@ -529,7 +529,7 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
         <Allotment.Pane minSize={400}>
           <div className="h-full flex flex-col overflow-auto">
             {/* Assignment Header */}
-            <Card className="bg-purple-600 text-white border-0 rounded-3xl mx-6 mt-4 flex-shrink-0">
+            <Card className="bg-purple-600 dark:bg-purple-900 text-white border-0 rounded-3xl mx-6 mt-4 flex-shrink-0">
               <div className="p-6">
                 <div className="flex justify-between items-start">
                   <div className="space-y-2 flex-1">
@@ -812,10 +812,10 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
                     ) : (
                       <div className="flex items-center justify-center h-full">
                         <div className="text-center max-w-md">
-                          <h3 className="text-2xl font-semibold text-gray-900 mb-4">
+                          <h3 className="text-2xl font-semibold text-foreground mb-4">
                             Assignment Not Started
                           </h3>
-                          <p className="text-gray-600 mb-6">
+                          <p className="text-muted-foreground mb-6">
                             Click the button below to begin working on this
                             assignment. Your progress will be saved
                             automatically.
@@ -847,8 +847,8 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
         {/* IDE Panel - Shows when in side-panel mode */}
         {panelMode === 'side-panel' && activePanelState && (
           <Allotment.Pane minSize={400} preferredSize={800}>
-            <div className="h-full bg-white border-l border-gray-200 shadow-xl flex flex-col">
-              <div className="p-2 border-b bg-gray-50 flex-shrink-0 flex items-center justify-between">
+            <div className="h-full bg-card border-l border-border shadow-xl flex flex-col">
+              <div className="p-2 border-b bg-muted flex-shrink-0 flex items-center justify-between">
                 <h3 className="text-lg font-semibold">IDE Environment</h3>
                 <Button
                   variant="ghost"
@@ -910,9 +910,9 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
         {/* Sidebar Panel - Resizable */}
         {hasInstructionalPrivileges && activeSidebarPanel && assignment && (
           <Allotment.Pane minSize={280} maxSize={700} preferredSize={activeSidebarPanel === "ai-chat" ? 420 : 320}>
-            <div className="h-full bg-white border-l border-gray-200 shadow-xl flex flex-col">
+            <div className="h-full bg-card border-l border-border shadow-xl flex flex-col">
               {activeSidebarPanel !== "ai-chat" && (
-                <div className="p-4 border-b bg-gray-50 flex-shrink-0">
+                <div className="p-4 border-b bg-muted flex-shrink-0">
                   <div className="flex items-center justify-between">
                     <h3 className="text-lg font-semibold capitalize">
                       {activeSidebarPanel === "grader"
@@ -958,7 +958,7 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
                     onAssignmentUpdated={handleAssignmentUpdated}
                   />
                 ) : (
-                  <div className="p-4 text-center text-gray-500">
+                  <div className="p-4 text-center text-muted-foreground">
                     You don't have permission to edit assignment settings.
                   </div>
                 )}
@@ -970,14 +970,14 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
 
       {/* Right Sidebar Strip - Fixed, outside Allotment */}
       {hasInstructionalPrivileges && (
-        <div className="w-12 bg-gray-100 border-l border-gray-200 flex flex-col flex-shrink-0">
+        <div className="w-12 bg-muted border-l border-border flex flex-col flex-shrink-0">
           {!course?.is_template && (
             <button
               onClick={() => toggleSidebarPanel("grader")}
-              className={`w-12 h-12 flex items-center justify-center border-b border-gray-200 transition-colors ${
+              className={`w-12 h-12 flex items-center justify-center border-b border-border transition-colors ${
                 activeSidebarPanel === "grader"
-                  ? "bg-purple-100 text-purple-600"
-                  : "hover:bg-gray-200 text-gray-600"
+                  ? "bg-purple-100 text-purple-600 dark:bg-purple-900 dark:text-purple-300"
+                  : "hover:bg-accent text-muted-foreground"
               }`}
               title="Grader Panel"
             >
@@ -987,10 +987,10 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
           {canEdit && (
             <button
               onClick={() => toggleSidebarPanel("settings")}
-              className={`w-12 h-12 flex items-center justify-center border-b border-gray-200 transition-colors ${
+              className={`w-12 h-12 flex items-center justify-center border-b border-border transition-colors ${
                 activeSidebarPanel === "settings"
-                  ? "bg-purple-100 text-purple-600"
-                  : "hover:bg-gray-200 text-gray-600"
+                  ? "bg-purple-100 text-purple-600 dark:bg-purple-900 dark:text-purple-300"
+                  : "hover:bg-accent text-muted-foreground"
               }`}
               title="Assignment Settings"
             >
@@ -1000,10 +1000,10 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
           {canEdit && (
             <button
               onClick={() => toggleSidebarPanel("ai-chat")}
-              className={`w-12 h-12 flex items-center justify-center border-b border-gray-200 transition-colors ${
+              className={`w-12 h-12 flex items-center justify-center border-b border-border transition-colors ${
                 activeSidebarPanel === "ai-chat"
-                  ? "bg-purple-100 text-purple-600"
-                  : "hover:bg-gray-200 text-gray-600"
+                  ? "bg-purple-100 text-purple-600 dark:bg-purple-900 dark:text-purple-300"
+                  : "hover:bg-accent text-muted-foreground"
               }`}
               title="AI Assistant"
             >

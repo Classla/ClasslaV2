@@ -5,7 +5,7 @@ const CourseSummarySkeleton: React.FC = () => {
   return (
     <div className="h-full flex flex-col">
       {/* Course Header Skeleton */}
-      <Card className="bg-purple-600 border-0 rounded-3xl mx-6 mt-6 flex-shrink-0">
+      <Card className="bg-purple-600 dark:bg-purple-900 border-0 rounded-3xl mx-6 mt-6 flex-shrink-0">
         <div className="p-6">
           <div className="flex justify-between items-start">
             <div className="space-y-4">
@@ -28,15 +28,15 @@ const CourseSummarySkeleton: React.FC = () => {
         <Card className="h-full p-0 overflow-hidden">
           <div className="p-8">
             <div className="animate-pulse space-y-6">
-              <div className="h-8 bg-gray-200 rounded w-1/2"></div>
+              <div className="h-8 bg-accent rounded w-1/2"></div>
               <div className="space-y-3">
-                <div className="h-4 bg-gray-200 rounded w-full"></div>
-                <div className="h-4 bg-gray-200 rounded w-5/6"></div>
-                <div className="h-4 bg-gray-200 rounded w-4/6"></div>
+                <div className="h-4 bg-accent rounded w-full"></div>
+                <div className="h-4 bg-accent rounded w-5/6"></div>
+                <div className="h-4 bg-accent rounded w-4/6"></div>
               </div>
               <div className="space-y-3">
-                <div className="h-4 bg-gray-200 rounded w-full"></div>
-                <div className="h-4 bg-gray-200 rounded w-3/4"></div>
+                <div className="h-4 bg-accent rounded w-full"></div>
+                <div className="h-4 bg-accent rounded w-3/4"></div>
               </div>
             </div>
           </div>

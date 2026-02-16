@@ -115,17 +115,24 @@ export class OTServer {
           }
         );
         content = s3Content;
-        // Increment revision since content changed
-        revision = dbDoc.current_revision + 1;
-        // Save updated content to DB
-        await this.persistence.saveDocument({
-          id: documentId,
-          bucket_id: bucketId,
-          file_path: filePath,
-          current_revision: revision,
-          content,
-        });
       }
+
+      // Clear stale operations from previous sessions.
+      // Operations are only needed for transforming concurrent edits within a session.
+      // When reloading from DB (document not in memory = no active editors),
+      // old operations can cause revision conflicts (duplicate key errors).
+      // Start fresh with the current content as the baseline.
+      await this.persistence.clearOperations(documentId);
+      revision = 0;
+
+      // Save the clean state
+      await this.persistence.saveDocument({
+        id: documentId,
+        bucket_id: bucketId,
+        file_path: filePath,
+        current_revision: revision,
+        content,
+      });
 
       const doc: OTDocument = {
         id: documentId,
@@ -136,7 +143,7 @@ export class OTServer {
         revision,
       };
       this.documents.set(documentId, doc);
-      logger.info(`[OTServer] Loaded document ${documentId} from DB (rev=${revision})`);
+      logger.info(`[OTServer] Loaded document ${documentId} from DB (rev=${revision}, content len=${content.length})`);
       return doc;
     }
 
@@ -234,7 +241,10 @@ export class OTServer {
         );
       }
 
-      // Apply to document
+      // Apply to document — save old state for rollback if persistence fails
+      const oldContent = doc.content;
+      const oldRevision = doc.revision;
+
       try {
         doc.content = transformedOp.apply(doc.content);
       } catch (error: any) {
@@ -252,13 +262,23 @@ export class OTServer {
 
       doc.revision++;
 
-      // Persist operation to DB
-      await this.persistence.saveOperation({
-        document_id: documentId,
-        revision: doc.revision,
-        author_id: authorId,
-        operations: transformedOp.toJSON(),
-      });
+      // Persist operation to DB — rollback in-memory state on failure
+      try {
+        await this.persistence.saveOperation({
+          document_id: documentId,
+          revision: doc.revision,
+          author_id: authorId,
+          operations: transformedOp.toJSON(),
+        });
+      } catch (persistError: any) {
+        logger.error(
+          `[OTServer] Persistence failed for ${documentId} (rev=${doc.revision}), rolling back in-memory state:`,
+          persistError
+        );
+        doc.content = oldContent;
+        doc.revision = oldRevision;
+        throw persistError;
+      }
 
       // Debounced save to DB + S3
       this.debouncedSave(doc);
@@ -411,6 +431,40 @@ export class OTServer {
 
     await this.persistence.saveFileToS3(doc.bucketInfo, doc.filePath, doc.content);
     logger.info(`[OTServer] Force saved document ${documentId} (rev=${doc.revision})`);
+  }
+
+  /**
+   * Get in-memory document content without loading from S3/DB.
+   * Returns null if the document is not currently in memory.
+   */
+  getDocumentContent(bucketId: string, filePath: string): string | null {
+    const documentId = OTServer.getDocumentId(bucketId, filePath);
+    const doc = this.documents.get(documentId);
+    return doc ? doc.content : null;
+  }
+
+  /**
+   * Force save all in-memory documents for a specific bucket.
+   * Returns the list of file paths that were saved.
+   */
+  async forceSaveDocumentsForBucket(bucketId: string): Promise<string[]> {
+    const savedPaths: string[] = [];
+    const promises: Promise<void>[] = [];
+    for (const [documentId, doc] of this.documents.entries()) {
+      if (doc.bucketId === bucketId) {
+        savedPaths.push(doc.filePath);
+        promises.push(
+          this.forceSaveDocument(documentId).catch((e) => {
+            logger.error(`[OTServer] Failed to save ${documentId} during bucket flush:`, e);
+          })
+        );
+      }
+    }
+    await Promise.all(promises);
+    if (savedPaths.length > 0) {
+      logger.info(`[OTServer] Force-saved ${savedPaths.length} documents for bucket ${bucketId}`);
+    }
+    return savedPaths;
   }
 
   /**

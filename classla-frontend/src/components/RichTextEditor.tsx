@@ -51,17 +51,17 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
         },
         blockquote: {
           HTMLAttributes: {
-            class: "border-l-4 border-gray-300 pl-4 italic",
+            class: "border-l-4 border-border pl-4 italic",
           },
         },
         code: {
           HTMLAttributes: {
-            class: "bg-gray-100 px-1 py-0.5 rounded text-sm font-mono",
+            class: "bg-muted px-1 py-0.5 rounded text-sm font-mono",
           },
         },
         codeBlock: {
           HTMLAttributes: {
-            class: "bg-gray-100 p-3 rounded font-mono text-sm",
+            class: "bg-muted p-3 rounded font-mono text-sm",
           },
         },
       }),
@@ -78,7 +78,7 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
     },
     editorProps: {
       attributes: {
-        class: `rich-text-content focus:outline-none ${className}`,
+        class: `rich-text-content text-foreground focus:outline-none ${className}`,
         style: `min-height: ${minHeight}; max-height: ${maxHeight}; overflow-y: auto; resize: none; padding: 8px !important; margin: 0 !important;`,
       },
       handleKeyDown: (view, event) => {
@@ -188,8 +188,8 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
       onClick={onClick}
       className={`p-1.5 rounded text-sm transition-colors ${
         isActive
-          ? "bg-purple-100 text-purple-700"
-          : "text-gray-600 hover:bg-gray-100 hover:text-gray-900"
+          ? "bg-primary/20 text-primary"
+          : "text-muted-foreground hover:bg-accent hover:text-foreground"
       }`}
       title={title}
     >
@@ -200,17 +200,17 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
   if (!editor) {
     return (
       <div
-        className={`p-2 border border-gray-300 rounded-md bg-gray-50 animate-pulse ${className}`}
+        className={`p-2 border border-border rounded-md bg-muted animate-pulse ${className}`}
         style={{ minHeight: minHeight }}
       >
-        <div className="h-4 bg-gray-200 rounded w-1/3"></div>
+        <div className="h-4 bg-accent rounded w-1/3"></div>
       </div>
     );
   }
 
   return (
     <div
-      className={`rich-text-editor border border-gray-300 rounded-md focus-within:border-purple-500 focus-within:ring-1 focus-within:ring-purple-200 transition-colors ${className}`}
+      className={`rich-text-editor border border-border rounded-md focus-within:border-primary focus-within:ring-1 focus-within:ring-ring transition-colors ${className}`}
       onMouseDown={handleMouseDown}
       onMouseUp={handleEvent}
       onMouseMove={handleEvent}
@@ -225,7 +225,7 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
       }
     >
       {showToolbar && editor && (
-        <div className="border-b border-gray-200 px-2 py-1 flex items-center gap-1 bg-gray-50 rounded-t-md">
+        <div className="border-b border-border px-2 py-1 flex items-center gap-1 bg-muted rounded-t-md">
           <ToolbarButton
             onClick={() => editor.chain().focus().toggleBold().run()}
             isActive={editor.isActive("bold")}
@@ -250,7 +250,7 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
             <Code className="w-4 h-4" />
           </ToolbarButton>
 
-          <div className="w-px h-6 bg-gray-300 mx-1" />
+          <div className="w-px h-6 bg-border mx-1" />
 
           <ToolbarButton
             onClick={() => editor.chain().focus().toggleBulletList().run()}

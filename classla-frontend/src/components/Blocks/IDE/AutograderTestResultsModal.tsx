@@ -45,17 +45,17 @@ const AutograderTestResultsModal: React.FC<AutograderTestResultsModalProps> = ({
 
         <div className="space-y-4 mt-4">
           {/* Summary */}
-          <div className="bg-gray-50 rounded-lg p-4 border">
+          <div className="bg-muted rounded-lg p-4 border">
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-4">
                 <div>
-                  <p className="text-sm text-gray-600">Tests Passed</p>
+                  <p className="text-sm text-muted-foreground">Tests Passed</p>
                   <p className="text-2xl font-bold">
                     {passedCount}/{totalCount}
                   </p>
                 </div>
                 <div>
-                  <p className="text-sm text-gray-600">Points Earned</p>
+                  <p className="text-sm text-muted-foreground">Points Earned</p>
                   <p className="text-2xl font-bold">
                     {pointsEarned}/{totalPoints}
                   </p>
@@ -88,12 +88,12 @@ const AutograderTestResultsModal: React.FC<AutograderTestResultsModalProps> = ({
                     ) : (
                       <XCircle className="h-5 w-5 text-red-600" />
                     )}
-                    <h4 className="font-medium text-gray-900">
+                    <h4 className="font-medium text-foreground">
                       {result.testName}
                     </h4>
                   </div>
                   <div className="text-right">
-                    <p className="text-sm font-medium text-gray-700">
+                    <p className="text-sm font-medium text-foreground">
                       {result.pointsEarned}/{result.points} points
                     </p>
                     <Badge
@@ -107,7 +107,7 @@ const AutograderTestResultsModal: React.FC<AutograderTestResultsModalProps> = ({
 
                 {/* Output */}
                 {(result.output || result.error) && (
-                  <div className="mt-3 pt-3 border-t border-gray-300">
+                  <div className="mt-3 pt-3 border-t border-border">
                     {result.error && (
                       <div className="mb-2">
                         <p className="text-xs font-medium text-red-700 mb-1">
@@ -120,10 +120,10 @@ const AutograderTestResultsModal: React.FC<AutograderTestResultsModalProps> = ({
                     )}
                     {result.output && (
                       <div>
-                        <p className="text-xs font-medium text-gray-700 mb-1">
+                        <p className="text-xs font-medium text-foreground mb-1">
                           Output:
                         </p>
-                        <pre className="text-xs bg-white p-2 rounded border font-mono whitespace-pre-wrap max-h-32 overflow-y-auto">
+                        <pre className="text-xs bg-card p-2 rounded border font-mono whitespace-pre-wrap max-h-32 overflow-y-auto">
                           {result.output}
                         </pre>
                       </div>

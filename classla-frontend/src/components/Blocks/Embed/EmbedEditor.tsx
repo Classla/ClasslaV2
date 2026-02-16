@@ -131,7 +131,7 @@ const EmbedEditor: React.FC<EmbedEditorProps> = memo(
           }
         }}
       >
-        <div className="embed-editor border border-gray-200 rounded-lg p-3 bg-white shadow-sm select-none">
+        <div className="embed-editor border border-border rounded-lg p-3 bg-card shadow-sm select-none">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-3">
               <div
@@ -148,7 +148,7 @@ const EmbedEditor: React.FC<EmbedEditorProps> = memo(
                 )}
               </div>
               <div className="select-none">
-                <div className="text-sm font-medium text-gray-900">Embed</div>
+                <div className="text-sm font-medium text-foreground">Embed</div>
                 {validationErrors.length > 0 && (
                   <div className="text-xs text-red-600 mt-0.5">
                     {validationErrors.length} error
@@ -168,7 +168,7 @@ const EmbedEditor: React.FC<EmbedEditorProps> = memo(
           </div>
 
           <div className="mb-3">
-            <Label className="text-sm font-medium text-gray-700 mb-1 block">
+            <Label className="text-sm font-medium text-foreground mb-1 block">
               URL or Embed Code
             </Label>
             <Input
@@ -189,7 +189,7 @@ const EmbedEditor: React.FC<EmbedEditorProps> = memo(
               className="w-full"
             />
             {embedData.url && (
-              <p className="text-xs text-gray-500 mt-1">
+              <p className="text-xs text-muted-foreground mt-1">
                 Detected: {embedData.embedType === "youtube" ? "YouTube" : embedData.embedType === "vimeo" ? "Vimeo" : "Generic iframe"}
               </p>
             )}
@@ -197,7 +197,7 @@ const EmbedEditor: React.FC<EmbedEditorProps> = memo(
 
           {embedData.embedType === "youtube" || embedData.embedType === "vimeo" ? (
             <div className="mb-3">
-              <Label className="text-sm font-medium text-gray-700 mb-1 block">
+              <Label className="text-sm font-medium text-foreground mb-1 block">
                 Start Time (MM:SS, optional)
               </Label>
               <Input
@@ -221,7 +221,7 @@ const EmbedEditor: React.FC<EmbedEditorProps> = memo(
           ) : null}
 
           <div className="mb-3">
-            <Label className="text-sm font-medium text-gray-700 mb-1 block">
+            <Label className="text-sm font-medium text-foreground mb-1 block">
               Title (optional)
             </Label>
             <Input
@@ -257,10 +257,10 @@ const EmbedEditor: React.FC<EmbedEditorProps> = memo(
           </div>
 
           {embedData.url && (
-            <div className="mt-4 p-2 bg-gray-50 rounded border">
-              <div className="text-xs text-gray-600 mb-2">Preview:</div>
-              <div className="aspect-video bg-gray-200 rounded flex items-center justify-center">
-                <span className="text-xs text-gray-500">Preview will appear here</span>
+            <div className="mt-4 p-2 bg-muted rounded border">
+              <div className="text-xs text-muted-foreground mb-2">Preview:</div>
+              <div className="aspect-video bg-accent rounded flex items-center justify-center">
+                <span className="text-xs text-muted-foreground">Preview will appear here</span>
               </div>
             </div>
           )}

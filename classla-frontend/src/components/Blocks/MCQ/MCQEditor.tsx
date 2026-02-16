@@ -289,7 +289,7 @@ const MCQEditor: React.FC<MCQEditorProps> = memo(
         contentEditable={false}
       >
         <div
-          className="mcq-editor border border-gray-200 rounded-lg p-3 bg-white shadow-sm select-none"
+          className="mcq-editor border border-border rounded-lg p-3 bg-card shadow-sm select-none"
           role="group"
           aria-label="Multiple choice question editor"
           style={{ cursor: "default" }}
@@ -313,10 +313,10 @@ const MCQEditor: React.FC<MCQEditorProps> = memo(
                 )}
               </div>
               <div className="select-none">
-                <div className="text-sm font-medium text-gray-900">
+                <div className="text-sm font-medium text-foreground">
                   Multiple Choice Question
                 </div>
-                <div className="text-xs text-gray-500">
+                <div className="text-xs text-muted-foreground">
                   {mcqData.allowMultiple
                     ? "Multiple answers allowed"
                     : "Single answer only"}
@@ -329,7 +329,7 @@ const MCQEditor: React.FC<MCQEditorProps> = memo(
                 </span>
               )}
               {isValidating && (
-                <div className="w-4 h-4 animate-spin rounded-full border-2 border-gray-300 border-t-blue-600"></div>
+                <div className="w-4 h-4 animate-spin rounded-full border-2 border-border border-t-blue-600"></div>
               )}
             </div>
             <div className="flex items-center gap-2">
@@ -420,7 +420,7 @@ const MCQEditor: React.FC<MCQEditorProps> = memo(
 
           {/* Question editor */}
           <div className="mb-3">
-            <Label className="text-sm font-medium text-gray-700 mb-1 block select-none">
+            <Label className="text-sm font-medium text-foreground mb-1 block select-none">
               Question
             </Label>
             <div className="select-text">
@@ -443,7 +443,7 @@ const MCQEditor: React.FC<MCQEditorProps> = memo(
 
           {/* Options */}
           <div className="space-y-1 mb-3">
-            <Label className="text-sm font-medium text-gray-700 select-none">
+            <Label className="text-sm font-medium text-foreground select-none">
               Answer Options
             </Label>
             {mcqData.options.map((option, index) => (
@@ -454,7 +454,7 @@ const MCQEditor: React.FC<MCQEditorProps> = memo(
                     ? "opacity-50 bg-blue-50 border-blue-300"
                     : dragOverIndex === index && draggedIndex !== null
                     ? "bg-blue-50 border-blue-300 border-dashed"
-                    : "border-gray-200 bg-gray-50 hover:bg-gray-100"
+                    : "border-border bg-muted hover:bg-accent"
                 }`}
                 draggable={false} // Disable dragging on the option div
                 onDragStart={(e) => {
@@ -496,7 +496,7 @@ const MCQEditor: React.FC<MCQEditorProps> = memo(
               >
                 {/* Drag handle */}
                 <div
-                  className="text-gray-400 hover:text-gray-600 cursor-grab active:cursor-grabbing p-1 select-none"
+                  className="text-muted-foreground hover:text-foreground cursor-grab active:cursor-grabbing p-1 select-none"
                   title="Drag to reorder"
                   draggable
                   onDragStart={(e) => {
@@ -513,7 +513,7 @@ const MCQEditor: React.FC<MCQEditorProps> = memo(
                   className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 ${
                     option.isCorrect
                       ? "bg-green-500 border-green-500 text-white shadow-md scale-110"
-                      : "border-gray-300 hover:border-green-400 hover:bg-green-50"
+                      : "border-border hover:border-green-400 hover:bg-green-50"
                   }`}
                   title={
                     option.isCorrect
@@ -562,7 +562,7 @@ const MCQEditor: React.FC<MCQEditorProps> = memo(
             variant="outline"
             size="sm"
             onClick={addOption}
-            className="w-full focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2"
+            className="w-full focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
             aria-label="Add new answer option"
           >
             <Plus className="w-4 h-4 mr-2" />
@@ -570,7 +570,7 @@ const MCQEditor: React.FC<MCQEditorProps> = memo(
           </Button>
 
           {/* Footer info */}
-          <div className="mt-4 pt-3 border-t border-gray-200 text-xs text-gray-500 space-y-2 select-none">
+          <div className="mt-4 pt-3 border-t border-border text-xs text-muted-foreground space-y-2 select-none">
             <div className="flex justify-between items-center">
               <span>
                 {hasCorrectAnswers} correct answer

@@ -232,7 +232,7 @@ const MembersTab: React.FC = () => {
         )}
       </div>
 
-      <div className="bg-white rounded-lg border">
+      <div className="bg-card rounded-lg border">
         <Table>
           <TableHeader>
             <TableRow>

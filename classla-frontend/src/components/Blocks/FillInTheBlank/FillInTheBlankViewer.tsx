@@ -169,7 +169,7 @@ const FillInTheBlankViewer: React.FC<FillInTheBlankViewerProps> = memo(
                 e.stopPropagation();
               }}
               disabled={(editor?.storage as any)?.isReadOnly}
-              className={`px-2 py-1 border rounded min-w-[100px] text-sm border-gray-300 ${
+              className={`px-2 py-1 border rounded min-w-[100px] text-sm border-border ${
                 (editor?.storage as any)?.isReadOnly
                   ? "opacity-50 cursor-not-allowed"
                   : ""
@@ -231,7 +231,7 @@ const FillInTheBlankViewer: React.FC<FillInTheBlankViewerProps> = memo(
         contentEditable={false}
       >
         <div
-          className="fill-in-the-blank-viewer border border-gray-200 rounded-lg p-3 bg-white shadow-sm select-none"
+          className="fill-in-the-blank-viewer border border-border rounded-lg p-3 bg-card shadow-sm select-none"
           role="group"
           aria-label="Fill-in-the-blank question"
           style={{ cursor: "default" }}
@@ -253,10 +253,10 @@ const FillInTheBlankViewer: React.FC<FillInTheBlankViewerProps> = memo(
                 )}
               </div>
               <div className="select-none">
-                <div className="text-sm font-medium text-gray-900">
+                <div className="text-sm font-medium text-foreground">
                   Fill-in-the-Blank Question
                 </div>
-                <div className="text-xs text-gray-500">
+                <div className="text-xs text-muted-foreground">
                   {totalBlanks} blank{totalBlanks !== 1 ? "s" : ""}
                 </div>
               </div>
@@ -265,16 +265,16 @@ const FillInTheBlankViewer: React.FC<FillInTheBlankViewerProps> = memo(
 
           {/* Question with input fields */}
           <div className="mb-3">
-            <div className="text-sm font-medium text-gray-700 mb-2 block select-none">
+            <div className="text-sm font-medium text-foreground mb-2 block select-none">
               Question
             </div>
-            <div className="text-base font-medium text-gray-900 leading-relaxed select-text">
+            <div className="text-base font-medium text-foreground leading-relaxed select-text">
               {renderQuestionWithInputs()}
             </div>
           </div>
 
           {/* Footer */}
-          <div className="mt-4 pt-3 border-t border-gray-200 text-xs text-gray-500 space-y-2 select-none">
+          <div className="mt-4 pt-3 border-t border-border text-xs text-muted-foreground space-y-2 select-none">
             <div className="flex justify-between items-center">
               <span>Fill in all blanks</span>
               <span>{fillInTheBlankData.points} points</span>

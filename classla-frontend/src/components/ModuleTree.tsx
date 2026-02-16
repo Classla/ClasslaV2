@@ -1,11 +1,15 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate, useParams, useLocation } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
 import { Tree } from "react-arborist";
 
 import { apiClient } from "../lib/api";
 import { useToast } from "../hooks/use-toast";
+import { useModuleTree } from "../hooks/useModuleTree";
 import { Button } from "./ui/button";
+import { Input } from "./ui/input";
+import { Label } from "./ui/label";
 import {
   Dialog,
   DialogContent,
@@ -21,6 +25,13 @@ import {
   DropdownMenuTrigger,
 } from "./ui/dropdown-menu";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "./ui/select";
+import {
   ChevronRight,
   ChevronDown,
   Plus,
@@ -31,6 +42,7 @@ import {
   Trash2,
   Copy,
   Calendar,
+  ArrowRight,
 } from "lucide-react";
 import { Assignment, Folder, UserRole, Course } from "../types";
 import { hasTAPermission } from "../lib/taPermissions";
@@ -66,6 +78,16 @@ const ModuleTree: React.FC<ModuleTreeProps> = ({ courseId, course, userRole, isI
   const location = useLocation();
   const { toast } = useToast();
   const { user } = useAuth();
+  const queryClient = useQueryClient();
+
+  // Default to instructor false if not specified
+  const effectiveIsInstructor = isInstructor ?? false;
+
+  // Use React Query hook for data fetching + WebSocket real-time updates
+  const { assignments, folders, isLoading, invalidateTree, mutations } = useModuleTree(
+    courseId,
+    effectiveIsInstructor
+  );
 
   const currentAssignmentId = useMemo(() => {
     const pathParts = location.pathname.split("/");
@@ -76,25 +98,22 @@ const ModuleTree: React.FC<ModuleTreeProps> = ({ courseId, course, userRole, isI
   // Check TA permissions
   const canCreate = useMemo(() => {
     if (!isInstructor) return false;
-    if (userRole !== UserRole.TEACHING_ASSISTANT) return true; // Instructors/admins always can create
+    if (userRole !== UserRole.TEACHING_ASSISTANT) return true;
     return hasTAPermission(course ?? null, user?.id, userRole, "canCreate");
   }, [isInstructor, userRole, course, user?.id]);
 
   const canEdit = useMemo(() => {
     if (!isInstructor) return false;
-    if (userRole !== UserRole.TEACHING_ASSISTANT) return true; // Instructors/admins always can edit
+    if (userRole !== UserRole.TEACHING_ASSISTANT) return true;
     return hasTAPermission(course ?? null, user?.id, userRole, "canEdit");
   }, [isInstructor, userRole, course, user?.id]);
 
   const canDelete = useMemo(() => {
     if (!isInstructor) return false;
-    if (userRole !== UserRole.TEACHING_ASSISTANT) return true; // Instructors/admins always can delete
+    if (userRole !== UserRole.TEACHING_ASSISTANT) return true;
     return hasTAPermission(course ?? null, user?.id, userRole, "canDelete");
   }, [isInstructor, userRole, course, user?.id]);
 
-  const [assignments, setAssignments] = useState<Assignment[]>([]);
-  const [folders, setFolders] = useState<Folder[]>([]);
-  const [loading, setLoading] = useState(true);
   const [treeHeight, setTreeHeight] = useState(384);
   const treeContainerRef = useRef<HTMLDivElement>(null);
   const [rootContextMenu, setRootContextMenu] = useState<{
@@ -102,10 +121,27 @@ const ModuleTree: React.FC<ModuleTreeProps> = ({ courseId, course, userRole, isI
     y: number;
     show: boolean;
   }>({ x: 0, y: 0, show: false });
+
+  // Name dialog state (replaces prompt() — Bug 12)
+  const [nameDialog, setNameDialog] = useState<{
+    open: boolean;
+    mode: "create-folder" | "rename-folder" | "rename-assignment";
+    itemId?: string;
+    defaultValue?: string;
+    parentPath?: string[];
+  }>({ open: false, mode: "create-folder" });
+  const nameInputRef = useRef<HTMLInputElement>(null);
+
+  // Delete folder dialog with transfer option (Bug 6 enhanced)
   const [deleteFolderDialog, setDeleteFolderDialog] = useState<{
     open: boolean;
     folder: Folder | null;
-  }>({ open: false, folder: null });
+    childFoldersCount: number;
+    childAssignmentsCount: number;
+    transferTarget: string | null; // null = root, "delete" = delete children, folderId = transfer
+    isLoadingCounts: boolean;
+  }>({ open: false, folder: null, childFoldersCount: 0, childAssignmentsCount: 0, transferTarget: null, isLoadingCounts: false });
+
   const [deleteAssignmentDialog, setDeleteAssignmentDialog] = useState<{
     open: boolean;
     assignment: Assignment | null;
@@ -117,46 +153,6 @@ const ModuleTree: React.FC<ModuleTreeProps> = ({ courseId, course, userRole, isI
     folder?: Folder;
     folderAssignments?: Assignment[];
   }>({ isOpen: false, mode: "assignment" });
-
-  // Default to instructor false if not specified
-  const effectiveIsInstructor = isInstructor ?? false;
-
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        // Fetch assignments
-        const assignmentsResponse = await apiClient.getCourseAssignments(
-          courseId
-        );
-        let assignmentsData = assignmentsResponse.data;
-        setAssignments(assignmentsData);
-
-        // Fetch folders (only for instructors/TAs)
-        let foldersData: Folder[] = [];
-        if (effectiveIsInstructor) {
-          try {
-            const foldersResponse = await apiClient.getCourseFolders(courseId);
-            foldersData = foldersResponse.data;
-            setFolders(foldersData);
-          } catch (error: any) {
-            // If folders endpoint fails (e.g., insufficient permissions), continue without folders
-            console.warn("Could not fetch folders:", error.message);
-          }
-        }
-      } catch (error: any) {
-        console.error("Failed to fetch data:", error);
-        toast({
-          title: "Error loading assignments",
-          description: error.message || "Failed to load assignments",
-          variant: "destructive",
-        });
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchData();
-  }, [courseId, effectiveIsInstructor, toast]);
 
   // Build tree data for react-arborist
   const treeData = useMemo(() => {
@@ -214,10 +210,8 @@ const ModuleTree: React.FC<ModuleTreeProps> = ({ courseId, course, userRole, isI
 
       folderNodes.forEach((folderNode) => {
         if (folderNode.path.length === 1) {
-          // Root level folder
           rootNodes.push(folderNode);
         } else {
-          // Find parent folder
           const parentPath = folderNode.path.slice(0, -1);
           const parentPathKey = parentPath.join("/");
           const parent = pathToFolderMap.get(parentPathKey);
@@ -239,16 +233,13 @@ const ModuleTree: React.FC<ModuleTreeProps> = ({ courseId, course, userRole, isI
         };
 
         if (assignment.module_path.length === 0) {
-          // Root level assignment
           rootNodes.push(assignmentNode);
         } else {
-          // Find parent folder
           const parentPathKey = assignment.module_path.join("/");
           const parent = pathToFolderMap.get(parentPathKey);
           if (parent && parent.children) {
             parent.children.push(assignmentNode);
           } else {
-            // Fallback to root if parent not found
             rootNodes.push(assignmentNode);
           }
         }
@@ -260,12 +251,11 @@ const ModuleTree: React.FC<ModuleTreeProps> = ({ courseId, course, userRole, isI
         nodes.forEach((node) => {
           if (node.children) {
             sortChildren(node.children);
-            // Add empty folder indicator if folder has no children
             if (node.type === "folder" && node.children.length === 0) {
               node.children.push({
                 id: `empty-${node.id}`,
                 name: "This folder is empty",
-                type: "assignment", // Use assignment type to avoid expand/collapse
+                type: "assignment",
                 path: [...node.path, "empty"],
                 order_index: 0,
               });
@@ -275,18 +265,18 @@ const ModuleTree: React.FC<ModuleTreeProps> = ({ courseId, course, userRole, isI
       };
 
       sortChildren(rootNodes);
-      
+
       // Add "+ create" node at the root level if user can create
       if (canCreate) {
         rootNodes.push({
           id: "create-node",
           name: "+ create",
-          type: "assignment", // Use assignment type to avoid expand/collapse
+          type: "assignment",
           path: [],
-          order_index: 999999, // Ensure it's always last
+          order_index: 999999,
         });
       }
-      
+
       return rootNodes;
     };
 
@@ -299,21 +289,18 @@ const ModuleTree: React.FC<ModuleTreeProps> = ({ courseId, course, userRole, isI
       if (treeContainerRef.current) {
         const height = treeContainerRef.current.clientHeight;
         if (height > 0) {
-          setTreeHeight(Math.max(height, 200)); // Minimum height of 200px
+          setTreeHeight(Math.max(height, 200));
         }
       }
     };
 
-    // Initial height
     updateHeight();
-    
-    // Use ResizeObserver to track container size changes
+
     const resizeObserver = new ResizeObserver(updateHeight);
     if (treeContainerRef.current) {
       resizeObserver.observe(treeContainerRef.current);
     }
 
-    // Also listen to window resize as fallback
     window.addEventListener("resize", updateHeight);
 
     return () => {
@@ -326,7 +313,7 @@ const ModuleTree: React.FC<ModuleTreeProps> = ({ courseId, course, userRole, isI
     if (!effectiveIsInstructor) return;
 
     try {
-      const response = await apiClient.createAssignment({
+      const response = await mutations.createAssignment.mutateAsync({
         name: "New Assignment",
         course_id: courseId,
         module_path: modulePath,
@@ -336,14 +323,9 @@ const ModuleTree: React.FC<ModuleTreeProps> = ({ courseId, course, userRole, isI
         due_dates_map: {},
         is_lockdown: false,
         lockdown_time_map: {},
-        order_index: 0,
       });
 
       const newAssignment = response.data;
-
-      // Update local state
-      setAssignments((prev) => [...prev, newAssignment]);
-
       navigate(`/course/${courseSlug}/assignment/${newAssignment.id}`);
 
       toast({
@@ -359,82 +341,118 @@ const ModuleTree: React.FC<ModuleTreeProps> = ({ courseId, course, userRole, isI
     }
   };
 
-  const handleCreateFolder = async (parentPath: string[] = []) => {
+  // Open name dialog for creating folder (replaces prompt())
+  const openCreateFolderDialog = (parentPath: string[] = []) => {
     if (!effectiveIsInstructor) return;
+    setNameDialog({
+      open: true,
+      mode: "create-folder",
+      defaultValue: "",
+      parentPath,
+    });
+  };
 
-    const folderName = prompt("Enter folder name:");
-    if (!folderName?.trim()) return;
+  // Open name dialog for renaming folder
+  const openRenameFolderDialog = (folder: Folder) => {
+    if (!effectiveIsInstructor) return;
+    setNameDialog({
+      open: true,
+      mode: "rename-folder",
+      itemId: folder.id,
+      defaultValue: folder.name,
+    });
+  };
 
-    const newPath = [...parentPath, folderName.trim()];
+  // Open name dialog for renaming assignment
+  const openRenameAssignmentDialog = (assignment: Assignment) => {
+    if (!effectiveIsInstructor) return;
+    setNameDialog({
+      open: true,
+      mode: "rename-assignment",
+      itemId: assignment.id,
+      defaultValue: assignment.name,
+    });
+  };
+
+  const handleNameDialogSubmit = async () => {
+    const value = nameInputRef.current?.value?.trim();
+    if (!value) return;
+
+    const { mode, itemId, parentPath } = nameDialog;
+    setNameDialog({ ...nameDialog, open: false });
 
     try {
-      const response = await apiClient.createFolder({
-        course_id: courseId,
-        path: newPath,
-        name: folderName.trim(),
-        order_index: 0,
-      });
-
-      const newFolder = response.data;
-      setFolders((prev) => [...prev, newFolder]);
-
-      toast({
-        title: "Folder created",
-        description: "New folder has been created successfully",
-      });
+      if (mode === "create-folder") {
+        const newPath = [...(parentPath || []), value];
+        await mutations.createFolder.mutateAsync({
+          course_id: courseId,
+          path: newPath,
+          name: value,
+        });
+        toast({ title: "Folder created", description: "New folder has been created successfully" });
+      } else if (mode === "rename-folder" && itemId) {
+        await mutations.updateFolder.mutateAsync({ id: itemId, data: { name: value } });
+        toast({ title: "Folder renamed", description: "Folder has been renamed successfully" });
+      } else if (mode === "rename-assignment" && itemId) {
+        await mutations.updateAssignment.mutateAsync({ id: itemId, data: { name: value } });
+        toast({ title: "Assignment renamed", description: "Assignment has been renamed successfully" });
+      }
     } catch (error: any) {
       toast({
-        title: "Error creating folder",
-        description: error.message || "Failed to create folder",
+        title: `Error ${mode.startsWith("rename") ? "renaming" : "creating"}`,
+        description: error.message || "Operation failed",
         variant: "destructive",
       });
     }
   };
 
-  const handleRenameFolder = async (folder: Folder) => {
+  const handleDeleteFolder = async (folder: Folder) => {
     if (!effectiveIsInstructor) return;
 
-    const newName = prompt("Enter new folder name:", folder.name);
-    if (!newName?.trim() || newName.trim() === folder.name) return;
+    // Load contents count for the modal
+    setDeleteFolderDialog({
+      open: true,
+      folder,
+      childFoldersCount: 0,
+      childAssignmentsCount: 0,
+      transferTarget: null,
+      isLoadingCounts: true,
+    });
 
     try {
-      const response = await apiClient.updateFolder(folder.id, {
-        name: newName.trim(),
-      });
-
-      const updatedFolder = response.data;
-      setFolders((prev) =>
-        prev.map((f) => (f.id === folder.id ? updatedFolder : f))
-      );
-
-      toast({
-        title: "Folder renamed",
-        description: "Folder has been renamed successfully",
-      });
-    } catch (error: any) {
-      toast({
-        title: "Error renaming folder",
-        description: error.message || "Failed to rename folder",
-        variant: "destructive",
-      });
+      const response = await apiClient.getFolderContentsCount(folder.id);
+      setDeleteFolderDialog((prev) => ({
+        ...prev,
+        childFoldersCount: response.data.child_folders_count,
+        childAssignmentsCount: response.data.child_assignments_count,
+        isLoadingCounts: false,
+      }));
+    } catch {
+      setDeleteFolderDialog((prev) => ({ ...prev, isLoadingCounts: false }));
     }
-  };
-
-  const handleDeleteFolder = (folder: Folder) => {
-    if (!effectiveIsInstructor) return;
-    setDeleteFolderDialog({ open: true, folder });
   };
 
   const confirmDeleteFolder = async () => {
     if (!deleteFolderDialog.folder) return;
 
     const folder = deleteFolderDialog.folder;
-    setDeleteFolderDialog({ open: false, folder: null });
+    const { transferTarget, childAssignmentsCount, childFoldersCount } = deleteFolderDialog;
+    const hasChildren = childAssignmentsCount > 0 || childFoldersCount > 0;
+    setDeleteFolderDialog({ open: false, folder: null, childFoldersCount: 0, childAssignmentsCount: 0, transferTarget: null, isLoadingCounts: false });
 
     try {
-      await apiClient.deleteFolder(folder.id);
+      let options: { transferTo?: string | null; deleteChildren?: boolean } | undefined;
 
-      setFolders((prev) => prev.filter((f) => f.id !== folder.id));
+      if (hasChildren) {
+        if (transferTarget === "delete") {
+          options = { deleteChildren: true };
+        } else {
+          // transferTarget is either null (root) or a folder ID
+          options = { transferTo: transferTarget };
+        }
+      }
+
+      await mutations.deleteFolder.mutateAsync({ id: folder.id, options });
 
       toast({
         title: "Folder deleted",
@@ -449,45 +467,11 @@ const ModuleTree: React.FC<ModuleTreeProps> = ({ courseId, course, userRole, isI
     }
   };
 
-  const handleRenameAssignment = async (assignment: Assignment) => {
-    if (!effectiveIsInstructor) return;
-
-    const newName = prompt("Enter new assignment name:", assignment.name);
-    if (!newName?.trim() || newName.trim() === assignment.name) return;
-
-    try {
-      const response = await apiClient.updateAssignment(assignment.id, {
-        name: newName.trim(),
-      });
-
-      const updatedAssignment = response.data;
-      setAssignments((prev) =>
-        prev.map((a) => (a.id === assignment.id ? updatedAssignment : a))
-      );
-
-      toast({
-        title: "Assignment renamed",
-        description: "Assignment has been renamed successfully",
-      });
-    } catch (error: any) {
-      toast({
-        title: "Error renaming assignment",
-        description: error.message || "Failed to rename assignment",
-        variant: "destructive",
-      });
-    }
-  };
-
   const handleDuplicateAssignment = async (assignment: Assignment) => {
     if (!canCreate) return;
 
     try {
-      const response = await apiClient.duplicateAssignment(assignment.id);
-      const newAssignment = response.data;
-
-      // Update local state
-      setAssignments((prev) => [...prev, newAssignment]);
-
+      await mutations.duplicateAssignment.mutateAsync(assignment.id);
       toast({
         title: "Assignment duplicated",
         description: "Assignment has been duplicated successfully",
@@ -512,20 +496,13 @@ const ModuleTree: React.FC<ModuleTreeProps> = ({ courseId, course, userRole, isI
     const assignment = deleteAssignmentDialog.assignment;
     setDeleteAssignmentDialog({ open: false, assignment: null });
 
-    // Optimistically update the UI immediately
-    const previousAssignments = assignments;
-    setAssignments((prev) => prev.filter((a) => a.id !== assignment.id));
-
     try {
-      await apiClient.deleteAssignment(assignment.id);
-
+      await mutations.deleteAssignment.mutateAsync(assignment.id);
       toast({
         title: "Assignment deleted",
         description: "Assignment has been deleted successfully",
       });
     } catch (error: any) {
-      // Revert on error
-      setAssignments(previousAssignments);
       toast({
         title: "Error deleting assignment",
         description: error.message || "Failed to delete assignment",
@@ -538,18 +515,17 @@ const ModuleTree: React.FC<ModuleTreeProps> = ({ courseId, course, userRole, isI
     navigate(`/course/${courseSlug}/assignment/${assignment.id}`);
   };
 
-  // Get all assignments within a folder (including nested folders)
-  const getAssignmentsInFolder = (folder: Folder): Assignment[] => {
+  // Get all assignments within a folder recursively (Bug 10: renamed for clarity)
+  const getAssignmentsInFolderRecursive = (folder: Folder): Assignment[] => {
     return assignments.filter((a) =>
       folder.path.every((seg, i) => a.module_path[i] === seg)
     );
   };
 
-  // Handle managing publishing for folder or assignment
   const handleManagePublishing = (item: Assignment | Folder, isFolder: boolean) => {
     if (isFolder) {
       const folder = item as Folder;
-      const folderAssignments = getAssignmentsInFolder(folder);
+      const folderAssignments = getAssignmentsInFolderRecursive(folder);
       setPublishingModalData({
         isOpen: true,
         mode: "folder",
@@ -565,118 +541,193 @@ const ModuleTree: React.FC<ModuleTreeProps> = ({ courseId, course, userRole, isI
     }
   };
 
-  // Handle assignment updated from publishing modal
-  const handleAssignmentUpdated = (updatedAssignment: Assignment) => {
-    setAssignments((prev) =>
-      prev.map((a) => (a.id === updatedAssignment.id ? updatedAssignment : a))
-    );
+  // Handle assignment/folder updates from publishing modal — invalidate React Query cache
+  const handleAssignmentUpdated = (_updatedAssignment: Assignment) => {
+    invalidateTree();
   };
 
-  // Handle multiple assignments updated from folder publishing modal
-  const handleFolderAssignmentsUpdated = (updatedAssignments: Assignment[]) => {
-    const updatedIds = new Set(updatedAssignments.map((a) => a.id));
-    setAssignments((prev) =>
-      prev.map((a) => {
-        if (updatedIds.has(a.id)) {
-          return updatedAssignments.find((ua) => ua.id === a.id) || a;
-        }
-        return a;
-      })
-    );
+  const handleFolderAssignmentsUpdated = (_updatedAssignments: Assignment[]) => {
+    invalidateTree();
   };
 
-  // Helper function to update folder hierarchy when a folder is moved
-  const updateFolderHierarchy = async (
-    movedFolder: Folder,
-    newPath: string[]
-  ) => {
-    // Use the new moveFolder API that handles all nested updates
-    await apiClient.moveFolder(movedFolder.id, newPath);
-  };
-
-  // Handle drag and drop reordering
+  // Handle drag and drop reordering — optimistic updates with correct index mapping
   const handleMove = async ({ dragIds, parentId, index }: any) => {
     if (!effectiveIsInstructor) return;
 
-    try {
-      // Determine the new parent path
-      let newParentPath: string[] = [];
-      if (parentId && !parentId.startsWith("empty-")) {
-        if (parentId.startsWith("folder-")) {
-          const parentFolderId = parentId.replace("folder-", "");
-          const parentFolder = folders.find((f) => f.id === parentFolderId);
-          if (parentFolder) {
-            newParentPath = parentFolder.path;
+    const realDragIds = dragIds.filter(
+      (id: string) => !id.startsWith("empty-") && id !== "create-node"
+    );
+    if (realDragIds.length === 0) return;
+
+    // --- Determine new parent path ---
+    let newParentPath: string[] = [];
+    if (parentId) {
+      if (parentId.startsWith("folder-")) {
+        const parentFolderId = parentId.replace("folder-", "");
+        const parentFolder = folders.find((f) => f.id === parentFolderId);
+        if (parentFolder) newParentPath = [...parentFolder.path];
+      } else if (parentId.startsWith("implicit-")) {
+        newParentPath = parentId.replace("implicit-", "").split("/").filter(Boolean);
+      }
+    }
+
+    // --- Map react-arborist index to data model position ---
+    // react-arborist's index includes synthetic nodes (empty-*, create-node).
+    // We find the "insert before" real item by looking at the tree's children
+    // AFTER the dragged items are removed.
+    const getTreeChildren = (targetId: string | null | undefined): TreeNodeData[] => {
+      if (!targetId) return treeData;
+      const search = (nodes: TreeNodeData[]): TreeNodeData[] | null => {
+        for (const node of nodes) {
+          if (node.id === targetId) return node.children || [];
+          if (node.children) {
+            const found = search(node.children);
+            if (found) return found;
           }
-        } else if (parentId.startsWith("implicit-")) {
-          // Handle implicit folders
-          const pathKey = parentId.replace("implicit-", "");
-          newParentPath = pathKey.split("/").filter(Boolean);
+        }
+        return null;
+      };
+      return search(treeData) || treeData;
+    };
+
+    const treeChildren = getTreeChildren(parentId || null);
+    const afterRemoval = treeChildren.filter((c) => !realDragIds.includes(c.id));
+
+    // Find the first non-synthetic item at or after the drop index — this is what we insert BEFORE
+    let insertBeforeId: string | null = null;
+    for (let i = index; i < afterRemoval.length; i++) {
+      const child = afterRemoval[i];
+      if (!child.id.startsWith("empty-") && child.id !== "create-node") {
+        insertBeforeId = child.id;
+        break;
+      }
+    }
+
+    // --- Build siblings from the data model (sorted by order_index) ---
+    const targetPathKey = newParentPath.join("/");
+    type SibItem = { id: string; type: "folder" | "assignment"; order_index: number };
+    const siblings: SibItem[] = [];
+
+    for (const a of assignments) {
+      if ((a.module_path || []).join("/") === targetPathKey) {
+        siblings.push({ id: a.id, type: "assignment", order_index: a.order_index || 0 });
+      }
+    }
+    for (const f of folders) {
+      if (f.path.slice(0, -1).join("/") === targetPathKey) {
+        siblings.push({ id: f.id, type: "folder", order_index: f.order_index || 0 });
+      }
+    }
+    siblings.sort((a, b) => a.order_index - b.order_index);
+
+    // Build dragged items list
+    const dragged: SibItem[] = realDragIds.map((dragId: string) => {
+      if (dragId.startsWith("assignment-")) {
+        return { id: dragId.replace("assignment-", ""), type: "assignment" as const, order_index: 0 };
+      }
+      return { id: dragId.replace("folder-", ""), type: "folder" as const, order_index: 0 };
+    });
+
+    // Add dragged items to siblings if not already there (cross-folder move)
+    for (const d of dragged) {
+      if (!siblings.find((s) => s.id === d.id && s.type === d.type)) {
+        siblings.push(d);
+      }
+    }
+
+    // Remove dragged items, compute insertion position, splice
+    const dragKeys = new Set(dragged.map((d) => `${d.type}:${d.id}`));
+    const remaining = siblings.filter((s) => !dragKeys.has(`${s.type}:${s.id}`));
+
+    let insertPos: number;
+    if (insertBeforeId) {
+      const beforeType = insertBeforeId.startsWith("folder-") ? "folder" : "assignment";
+      const beforeRawId = insertBeforeId.replace(/^(folder-|assignment-|implicit-)/, "");
+      insertPos = remaining.findIndex((s) => s.id === beforeRawId && s.type === beforeType);
+      if (insertPos === -1) insertPos = remaining.length;
+    } else {
+      insertPos = remaining.length;
+    }
+
+    remaining.splice(insertPos, 0, ...dragged);
+
+    // Assign sequential order_index values
+    const reorderPayload = remaining.map((item, i) => ({
+      id: item.id,
+      type: item.type,
+      order_index: i,
+    }));
+
+    // --- Optimistic update: apply changes to React Query cache immediately ---
+    const prevAssignments = assignments;
+    const prevFolders = folders;
+
+    const newAssignments = assignments.map((a) => {
+      const isDragged = dragged.find((d) => d.type === "assignment" && d.id === a.id);
+      const reorder = reorderPayload.find((r) => r.type === "assignment" && r.id === a.id);
+      if (isDragged) {
+        return { ...a, module_path: newParentPath, order_index: reorder?.order_index ?? a.order_index };
+      }
+      if (reorder) {
+        return { ...a, order_index: reorder.order_index };
+      }
+      return a;
+    });
+
+    const newFolders = folders.map((f) => {
+      const isDragged = dragged.find((d) => d.type === "folder" && d.id === f.id);
+      const reorder = reorderPayload.find((r) => r.type === "folder" && r.id === f.id);
+      if (isDragged) {
+        return { ...f, path: [...newParentPath, f.name], order_index: reorder?.order_index ?? f.order_index };
+      }
+      if (reorder) {
+        return { ...f, order_index: reorder.order_index };
+      }
+      return f;
+    });
+
+    // Cancel in-flight queries so WebSocket-triggered refetches don't overwrite optimistic state
+    queryClient.cancelQueries({ queryKey: ["courseAssignments", courseId] });
+    queryClient.cancelQueries({ queryKey: ["courseFolders", courseId] });
+    queryClient.setQueryData(["courseAssignments", courseId], newAssignments);
+    queryClient.setQueryData(["courseFolders", courseId], newFolders);
+
+    // --- Fire API calls in background ---
+    try {
+      // 1. Path updates for items that moved to a different folder
+      const pathUpdates: Promise<any>[] = [];
+      for (const dragId of realDragIds) {
+        if (dragId.startsWith("assignment-")) {
+          const id = dragId.replace("assignment-", "");
+          const a = prevAssignments.find((x) => x.id === id);
+          if (a && JSON.stringify(a.module_path) !== JSON.stringify(newParentPath)) {
+            pathUpdates.push(apiClient.updateAssignment(id, { module_path: newParentPath }));
+          }
+        } else if (dragId.startsWith("folder-")) {
+          const id = dragId.replace("folder-", "");
+          const f = prevFolders.find((x) => x.id === id);
+          if (f) {
+            const newPath = [...newParentPath, f.name];
+            if (JSON.stringify(f.path) !== JSON.stringify(newPath)) {
+              pathUpdates.push(apiClient.moveFolder(f.id, newPath));
+            }
+          }
         }
       }
 
-      // Process each dragged item
-      await Promise.all(
-        dragIds.map(async (dragId: string, i: number) => {
-          // Skip create node
-          if (dragId === "create-node") {
-            return;
-          }
-          
-          const newOrderIndex = index + i;
-
-          if (dragId.startsWith("assignment-")) {
-            const assignmentId = dragId.replace("assignment-", "");
-            const assignment = assignments.find((a) => a.id === assignmentId);
-            if (assignment) {
-              // Update assignment with new path and order
-              await apiClient.updateAssignment(assignmentId, {
-                module_path: newParentPath,
-                order_index: newOrderIndex,
-              });
-            }
-          } else if (dragId.startsWith("folder-")) {
-            const folderId = dragId.replace("folder-", "");
-            const folder = folders.find((f) => f.id === folderId);
-            if (folder) {
-              // Calculate new folder path
-              const newFolderPath = [...newParentPath, folder.name];
-
-              // Update folder with new path and order
-              await apiClient.updateFolder(folderId, {
-                order_index: newOrderIndex,
-              });
-
-              // If the folder path changed, we need to update the folder's path
-              // and all nested items (assignments and subfolders)
-              if (
-                JSON.stringify(folder.path) !== JSON.stringify(newFolderPath)
-              ) {
-                await updateFolderHierarchy(folder, newFolderPath);
-              }
-            }
-          }
-        })
-      );
-
-      // Refresh data to reflect new structure
-      const [assignmentsResponse, foldersResponse] = await Promise.all([
-        apiClient.getCourseAssignments(courseId),
-        effectiveIsInstructor
-          ? apiClient.getCourseFolders(courseId)
-          : Promise.resolve({ data: [] }),
-      ]);
-
-      setAssignments(assignmentsResponse.data);
-      if (effectiveIsInstructor) {
-        setFolders(foldersResponse.data);
+      if (pathUpdates.length > 0) {
+        await Promise.all(pathUpdates);
       }
 
-      toast({
-        title: "Items moved",
-        description: "Items have been moved successfully",
-      });
+      // 2. Bulk reorder
+      if (reorderPayload.length > 0) {
+        await apiClient.reorderItems(courseId, reorderPayload);
+      }
+      // Success — WebSocket events will trigger a fresh refetch to confirm server state
     } catch (error: any) {
+      // Revert optimistic update
+      queryClient.setQueryData(["courseAssignments", courseId], prevAssignments);
+      queryClient.setQueryData(["courseFolders", courseId], prevFolders);
       toast({
         title: "Error moving items",
         description: error.message || "Failed to move items",
@@ -684,6 +735,12 @@ const ModuleTree: React.FC<ModuleTreeProps> = ({ courseId, course, userRole, isI
       });
     }
   };
+
+  // Clamp context menu position to viewport bounds (Bug 11)
+  const clampMenuPosition = (x: number, y: number) => ({
+    x: Math.min(x, window.innerWidth - 200),
+    y: Math.min(y, window.innerHeight - 240),
+  });
 
   // Node renderer for react-arborist
   const Node = ({ node, style, dragHandle }: any) => {
@@ -693,6 +750,7 @@ const ModuleTree: React.FC<ModuleTreeProps> = ({ courseId, course, userRole, isI
     const folder = nodeData.folder;
     const isEmptyIndicator = nodeData.id.startsWith("empty-");
     const isCreateNode = nodeData.id === "create-node";
+    const isSynthetic = isEmptyIndicator || isCreateNode;
     const [contextMenu, setContextMenu] = useState<{
       x: number;
       y: number;
@@ -701,24 +759,24 @@ const ModuleTree: React.FC<ModuleTreeProps> = ({ courseId, course, userRole, isI
 
     const isActive = assignment?.id === currentAssignmentId;
 
+    // Don't pass dragHandle to synthetic nodes (Bug 9)
+    const effectiveDragHandle = isSynthetic ? undefined : dragHandle;
+
     const nodeContent = (
       <div
         style={style}
-        ref={isCreateNode ? undefined : dragHandle}
+        ref={effectiveDragHandle}
         className={`flex items-center space-x-2 px-3 rounded group h-full ${
           isEmptyIndicator
             ? "cursor-default"
             : isCreateNode
-            ? "cursor-pointer hover:bg-gray-100"
+            ? "cursor-pointer hover:bg-accent"
             : `cursor-pointer ${
-                isActive ? "bg-purple-100" : "hover:bg-gray-50"
+                isActive ? "bg-primary/20" : "hover:bg-accent"
               }`
         }`}
         onClick={isCreateNode ? undefined : (e) => {
-          if (isEmptyIndicator) {
-            // Do nothing for empty indicators
-            return;
-          }
+          if (isEmptyIndicator) return;
           if (assignment) {
             handleAssignmentClick(assignment);
           } else {
@@ -726,14 +784,11 @@ const ModuleTree: React.FC<ModuleTreeProps> = ({ courseId, course, userRole, isI
           }
         }}
         onContextMenu={(e) => {
-          if (effectiveIsInstructor && !isEmptyIndicator && !isCreateNode) {
+          if (effectiveIsInstructor && !isSynthetic) {
             e.preventDefault();
             e.stopPropagation();
-            setContextMenu({
-              x: e.clientX,
-              y: e.clientY,
-              show: true,
-            });
+            const clamped = clampMenuPosition(e.clientX, e.clientY);
+            setContextMenu({ x: clamped.x, y: clamped.y, show: true });
           }
         }}
       >
@@ -741,27 +796,27 @@ const ModuleTree: React.FC<ModuleTreeProps> = ({ courseId, course, userRole, isI
         {isFolder && (
           <div className="w-4 h-4 flex items-center justify-center">
             {node.isOpen ? (
-              <ChevronDown className="w-4 h-4 text-gray-500" />
+              <ChevronDown className="w-4 h-4 text-muted-foreground" />
             ) : (
-              <ChevronRight className="w-4 h-4 text-gray-500" />
+              <ChevronRight className="w-4 h-4 text-muted-foreground" />
             )}
           </div>
         )}
 
         {/* Icon */}
         {isEmptyIndicator ? (
-          <div className="w-4 h-4" /> // Empty space for alignment
+          <div className="w-4 h-4" />
         ) : isCreateNode ? (
-          <div className="w-4 h-4" /> // Empty space for alignment
+          <div className="w-4 h-4" />
         ) : isFolder ? (
-          <FolderIcon className="w-4 h-4 text-gray-500" />
+          <FolderIcon className="w-4 h-4 text-muted-foreground" />
         ) : assignment && Object.keys(assignment.publish_times || {}).length > 0 ? (
           <div title="Published Assignment">
-            <FileText className={`w-4 h-4 ${isActive ? "text-purple-600" : "text-gray-500"}`} />
+            <FileText className={`w-4 h-4 ${isActive ? "text-primary" : "text-muted-foreground"}`} />
           </div>
         ) : (
           <div title="Unpublished Assignment">
-            <FileLock className={`w-4 h-4 ${isActive ? "text-purple-600" : "text-amber-500"}`} />
+            <FileLock className={`w-4 h-4 ${isActive ? "text-primary" : "text-amber-500"}`} />
           </div>
         )}
 
@@ -769,12 +824,12 @@ const ModuleTree: React.FC<ModuleTreeProps> = ({ courseId, course, userRole, isI
         <span
           className={`flex-1 truncate ${
             isEmptyIndicator
-              ? "text-gray-400 italic text-sm"
+              ? "text-muted-foreground italic text-sm"
               : isCreateNode
-              ? "text-gray-500 text-sm"
+              ? "text-muted-foreground text-sm"
               : isActive
-              ? "text-purple-700 font-medium"
-              : "text-gray-700"
+              ? "text-primary font-medium"
+              : "text-foreground"
           }`}
           title={nodeData.name}
         >
@@ -806,7 +861,7 @@ const ModuleTree: React.FC<ModuleTreeProps> = ({ courseId, course, userRole, isI
             <DropdownMenuItem
               onClick={(e) => {
                 e.stopPropagation();
-                handleCreateFolder([]);
+                openCreateFolderDialog([]);
               }}
               className="cursor-pointer"
             >
@@ -823,27 +878,25 @@ const ModuleTree: React.FC<ModuleTreeProps> = ({ courseId, course, userRole, isI
         {nodeContent}
 
         {/* Custom right-click context menu - portalled outside */}
-        {contextMenu.show && effectiveIsInstructor && !isEmptyIndicator &&
+        {contextMenu.show && effectiveIsInstructor && !isSynthetic &&
           createPortal(
             <>
-              {/* Backdrop to close menu */}
               <div
                 className="fixed inset-0 z-40"
                 onClick={() => setContextMenu({ ...contextMenu, show: false })}
               />
-              {/* Context menu */}
               <div
-                className="fixed z-50 bg-white border border-gray-200 rounded-md shadow-lg py-1 min-w-[160px]"
+                className="fixed z-50 bg-card border border-border rounded-md shadow-lg py-1 min-w-[160px]"
                 style={{
                   left: contextMenu.x,
                   top: contextMenu.y,
                 }}
               >
-                {/* Only show "Add Assignment" and "Add Folder" when right-clicking on folders */}
+                {/* Folder creation options */}
                 {isFolder && (
                   <>
                     <button
-                      className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100 flex items-center"
+                      className="w-full text-left px-3 py-2 text-sm hover:bg-accent flex items-center"
                       onClick={(e) => {
                         e.stopPropagation();
                         handleCreateAssignment(nodeData.path);
@@ -854,10 +907,10 @@ const ModuleTree: React.FC<ModuleTreeProps> = ({ courseId, course, userRole, isI
                       Add Assignment
                     </button>
                     <button
-                      className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100 flex items-center"
+                      className="w-full text-left px-3 py-2 text-sm hover:bg-accent flex items-center"
                       onClick={(e) => {
                         e.stopPropagation();
-                        handleCreateFolder(nodeData.path);
+                        openCreateFolderDialog(nodeData.path);
                         setContextMenu({ ...contextMenu, show: false });
                       }}
                     >
@@ -870,12 +923,12 @@ const ModuleTree: React.FC<ModuleTreeProps> = ({ courseId, course, userRole, isI
                 {/* Folder-specific actions */}
                 {isFolder && folder && (
                   <>
-                    <hr className="my-1 border-gray-200" />
+                    <hr className="my-1 border-border" />
                     <button
-                      className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100 flex items-center"
+                      className="w-full text-left px-3 py-2 text-sm hover:bg-accent flex items-center"
                       onClick={(e) => {
                         e.stopPropagation();
-                        handleRenameFolder(folder);
+                        openRenameFolderDialog(folder);
                         setContextMenu({ ...contextMenu, show: false });
                       }}
                     >
@@ -883,7 +936,7 @@ const ModuleTree: React.FC<ModuleTreeProps> = ({ courseId, course, userRole, isI
                       Rename Folder
                     </button>
                     <button
-                      className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100 flex items-center text-red-600"
+                      className="w-full text-left px-3 py-2 text-sm hover:bg-accent flex items-center text-red-600"
                       onClick={(e) => {
                         e.stopPropagation();
                         handleDeleteFolder(folder);
@@ -893,9 +946,9 @@ const ModuleTree: React.FC<ModuleTreeProps> = ({ courseId, course, userRole, isI
                       <Trash2 className="w-4 h-4 mr-2" />
                       Delete Folder
                     </button>
-                    <hr className="my-1 border-gray-200" />
+                    <hr className="my-1 border-border" />
                     <button
-                      className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100 flex items-center"
+                      className="w-full text-left px-3 py-2 text-sm hover:bg-accent flex items-center"
                       onClick={(e) => {
                         e.stopPropagation();
                         handleManagePublishing(folder, true);
@@ -914,13 +967,13 @@ const ModuleTree: React.FC<ModuleTreeProps> = ({ courseId, course, userRole, isI
                     <button
                       className={`w-full text-left px-3 py-2 text-sm flex items-center ${
                         canEdit
-                          ? "hover:bg-gray-100"
-                          : "opacity-50 cursor-not-allowed text-gray-400"
+                          ? "hover:bg-accent"
+                          : "opacity-50 cursor-not-allowed text-muted-foreground"
                       }`}
                       onClick={(e) => {
                         e.stopPropagation();
                         if (canEdit) {
-                          handleRenameAssignment(assignment);
+                          openRenameAssignmentDialog(assignment);
                           setContextMenu({ ...contextMenu, show: false });
                         }
                       }}
@@ -932,8 +985,8 @@ const ModuleTree: React.FC<ModuleTreeProps> = ({ courseId, course, userRole, isI
                     <button
                       className={`w-full text-left px-3 py-2 text-sm flex items-center ${
                         canCreate
-                          ? "hover:bg-gray-100"
-                          : "opacity-50 cursor-not-allowed text-gray-400"
+                          ? "hover:bg-accent"
+                          : "opacity-50 cursor-not-allowed text-muted-foreground"
                       }`}
                       onClick={(e) => {
                         e.stopPropagation();
@@ -950,8 +1003,8 @@ const ModuleTree: React.FC<ModuleTreeProps> = ({ courseId, course, userRole, isI
                     <button
                       className={`w-full text-left px-3 py-2 text-sm flex items-center ${
                         canDelete
-                          ? "hover:bg-gray-100 text-red-600"
-                          : "opacity-50 cursor-not-allowed text-gray-400"
+                          ? "hover:bg-accent text-red-600"
+                          : "opacity-50 cursor-not-allowed text-muted-foreground"
                       }`}
                       onClick={(e) => {
                         e.stopPropagation();
@@ -965,9 +1018,9 @@ const ModuleTree: React.FC<ModuleTreeProps> = ({ courseId, course, userRole, isI
                       <Trash2 className="w-4 h-4 mr-2" />
                       Delete Assignment
                     </button>
-                    <hr className="my-1 border-gray-200" />
+                    <hr className="my-1 border-border" />
                     <button
-                      className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100 flex items-center"
+                      className="w-full text-left px-3 py-2 text-sm hover:bg-accent flex items-center"
                       onClick={(e) => {
                         e.stopPropagation();
                         handleManagePublishing(assignment, false);
@@ -987,25 +1040,43 @@ const ModuleTree: React.FC<ModuleTreeProps> = ({ courseId, course, userRole, isI
     );
   };
 
-  if (loading) {
+  if (isLoading) {
     return <ModuleTreeSkeleton />;
   }
+
+  // Get list of other folders for the transfer dropdown in delete modal
+  const otherFolders = deleteFolderDialog.folder
+    ? folders.filter((f) => {
+        // Exclude the folder being deleted and its children
+        const deletingPath = deleteFolderDialog.folder!.path;
+        const deletingPathPrefix = deletingPath.join("/");
+        return (
+          f.id !== deleteFolderDialog.folder!.id &&
+          !(f.path.length > deletingPath.length &&
+            f.path.slice(0, deletingPath.length).join("/") === deletingPathPrefix)
+        );
+      })
+    : [];
+
+  const hasChildContent =
+    deleteFolderDialog.childAssignmentsCount > 0 ||
+    deleteFolderDialog.childFoldersCount > 0;
 
   return (
     <div className="space-y-1 flex flex-col" style={{ height: "100%" }}>
       <div className="flex items-center justify-between mb-3">
-        <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider">
+        <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
           Assignments
         </h3>
       </div>
 
       {treeData.length === 0 ? (
         <div className="text-center py-8">
-          <p className="text-gray-500 mb-4">No assignments yet</p>
+          <p className="text-muted-foreground mb-4">No assignments yet</p>
           {canCreate && (
             <Button
               onClick={() => handleCreateAssignment([])}
-              className="bg-purple-600 hover:bg-purple-700"
+              className="bg-purple-600 hover:bg-purple-700 dark:bg-purple-800 dark:hover:bg-purple-900"
             >
               <Plus className="w-4 h-4 mr-2" />
               Create First Assignment
@@ -1020,16 +1091,8 @@ const ModuleTree: React.FC<ModuleTreeProps> = ({ courseId, course, userRole, isI
             if (effectiveIsInstructor) {
               e.preventDefault();
               e.stopPropagation();
-              // Show context menu for root level actions
-              const x = e.clientX;
-              const y = e.clientY;
-
-              // Create a temporary context menu state for root actions
-              setRootContextMenu({
-                x,
-                y,
-                show: true,
-              });
+              const clamped = clampMenuPosition(e.clientX, e.clientY);
+              setRootContextMenu({ x: clamped.x, y: clamped.y, show: true });
             }
           }}
         >
@@ -1044,26 +1107,32 @@ const ModuleTree: React.FC<ModuleTreeProps> = ({ courseId, course, userRole, isI
             paddingTop={8}
             paddingBottom={8}
             onMove={handleMove}
+            disableDrag={(node: any) => {
+              const id = node.data?.id || "";
+              return id.startsWith("empty-") || id === "create-node";
+            }}
+            disableDrop={(args: any) => {
+              const id = args.parentNode?.data?.id || "";
+              return id.startsWith("empty-") || id === "create-node";
+            }}
           >
             {Node}
           </Tree>
         </div>
       )}
 
-      {/* Root level context menu - portalled outside */}
+      {/* Root level context menu */}
       {rootContextMenu.show && effectiveIsInstructor &&
         createPortal(
           <>
-            {/* Backdrop to close menu */}
             <div
               className="fixed inset-0 z-40"
               onClick={() =>
                 setRootContextMenu({ ...rootContextMenu, show: false })
               }
             />
-            {/* Context menu */}
             <div
-              className="fixed z-50 bg-white border border-gray-200 rounded-md shadow-lg py-1 min-w-[160px]"
+              className="fixed z-50 bg-card border border-border rounded-md shadow-lg py-1 min-w-[160px]"
               style={{
                 left: rootContextMenu.x,
                 top: rootContextMenu.y,
@@ -1071,7 +1140,7 @@ const ModuleTree: React.FC<ModuleTreeProps> = ({ courseId, course, userRole, isI
             >
               {canCreate && (
                 <button
-                  className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100 flex items-center"
+                  className="w-full text-left px-3 py-2 text-sm hover:bg-accent flex items-center"
                   onClick={(e) => {
                     e.stopPropagation();
                     handleCreateAssignment([]);
@@ -1083,10 +1152,10 @@ const ModuleTree: React.FC<ModuleTreeProps> = ({ courseId, course, userRole, isI
                 </button>
               )}
               <button
-                className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100 flex items-center"
+                className="w-full text-left px-3 py-2 text-sm hover:bg-accent flex items-center"
                 onClick={(e) => {
                   e.stopPropagation();
-                  handleCreateFolder([]);
+                  openCreateFolderDialog([]);
                   setRootContextMenu({ ...rootContextMenu, show: false });
                 }}
               >
@@ -1098,30 +1167,127 @@ const ModuleTree: React.FC<ModuleTreeProps> = ({ courseId, course, userRole, isI
           document.body
         )}
 
-      {/* Delete Folder Confirmation Dialog */}
+      {/* Name Dialog (replaces all prompt() calls — Bug 12) */}
+      <Dialog
+        open={nameDialog.open}
+        onOpenChange={(open) => setNameDialog({ ...nameDialog, open })}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              {nameDialog.mode === "create-folder"
+                ? "Create Folder"
+                : nameDialog.mode === "rename-folder"
+                ? "Rename Folder"
+                : "Rename Assignment"}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="py-2">
+            <Label htmlFor="name-input">Name</Label>
+            <Input
+              id="name-input"
+              ref={nameInputRef}
+              defaultValue={nameDialog.defaultValue || ""}
+              autoFocus
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  handleNameDialogSubmit();
+                }
+              }}
+              className="mt-1"
+            />
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setNameDialog({ ...nameDialog, open: false })}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleNameDialogSubmit}
+              className="bg-purple-600 hover:bg-purple-700 dark:bg-purple-800 dark:hover:bg-purple-900 text-white"
+            >
+              {nameDialog.mode.startsWith("rename") ? "Rename" : "Create"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Folder Confirmation Dialog (Bug 6 — enhanced with transfer option) */}
       <Dialog
         open={deleteFolderDialog.open}
         onOpenChange={(open) =>
-          setDeleteFolderDialog({ open, folder: deleteFolderDialog.folder })
+          setDeleteFolderDialog({ ...deleteFolderDialog, open })
         }
       >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Delete Folder</DialogTitle>
             <DialogDescription>
-              Are you sure you want to delete the folder "
-              {deleteFolderDialog.folder?.name}"? This action cannot be undone.
+              {deleteFolderDialog.isLoadingCounts
+                ? "Loading folder contents..."
+                : hasChildContent
+                ? `This folder contains ${deleteFolderDialog.childAssignmentsCount} lesson${deleteFolderDialog.childAssignmentsCount !== 1 ? "s" : ""} and ${deleteFolderDialog.childFoldersCount} subfolder${deleteFolderDialog.childFoldersCount !== 1 ? "s" : ""}. What would you like to do with the contents?`
+                : `Are you sure you want to delete the folder "${deleteFolderDialog.folder?.name}"?`}
             </DialogDescription>
           </DialogHeader>
+          {hasChildContent && !deleteFolderDialog.isLoadingCounts && (
+            <div className="py-2">
+              <Label>Move contents to:</Label>
+              <Select
+                value={deleteFolderDialog.transferTarget ?? "__root__"}
+                onValueChange={(value) =>
+                  setDeleteFolderDialog((prev) => ({
+                    ...prev,
+                    transferTarget: value === "__root__" ? null : value === "__delete__" ? "delete" : value,
+                  }))
+                }
+              >
+                <SelectTrigger className="mt-1">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__root__">
+                    <div className="flex items-center">
+                      <ArrowRight className="w-3 h-3 mr-2" />
+                      Root level (no folder)
+                    </div>
+                  </SelectItem>
+                  {otherFolders.map((f) => (
+                    <SelectItem key={f.id} value={f.id}>
+                      <div className="flex items-center">
+                        <FolderIcon className="w-3 h-3 mr-2" />
+                        {f.path.join(" / ")}
+                      </div>
+                    </SelectItem>
+                  ))}
+                  <SelectItem value="__delete__">
+                    <div className="flex items-center text-red-600">
+                      <Trash2 className="w-3 h-3 mr-2" />
+                      Delete all contents
+                    </div>
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          )}
           <DialogFooter>
             <Button
               variant="outline"
-              onClick={() => setDeleteFolderDialog({ open: false, folder: null })}
+              onClick={() => setDeleteFolderDialog({ ...deleteFolderDialog, open: false })}
             >
               Cancel
             </Button>
-            <Button variant="destructive" onClick={confirmDeleteFolder}>
-              Delete Folder
+            <Button
+              variant="destructive"
+              onClick={confirmDeleteFolder}
+              disabled={deleteFolderDialog.isLoadingCounts}
+            >
+              {deleteFolderDialog.transferTarget === "delete"
+                ? `Delete Folder & ${deleteFolderDialog.childAssignmentsCount} Lesson${deleteFolderDialog.childAssignmentsCount !== 1 ? "s" : ""}`
+                : "Delete Folder"}
             </Button>
           </DialogFooter>
         </DialogContent>

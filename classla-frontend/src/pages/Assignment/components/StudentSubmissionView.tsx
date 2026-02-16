@@ -175,9 +175,9 @@ export const StudentSubmissionView: React.FC<StudentSubmissionViewProps> = ({
   }, []);
 
   return (
-    <div className="flex flex-col h-full bg-gray-50">
+    <div className="flex flex-col h-full bg-background">
       {/* Navigation Header */}
-      <div className="border-b border-gray-200 bg-white px-6 py-4 shadow-sm">
+      <div className="border-b border-border bg-card px-6 py-4 shadow-sm">
         <div className="flex items-center justify-between">
           {/* Previous Button */}
           <Button
@@ -185,7 +185,7 @@ export const StudentSubmissionView: React.FC<StudentSubmissionViewProps> = ({
             size="sm"
             onClick={handleNavigatePrevious}
             disabled={!hasPrevious || isSavingBeforeNav}
-            className="flex items-center gap-2 border-gray-300 hover:bg-purple-50 hover:border-purple-300 transition-colors"
+            className="flex items-center gap-2 hover:bg-primary/10 hover:border-primary/30 transition-colors"
           >
             {isSavingBeforeNav ? (
               <Loader2 className="h-4 w-4 animate-spin" />
@@ -197,7 +197,7 @@ export const StudentSubmissionView: React.FC<StudentSubmissionViewProps> = ({
 
           {/* Student Name */}
           <div className="flex items-center gap-3">
-            <h2 className="text-xl font-bold text-gray-900">
+            <h2 className="text-xl font-bold text-foreground">
               {student.lastName}, {student.firstName}
             </h2>
             {isSavingBeforeNav && (
@@ -214,7 +214,7 @@ export const StudentSubmissionView: React.FC<StudentSubmissionViewProps> = ({
             size="sm"
             onClick={handleNavigateNext}
             disabled={!hasNext || isSavingBeforeNav}
-            className="flex items-center gap-2 border-gray-300 hover:bg-purple-50 hover:border-purple-300 transition-colors"
+            className="flex items-center gap-2 hover:bg-primary/10 hover:border-primary/30 transition-colors"
           >
             <span className="font-medium">Next</span>
             {isSavingBeforeNav ? (
@@ -228,17 +228,17 @@ export const StudentSubmissionView: React.FC<StudentSubmissionViewProps> = ({
 
       {/* Submission Selector - Only show if multiple submissions */}
       {student.submissions.length > 1 && (
-        <div className="border-b border-gray-200 bg-white px-6 py-3 shadow-sm">
+        <div className="border-b border-border bg-card px-6 py-3 shadow-sm">
           <div className="flex items-center gap-3">
-            <Clock className="h-5 w-5 text-purple-600" />
-            <span className="text-sm font-semibold text-gray-700">
+            <Clock className="h-5 w-5 text-primary" />
+            <span className="text-sm font-semibold text-foreground">
               Submission:
             </span>
             <Select
               value={selectedSubmissionId}
               onValueChange={handleSubmissionChange}
             >
-              <SelectTrigger className="w-[320px] border-gray-300 focus:border-purple-500 focus:ring-purple-500">
+              <SelectTrigger className="w-[320px]">
                 <SelectValue placeholder="Select submission" />
               </SelectTrigger>
               <SelectContent>
@@ -251,10 +251,10 @@ export const StudentSubmissionView: React.FC<StudentSubmissionViewProps> = ({
                   return (
                     <SelectItem key={submission.id} value={submission.id}>
                       <div className="flex flex-col py-1">
-                        <span className="font-semibold text-gray-900">
+                        <span className="font-semibold text-foreground">
                           {label}
                         </span>
-                        <span className="text-xs text-gray-500">
+                        <span className="text-xs text-muted-foreground">
                           {formatTimestamp(submission.timestamp)}
                         </span>
                       </div>
@@ -268,10 +268,10 @@ export const StudentSubmissionView: React.FC<StudentSubmissionViewProps> = ({
       )}
 
       {/* Content Area - Scrollable */}
-      <div className="flex-1 overflow-y-auto bg-gray-50">
+      <div className="flex-1 overflow-y-auto bg-background">
         <div className="max-w-4xl mx-auto p-6 space-y-6">
           {/* Assignment Viewer - Always show, even without submission */}
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+          <div className="bg-card rounded-lg shadow-sm border border-border p-6">
             <AssignmentViewer
               assignment={assignment}
               submissionId={selectedSubmission?.id || null}

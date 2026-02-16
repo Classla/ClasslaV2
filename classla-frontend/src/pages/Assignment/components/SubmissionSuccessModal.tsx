@@ -31,11 +31,11 @@ const SubmissionSuccessModal: React.FC<SubmissionSuccessModalProps> = ({
       />
 
       {/* Modal */}
-      <div className="relative bg-white rounded-lg shadow-xl max-w-md w-full mx-4 p-6">
+      <div className="relative bg-card rounded-lg shadow-xl max-w-md w-full mx-4 p-6">
         {/* Close button */}
         <button
           onClick={onClose}
-          className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 transition-colors"
+          className="absolute top-4 right-4 text-muted-foreground hover:text-foreground transition-colors"
           aria-label="Close"
         >
           <X className="w-5 h-5" />
@@ -50,10 +50,10 @@ const SubmissionSuccessModal: React.FC<SubmissionSuccessModalProps> = ({
 
         {/* Content */}
         <div className="text-center">
-          <h2 className="text-2xl font-bold text-gray-900 mb-2">
+          <h2 className="text-2xl font-bold text-foreground mb-2">
             Assignment Submitted!
           </h2>
-          <p className="text-gray-600 mb-6">
+          <p className="text-muted-foreground mb-6">
             Your submission for{" "}
             <span className="font-medium">{assignmentName}</span> has been
             successfully submitted. Your instructor will review it soon.
@@ -67,7 +67,7 @@ const SubmissionSuccessModal: React.FC<SubmissionSuccessModalProps> = ({
                   `/course/${courseSlug}/assignment/${assignmentId}/submissions`
                 );
               }}
-              className="w-full bg-purple-600 hover:bg-purple-700 text-white"
+              className="w-full bg-purple-600 hover:bg-purple-700 dark:bg-purple-800 dark:hover:bg-purple-900 text-white"
             >
               View My Submissions
             </Button>

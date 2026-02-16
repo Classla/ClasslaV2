@@ -191,7 +191,7 @@ const MCQViewer: React.FC<MCQViewerProps> = memo(
         contentEditable={false}
       >
         <div
-          className={`mcq-viewer border border-gray-200 rounded-lg p-3 bg-white shadow-sm transition-all duration-300 select-none ${
+          className={`mcq-viewer border border-border rounded-lg p-3 bg-card shadow-sm transition-all duration-300 select-none ${
             selectedCount > 0 ? "border-blue-300 shadow-md" : ""
           } ${isAnswerChanged ? "ring-2 ring-blue-200" : ""}`}
           role="group"
@@ -217,10 +217,10 @@ const MCQViewer: React.FC<MCQViewerProps> = memo(
                 )}
               </div>
               <div className="select-none">
-                <div className="text-sm font-medium text-gray-900">
+                <div className="text-sm font-medium text-foreground">
                   Multiple Choice Question
                 </div>
-                <div className="text-xs text-gray-500">
+                <div className="text-xs text-muted-foreground">
                   {mcqData.allowMultiple
                     ? "Multiple answers allowed"
                     : "Single answer only"}
@@ -241,11 +241,11 @@ const MCQViewer: React.FC<MCQViewerProps> = memo(
 
           {/* Question with rich text display */}
           <div className="mb-3">
-            <div className="text-sm font-medium text-gray-700 mb-1 block select-none">
+            <div className="text-sm font-medium text-foreground mb-1 block select-none">
               Question
             </div>
             <div
-              className="text-base font-medium text-gray-900 leading-relaxed select-text"
+              className="text-base font-medium text-foreground leading-relaxed select-text"
               dangerouslySetInnerHTML={{
                 __html: mcqData.question || "Question text not available",
               }}
@@ -254,7 +254,7 @@ const MCQViewer: React.FC<MCQViewerProps> = memo(
 
           {/* Options with matching style to MCQEditor */}
           <div className="space-y-1 mb-3">
-            <div className="text-sm font-medium text-gray-700 select-none mb-1">
+            <div className="text-sm font-medium text-foreground select-none mb-1">
               Answer Options
             </div>
             {mcqData.options.map((option, index) => {
@@ -271,7 +271,7 @@ const MCQViewer: React.FC<MCQViewerProps> = memo(
                   } ${
                     isSelected
                       ? "border-blue-500 bg-blue-50 shadow-sm"
-                      : "border-gray-200 bg-gray-50 hover:bg-gray-100"
+                      : "border-border bg-muted hover:bg-accent"
                   } ${isAnswerChanged && isSelected ? "animate-pulse" : ""}`}
                   onClick={() => !isReadOnly && handleOptionSelect(option.id)}
                   role={mcqData.allowMultiple ? "checkbox" : "radio"}
@@ -294,7 +294,7 @@ const MCQViewer: React.FC<MCQViewerProps> = memo(
                       className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all duration-200 ${
                         isSelected
                           ? "bg-blue-500 border-blue-500 text-white shadow-md scale-110"
-                          : "border-gray-300 hover:border-blue-400 hover:bg-blue-50"
+                          : "border-border hover:border-blue-400 hover:bg-blue-50"
                       }`}
                     >
                       {isSelected && <Check className="w-4 h-4" />}
@@ -307,7 +307,7 @@ const MCQViewer: React.FC<MCQViewerProps> = memo(
                       className={`text-sm transition-colors ${
                         isSelected
                           ? "text-blue-900 font-medium"
-                          : "text-gray-700"
+                          : "text-foreground"
                       }`}
                       dangerouslySetInnerHTML={{
                         __html: option.text || `Option ${index + 1}`,
@@ -320,13 +320,13 @@ const MCQViewer: React.FC<MCQViewerProps> = memo(
           </div>
 
           {/* Footer info matching MCQEditor style */}
-          <div className="mt-4 pt-3 border-t border-gray-200 text-xs text-gray-500 space-y-2 select-none">
+          <div className="mt-4 pt-3 border-t border-border text-xs text-muted-foreground space-y-2 select-none">
             <div className="flex justify-between items-center">
               <span
                 className={`transition-colors ${
                   selectedCount > 0
                     ? "text-blue-600 font-medium"
-                    : "text-gray-500"
+                    : "text-muted-foreground"
                 }`}
                 aria-live="polite"
               >

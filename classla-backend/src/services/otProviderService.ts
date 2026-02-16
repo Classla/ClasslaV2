@@ -71,6 +71,20 @@ export async function saveAllDocuments(): Promise<void> {
 }
 
 /**
+ * Get in-memory document content (returns null if not loaded in OT)
+ */
+export function getDocumentContent(bucketId: string, filePath: string): string | null {
+  return otServer.getDocumentContent(bucketId, filePath);
+}
+
+/**
+ * Force save all OT documents for a specific bucket to S3
+ */
+export async function forceSaveDocumentsForBucket(bucketId: string): Promise<string[]> {
+  return otServer.forceSaveDocumentsForBucket(bucketId);
+}
+
+/**
  * Clean up a document
  */
 export function cleanupDocument(docId: string, skipSave: boolean = false): void {

@@ -11,8 +11,86 @@ import {
 } from "../middleware/authorization";
 
 import { UserRole } from "../types/enums";
+import { getIO } from "../services/websocket";
+import { emitTreeUpdate } from "../services/courseTreeSocket";
 
 const router = Router();
+
+/**
+ * Cascade path changes to all child folders and assignments when a folder is renamed or moved.
+ * Updates any folder whose path starts with oldPath, and any assignment whose module_path starts with oldPath.
+ */
+async function cascadeFolderPathChange(
+  contextId: string,
+  isTemplate: boolean,
+  oldPath: string[],
+  newPath: string[]
+): Promise<void> {
+  const oldPathPrefix = oldPath.join("/");
+
+  // Fetch all folders in context
+  let foldersQuery = supabase
+    .from("folders")
+    .select("*")
+    .is("deleted_at", null);
+
+  if (isTemplate) {
+    foldersQuery = foldersQuery.eq("template_id", contextId);
+  } else {
+    foldersQuery = foldersQuery.eq("course_id", contextId);
+  }
+
+  const { data: allFolders } = await foldersQuery;
+
+  // Update child folders whose path starts with oldPath (excluding self - already updated)
+  const childFolders = (allFolders || []).filter(
+    (f) =>
+      f.path.length > oldPath.length &&
+      f.path.slice(0, oldPath.length).join("/") === oldPathPrefix
+  );
+
+  for (const childFolder of childFolders) {
+    const relativePath = childFolder.path.slice(oldPath.length);
+    const newChildPath = [...newPath, ...relativePath];
+    await supabase
+      .from("folders")
+      .update({
+        path: newChildPath,
+        name: newChildPath[newChildPath.length - 1] || childFolder.name,
+      })
+      .eq("id", childFolder.id);
+  }
+
+  // Fetch all assignments in context
+  let assignmentsQuery = supabase
+    .from("assignments")
+    .select("id, module_path")
+    .is("deleted_at", null);
+
+  if (isTemplate) {
+    assignmentsQuery = assignmentsQuery.eq("template_id", contextId);
+  } else {
+    assignmentsQuery = assignmentsQuery.eq("course_id", contextId);
+  }
+
+  const { data: allAssignments } = await assignmentsQuery;
+
+  // Update assignments whose module_path starts with oldPath
+  const childAssignments = (allAssignments || []).filter(
+    (a) =>
+      a.module_path.length >= oldPath.length &&
+      a.module_path.slice(0, oldPath.length).join("/") === oldPathPrefix
+  );
+
+  for (const assignment of childAssignments) {
+    const relativePath = assignment.module_path.slice(oldPath.length);
+    const newAssignmentPath = [...newPath, ...relativePath];
+    await supabase
+      .from("assignments")
+      .update({ module_path: newAssignmentPath })
+      .eq("id", assignment.id);
+  }
+}
 
 /**
  * GET /course/:courseId/folders
@@ -81,6 +159,7 @@ router.get(
       }
       
       const { data: folders, error: foldersError } = await query
+        .is("deleted_at", null)
         .order("order_index", { ascending: true });
 
       if (foldersError) {
@@ -186,11 +265,33 @@ router.post(
         return;
       }
 
+      // Compute next order_index if not provided
+      let computedOrderIndex = order_index;
+      if (computedOrderIndex === undefined || computedOrderIndex === null) {
+        let siblingsQuery = supabase
+          .from("folders")
+          .select("order_index")
+          .is("deleted_at", null);
+
+        if (access.isTemplate) {
+          siblingsQuery = siblingsQuery.eq("template_id", course_id);
+        } else {
+          siblingsQuery = siblingsQuery.eq("course_id", course_id);
+        }
+
+        const { data: siblings } = await siblingsQuery;
+        const maxIndex = (siblings || []).reduce(
+          (max: number, s: any) => Math.max(max, s.order_index || 0),
+          -1
+        );
+        computedOrderIndex = maxIndex + 1;
+      }
+
       // Prepare insert data - use template_id if it's a template, otherwise course_id
       const insertData: any = {
         path,
         name,
-        order_index: order_index || 0,
+        order_index: computedOrderIndex,
       };
 
       if (access.isTemplate) {
@@ -225,6 +326,9 @@ router.post(
       }
 
       res.status(201).json(folder);
+
+      // Emit real-time update
+      try { emitTreeUpdate(getIO(), course_id, "folder-created", { folderId: folder.id }); } catch {}
     } catch (error) {
       console.error("Error creating folder:", error);
       res.status(500).json({
@@ -257,6 +361,7 @@ router.put(
         .from("folders")
         .select("*")
         .eq("id", id)
+        .is("deleted_at", null)
         .single();
 
       if (existingError || !existingFolder) {
@@ -273,7 +378,7 @@ router.put(
 
       // Get folder context (course or template)
       const context = getFolderContext(existingFolder);
-      
+
       // Check access (handles both courses and templates)
       const access = await checkCourseOrTemplateAccess(
         context.id,
@@ -309,10 +414,13 @@ router.put(
 
       // Prepare update data
       const updateData: any = {};
+      const oldPath = existingFolder.path;
+      let newPath = oldPath;
+
       if (name !== undefined) {
         updateData.name = name;
         // Update the last element of the path to match the new name
-        const newPath = [...existingFolder.path];
+        newPath = [...existingFolder.path];
         if (newPath.length > 0) {
           newPath[newPath.length - 1] = name;
         }
@@ -332,7 +440,15 @@ router.put(
         throw updateError;
       }
 
+      // Cascade path change to children if name changed
+      if (name !== undefined && JSON.stringify(oldPath) !== JSON.stringify(newPath)) {
+        await cascadeFolderPathChange(context.id, context.isTemplate, oldPath, newPath);
+      }
+
       res.json(updatedFolder);
+
+      // Emit real-time update
+      try { emitTreeUpdate(getIO(), context.id, "folder-updated", { folderId: id }); } catch {}
     } catch (error) {
       console.error("Error updating folder:", error);
       res.status(500).json({
@@ -348,8 +464,118 @@ router.put(
 );
 
 /**
+ * GET /folder/:id/contents-count
+ * Get count of child assignments and subfolders (for delete confirmation modal)
+ */
+router.get(
+  "/folder/:id/contents-count",
+  authenticateToken,
+  async (req: Request, res: Response): Promise<void> => {
+    try {
+      const { id } = req.params;
+      const { id: userId, isAdmin } = req.user!;
+
+      const { data: folder, error: folderError } = await supabase
+        .from("folders")
+        .select("*")
+        .eq("id", id)
+        .is("deleted_at", null)
+        .single();
+
+      if (folderError || !folder) {
+        res.status(404).json({
+          error: {
+            code: "FOLDER_NOT_FOUND",
+            message: "Folder not found",
+            timestamp: new Date().toISOString(),
+            path: req.path,
+          },
+        });
+        return;
+      }
+
+      const context = getFolderContext(folder);
+      const access = await checkCourseOrTemplateAccess(context.id, userId, isAdmin ?? false);
+
+      if (!access.permissions?.canManage) {
+        res.status(403).json({
+          error: {
+            code: "INSUFFICIENT_PERMISSIONS",
+            message: "Not authorized to access this folder",
+            timestamp: new Date().toISOString(),
+            path: req.path,
+          },
+        });
+        return;
+      }
+
+      const folderPathPrefix = folder.path.join("/");
+
+      // Count child folders
+      let childFoldersQuery = supabase
+        .from("folders")
+        .select("id, path")
+        .is("deleted_at", null);
+
+      if (context.isTemplate) {
+        childFoldersQuery = childFoldersQuery.eq("template_id", context.id);
+      } else {
+        childFoldersQuery = childFoldersQuery.eq("course_id", context.id);
+      }
+
+      const { data: allFolders } = await childFoldersQuery;
+      const childFolders = (allFolders || []).filter(
+        (f) =>
+          f.id !== id &&
+          f.path.length > folder.path.length &&
+          f.path.slice(0, folder.path.length).join("/") === folderPathPrefix
+      );
+
+      // Count child assignments
+      let childAssignmentsQuery = supabase
+        .from("assignments")
+        .select("id, module_path")
+        .is("deleted_at", null);
+
+      if (context.isTemplate) {
+        childAssignmentsQuery = childAssignmentsQuery.eq("template_id", context.id);
+      } else {
+        childAssignmentsQuery = childAssignmentsQuery.eq("course_id", context.id);
+      }
+
+      const { data: allAssignments } = await childAssignmentsQuery;
+      const childAssignments = (allAssignments || []).filter(
+        (a) =>
+          a.module_path.length >= folder.path.length &&
+          a.module_path.slice(0, folder.path.length).join("/") === folderPathPrefix
+      );
+
+      res.json({
+        folder_id: id,
+        child_folders_count: childFolders.length,
+        child_assignments_count: childAssignments.length,
+      });
+    } catch (error) {
+      console.error("Error getting folder contents count:", error);
+      res.status(500).json({
+        error: {
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Failed to get folder contents count",
+          timestamp: new Date().toISOString(),
+          path: req.path,
+        },
+      });
+    }
+  }
+);
+
+/**
  * DELETE /folder/:id
- * Delete folder
+ * Soft-delete folder with cascade options
+ * Body options:
+ *   - { transferTo: folderId | null } — move children to that folder (null = root) before soft-deleting
+ *   - { deleteChildren: true } — soft-delete ALL child folders and assignments
+ *   - (default, no body) — soft-delete only the folder itself
  */
 router.delete(
   "/folder/:id",
@@ -357,6 +583,7 @@ router.delete(
   async (req: Request, res: Response): Promise<void> => {
     try {
       const { id } = req.params;
+      const { transferTo, deleteChildren } = req.body || {};
       const { id: userId, isAdmin } = req.user!;
 
       // Get the existing folder
@@ -364,6 +591,7 @@ router.delete(
         .from("folders")
         .select("*")
         .eq("id", id)
+        .is("deleted_at", null)
         .single();
 
       if (existingError || !existingFolder) {
@@ -378,14 +606,16 @@ router.delete(
         return;
       }
 
-      // Check permissions for the course
-      const permissions = await getCoursePermissions(
+      // Use getFolderContext for proper template support (Bug 7 fix)
+      const context = getFolderContext(existingFolder);
+
+      const access = await checkCourseOrTemplateAccess(
+        context.id,
         userId,
-        existingFolder.course_id,
-        isAdmin
+        isAdmin ?? false
       );
 
-      if (!permissions.canManage) {
+      if (!access.permissions?.canManage) {
         res.status(403).json({
           error: {
             code: "INSUFFICIENT_PERMISSIONS",
@@ -397,10 +627,152 @@ router.delete(
         return;
       }
 
-      // Delete the folder
+      const folderPathPrefix = existingFolder.path.join("/");
+      const now = new Date().toISOString();
+      let affectedAssignments = 0;
+      let affectedFolders = 0;
+
+      if (transferTo !== undefined) {
+        // Transfer children to another folder (or root if transferTo is null)
+        let targetPath: string[] = [];
+        if (transferTo !== null) {
+          const { data: targetFolder } = await supabase
+            .from("folders")
+            .select("path")
+            .eq("id", transferTo)
+            .is("deleted_at", null)
+            .single();
+          if (targetFolder) {
+            targetPath = targetFolder.path;
+          }
+        }
+
+        // Move child folders: replace old parent path prefix with new target path
+        let childFoldersQuery = supabase
+          .from("folders")
+          .select("*")
+          .is("deleted_at", null);
+
+        if (context.isTemplate) {
+          childFoldersQuery = childFoldersQuery.eq("template_id", context.id);
+        } else {
+          childFoldersQuery = childFoldersQuery.eq("course_id", context.id);
+        }
+
+        const { data: allFolders } = await childFoldersQuery;
+        const childFolders = (allFolders || []).filter(
+          (f) =>
+            f.id !== id &&
+            f.path.length > existingFolder.path.length &&
+            f.path.slice(0, existingFolder.path.length).join("/") === folderPathPrefix
+        );
+
+        for (const childFolder of childFolders) {
+          const relativePath = childFolder.path.slice(existingFolder.path.length);
+          const newChildPath = [...targetPath, ...relativePath];
+          await supabase
+            .from("folders")
+            .update({
+              path: newChildPath,
+              name: newChildPath[newChildPath.length - 1] || childFolder.name,
+            })
+            .eq("id", childFolder.id);
+          affectedFolders++;
+        }
+
+        // Move child assignments
+        let childAssignmentsQuery = supabase
+          .from("assignments")
+          .select("*")
+          .is("deleted_at", null);
+
+        if (context.isTemplate) {
+          childAssignmentsQuery = childAssignmentsQuery.eq("template_id", context.id);
+        } else {
+          childAssignmentsQuery = childAssignmentsQuery.eq("course_id", context.id);
+        }
+
+        const { data: allAssignments } = await childAssignmentsQuery;
+        const childAssignments = (allAssignments || []).filter(
+          (a) =>
+            a.module_path.length >= existingFolder.path.length &&
+            a.module_path.slice(0, existingFolder.path.length).join("/") === folderPathPrefix
+        );
+
+        for (const assignment of childAssignments) {
+          const relativePath = assignment.module_path.slice(existingFolder.path.length);
+          const newAssignmentPath = [...targetPath, ...relativePath];
+          await supabase
+            .from("assignments")
+            .update({ module_path: newAssignmentPath })
+            .eq("id", assignment.id);
+          affectedAssignments++;
+        }
+      } else if (deleteChildren) {
+        // Soft-delete all children
+        let childFoldersQuery = supabase
+          .from("folders")
+          .select("id, path")
+          .is("deleted_at", null);
+
+        if (context.isTemplate) {
+          childFoldersQuery = childFoldersQuery.eq("template_id", context.id);
+        } else {
+          childFoldersQuery = childFoldersQuery.eq("course_id", context.id);
+        }
+
+        const { data: allFolders } = await childFoldersQuery;
+        const childFolderIds = (allFolders || [])
+          .filter(
+            (f) =>
+              f.id !== id &&
+              f.path.length > existingFolder.path.length &&
+              f.path.slice(0, existingFolder.path.length).join("/") === folderPathPrefix
+          )
+          .map((f) => f.id);
+
+        if (childFolderIds.length > 0) {
+          await supabase
+            .from("folders")
+            .update({ deleted_at: now })
+            .in("id", childFolderIds);
+          affectedFolders = childFolderIds.length;
+        }
+
+        // Soft-delete child assignments
+        let childAssignmentsQuery = supabase
+          .from("assignments")
+          .select("id, module_path")
+          .is("deleted_at", null);
+
+        if (context.isTemplate) {
+          childAssignmentsQuery = childAssignmentsQuery.eq("template_id", context.id);
+        } else {
+          childAssignmentsQuery = childAssignmentsQuery.eq("course_id", context.id);
+        }
+
+        const { data: allAssignments } = await childAssignmentsQuery;
+        const childAssignmentIds = (allAssignments || [])
+          .filter(
+            (a) =>
+              a.module_path.length >= existingFolder.path.length &&
+              a.module_path.slice(0, existingFolder.path.length).join("/") === folderPathPrefix
+          )
+          .map((a) => a.id);
+
+        if (childAssignmentIds.length > 0) {
+          await supabase
+            .from("assignments")
+            .update({ deleted_at: now })
+            .in("id", childAssignmentIds);
+          affectedAssignments = childAssignmentIds.length;
+        }
+      }
+
+      // Soft-delete the folder itself
       const { error: deleteError } = await supabase
         .from("folders")
-        .delete()
+        .update({ deleted_at: now })
         .eq("id", id);
 
       if (deleteError) {
@@ -410,7 +782,12 @@ router.delete(
       res.json({
         message: "Folder deleted successfully",
         folder_id: id,
+        affected_folders: affectedFolders,
+        affected_assignments: affectedAssignments,
       });
+
+      // Emit real-time update
+      try { emitTreeUpdate(getIO(), context.id, "folder-deleted", { folderId: id }); } catch {}
     } catch (error) {
       console.error("Error deleting folder:", error);
       res.status(500).json({
@@ -443,6 +820,7 @@ router.put(
         .from("folders")
         .select("*")
         .eq("id", id)
+        .is("deleted_at", null)
         .single();
 
       if (existingError || !existingFolder) {
@@ -493,8 +871,6 @@ router.put(
       }
 
       const oldPath = existingFolder.path;
-      const oldPathPrefix = oldPath.join("/");
-      const newPathPrefix = newPath.join("/");
 
       // Update the folder's path
       const { error: updateFolderError } = await supabase
@@ -509,88 +885,18 @@ router.put(
         throw updateFolderError;
       }
 
-      // Find and update all nested folders
-      let nestedFoldersQuery = supabase
-        .from("folders")
-        .select("*");
-      
-      if (context.isTemplate) {
-        nestedFoldersQuery = nestedFoldersQuery.eq("template_id", context.id);
-      } else {
-        nestedFoldersQuery = nestedFoldersQuery.eq("course_id", context.id);
-      }
-      
-      const { data: nestedFolders, error: nestedFoldersError } = await nestedFoldersQuery;
-
-      if (nestedFoldersError) {
-        throw nestedFoldersError;
-      }
-
-      // Update nested folders that start with the old path
-      const foldersToUpdate =
-        nestedFolders?.filter(
-          (f) =>
-            f.id !== id &&
-            f.path.length > oldPath.length &&
-            f.path.slice(0, oldPath.length).join("/") === oldPathPrefix
-        ) || [];
-
-      for (const nestedFolder of foldersToUpdate) {
-        const relativePath = nestedFolder.path.slice(oldPath.length);
-        const newNestedPath = [...newPath, ...relativePath];
-
-        await supabase
-          .from("folders")
-          .update({
-            path: newNestedPath,
-            name: newNestedPath[newNestedPath.length - 1] || nestedFolder.name,
-          })
-          .eq("id", nestedFolder.id);
-      }
-
-      // Find and update all nested assignments
-      let nestedAssignmentsQuery = supabase
-        .from("assignments")
-        .select("*");
-      
-      if (context.isTemplate) {
-        nestedAssignmentsQuery = nestedAssignmentsQuery.eq("template_id", context.id);
-      } else {
-        nestedAssignmentsQuery = nestedAssignmentsQuery.eq("course_id", context.id);
-      }
-      
-      const { data: nestedAssignments, error: nestedAssignmentsError } = await nestedAssignmentsQuery;
-
-      if (nestedAssignmentsError) {
-        throw nestedAssignmentsError;
-      }
-
-      // Update assignments that are in the moved folder or its subfolders
-      const assignmentsToUpdate =
-        nestedAssignments?.filter(
-          (a) =>
-            a.module_path.length >= oldPath.length &&
-            a.module_path.slice(0, oldPath.length).join("/") === oldPathPrefix
-        ) || [];
-
-      for (const assignment of assignmentsToUpdate) {
-        const relativePath = assignment.module_path.slice(oldPath.length);
-        const newAssignmentPath = [...newPath, ...relativePath];
-
-        await supabase
-          .from("assignments")
-          .update({ module_path: newAssignmentPath })
-          .eq("id", assignment.id);
-      }
+      // Cascade path change to all nested folders and assignments
+      await cascadeFolderPathChange(context.id, context.isTemplate, oldPath, newPath);
 
       res.json({
         message: "Folder moved successfully",
         folder_id: id,
         old_path: oldPath,
         new_path: newPath,
-        updated_folders: foldersToUpdate.length,
-        updated_assignments: assignmentsToUpdate.length,
       });
+
+      // Emit real-time update
+      try { emitTreeUpdate(getIO(), context.id, "folder-moved", { folderId: id }); } catch {}
     } catch (error) {
       console.error("Error moving folder:", error);
       res.status(500).json({
@@ -707,6 +1013,9 @@ router.put(
         message: "Items reordered successfully",
         updated_count: items.length,
       });
+
+      // Emit real-time update
+      try { emitTreeUpdate(getIO(), courseId, "items-reordered"); } catch {}
     } catch (error) {
       console.error("Error reordering items:", error);
       res.status(500).json({

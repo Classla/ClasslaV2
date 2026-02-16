@@ -105,7 +105,7 @@ router.get(
         .from("sections")
         .select("*")
         .eq("course_id", courseId)
-        .order("created_at", { ascending: true });
+        .order("name", { ascending: true });
 
       if (sectionsError) {
         throw sectionsError;

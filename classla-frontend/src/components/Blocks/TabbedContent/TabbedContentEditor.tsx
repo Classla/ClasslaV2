@@ -130,7 +130,7 @@ const TabbedContentEditor: React.FC<TabbedContentEditorProps> = memo(
           }
         }}
       >
-        <div className="tabbed-content-editor border border-gray-200 rounded-lg p-3 bg-white shadow-sm select-none">
+        <div className="tabbed-content-editor border border-border rounded-lg p-3 bg-card shadow-sm select-none">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-3">
               <div
@@ -147,7 +147,7 @@ const TabbedContentEditor: React.FC<TabbedContentEditorProps> = memo(
                 )}
               </div>
               <div className="select-none">
-                <div className="text-sm font-medium text-gray-900">
+                <div className="text-sm font-medium text-foreground">
                   Tabbed Content
                 </div>
                 {validationErrors.length > 0 && (
@@ -170,7 +170,7 @@ const TabbedContentEditor: React.FC<TabbedContentEditorProps> = memo(
 
           <div className="mb-3">
             <div className="flex items-center justify-between mb-2">
-              <Label className="text-sm font-medium text-gray-700">Tabs</Label>
+              <Label className="text-sm font-medium text-foreground">Tabs</Label>
               <Button variant="outline" size="sm" onClick={addTab} className="text-xs">
                 <Plus className="w-3 h-3 mr-1" />
                 Add Tab
@@ -182,8 +182,8 @@ const TabbedContentEditor: React.FC<TabbedContentEditorProps> = memo(
                   key={tab.id}
                   className={`flex items-center gap-1 px-3 py-1 rounded border cursor-pointer ${
                     activeTabId === tab.id
-                      ? "bg-purple-50 border-purple-200"
-                      : "bg-gray-50 border-gray-300"
+                      ? "bg-primary/10 border-primary/20"
+                      : "bg-muted border-border"
                   }`}
                   onClick={() => setActiveTabId(tab.id)}
                 >
@@ -225,7 +225,7 @@ const TabbedContentEditor: React.FC<TabbedContentEditorProps> = memo(
 
           {activeTab && (
             <div className="mb-3">
-              <Label className="text-sm font-medium text-gray-700 mb-1 block">
+              <Label className="text-sm font-medium text-foreground mb-1 block">
                 Content for "{activeTab.label}"
               </Label>
               <RichTextEditor
@@ -241,7 +241,7 @@ const TabbedContentEditor: React.FC<TabbedContentEditorProps> = memo(
           )}
 
           <div className="mb-3">
-            <Label className="text-sm font-medium text-gray-700 mb-2 block">
+            <Label className="text-sm font-medium text-foreground mb-2 block">
               Tab Position
             </Label>
             <div className="flex gap-2 mb-3">
@@ -253,7 +253,7 @@ const TabbedContentEditor: React.FC<TabbedContentEditorProps> = memo(
                 className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${
                   tabbedContentData.tabPosition === "top"
                     ? "bg-purple-600 text-white"
-                    : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                    : "bg-muted text-foreground hover:bg-accent"
                 }`}
               >
                 Top (horizontal)
@@ -266,7 +266,7 @@ const TabbedContentEditor: React.FC<TabbedContentEditorProps> = memo(
                 className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${
                   tabbedContentData.tabPosition === "left"
                     ? "bg-purple-600 text-white"
-                    : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                    : "bg-muted text-foreground hover:bg-accent"
                 }`}
               >
                 Left (vertical)

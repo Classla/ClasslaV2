@@ -22,8 +22,6 @@ import Gapcursor from "@tiptap/extension-gapcursor";
 import { apiClient } from "../../../lib/api";
 import { MCQBlock, validateMCQData } from "../../../components/extensions/MCQBlock";
 import { IDEBlock } from "../../../components/extensions/IDEBlock";
-import { AIBlock } from "../../../components/extensions/AIBlock";
-import { GeneratingBlock } from "../../../components/extensions/GeneratingBlock";
 import { FillInTheBlankBlock } from "../../../components/extensions/FillInTheBlankBlock";
 import { ShortAnswerBlock } from "../../../components/extensions/ShortAnswerBlock";
 import { ParsonsProblemBlock } from "../../../components/extensions/ParsonsProblemBlock";
@@ -33,6 +31,7 @@ import { TabbedContentBlock } from "../../../components/extensions/TabbedContent
 import { RevealContentBlock } from "../../../components/extensions/RevealContentBlock";
 import { PollBlock } from "../../../components/extensions/PollBlock";
 import { EmbedBlock } from "../../../components/extensions/EmbedBlock";
+import { ImageBlock } from "../../../components/extensions/ImageBlock";
 import { DiscussionBlock } from "../../../components/extensions/DiscussionBlock";
 import { generateUUID } from "../../../components/extensions/blockUtils";
 import { useToast } from "../../../hooks/use-toast";
@@ -67,7 +66,6 @@ import {
   Link as LinkIcon,
   Strikethrough,
   HelpCircle,
-  Sparkles,
   Columns,
   Rows,
   Merge,
@@ -80,6 +78,7 @@ import {
   ChevronDown,
   Eye,
   EyeOff,
+  Image as ImageLucideIcon,
 } from "lucide-react";
 
 interface AssignmentEditorProps {
@@ -150,7 +149,7 @@ const BlockControls: React.FC<BlockControlsProps> = memo(
         onMouseLeave={() => {}} // Let parent handle hiding
       >
         <button
-          className="w-5 h-5 rounded flex items-center justify-center text-gray-400 hover:text-gray-600 opacity-0 group-hover:opacity-100 transition-all focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2"
+          className="w-5 h-5 rounded flex items-center justify-center text-muted-foreground hover:text-foreground opacity-0 group-hover:opacity-100 transition-all focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
           title="Add block below"
           onClick={onAddBlock}
           aria-label="Add block below"
@@ -158,7 +157,7 @@ const BlockControls: React.FC<BlockControlsProps> = memo(
           <Plus className="w-4 h-4" />
         </button>
         <button
-          className="w-5 h-5 rounded flex items-center justify-center text-gray-400 hover:text-gray-600 cursor-grab active:cursor-grabbing opacity-0 group-hover:opacity-100 transition-all focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2"
+          className="w-5 h-5 rounded flex items-center justify-center text-muted-foreground hover:text-foreground cursor-grab active:cursor-grabbing opacity-0 group-hover:opacity-100 transition-all focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
           title="Drag to move"
           aria-label="Drag to move block"
         >
@@ -222,15 +221,15 @@ const TableControls: React.FC<TableControlsProps> = memo(
           }}
         >
           {/* Small arrow pointing up to connect to table */}
-          <div className="absolute -top-1 left-1/2 transform -translate-x-1/2 w-2 h-2 bg-white border-l border-t border-gray-200 rotate-45"></div>
+          <div className="absolute -top-1 left-1/2 transform -translate-x-1/2 w-2 h-2 bg-card border-l border-t border-border rotate-45"></div>
           {/* Rows Section */}
           <div className="flex flex-col items-center">
-            <div className="text-xs text-gray-500 mb-1 font-medium">Rows</div>
+            <div className="text-xs text-muted-foreground mb-1 font-medium">Rows</div>
             <div className="flex items-center space-x-1">
               <Tooltip>
                 <TooltipTrigger asChild>
                   <button
-                    className="p-2 rounded hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-purple-500 text-gray-600 transition-colors"
+                    className="p-2 rounded hover:bg-accent focus:outline-none focus:ring-2 focus:ring-ring text-muted-foreground transition-colors"
                     onClick={() => editor.chain().focus().addRowBefore().run()}
                   >
                     <div className="flex items-center">
@@ -246,7 +245,7 @@ const TableControls: React.FC<TableControlsProps> = memo(
               <Tooltip>
                 <TooltipTrigger asChild>
                   <button
-                    className="p-2 rounded hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-purple-500 text-gray-600 transition-colors"
+                    className="p-2 rounded hover:bg-accent focus:outline-none focus:ring-2 focus:ring-ring text-muted-foreground transition-colors"
                     onClick={() => editor.chain().focus().addRowAfter().run()}
                   >
                     <div className="flex items-center">
@@ -262,7 +261,7 @@ const TableControls: React.FC<TableControlsProps> = memo(
               <Tooltip>
                 <TooltipTrigger asChild>
                   <button
-                    className="p-2 rounded hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-purple-500 text-red-600 transition-colors"
+                    className="p-2 rounded hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-ring text-red-600 transition-colors"
                     onClick={() => editor.chain().focus().deleteRow().run()}
                   >
                     <div className="flex items-center">
@@ -278,18 +277,18 @@ const TableControls: React.FC<TableControlsProps> = memo(
             </div>
           </div>
 
-          <div className="w-px h-8 bg-gray-200 mx-3"></div>
+          <div className="w-px h-8 bg-accent mx-3"></div>
 
           {/* Columns Section */}
           <div className="flex flex-col items-center">
-            <div className="text-xs text-gray-500 mb-1 font-medium">
+            <div className="text-xs text-muted-foreground mb-1 font-medium">
               Columns
             </div>
             <div className="flex items-center space-x-1">
               <Tooltip>
                 <TooltipTrigger asChild>
                   <button
-                    className="p-2 rounded hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-purple-500 text-gray-600 transition-colors"
+                    className="p-2 rounded hover:bg-accent focus:outline-none focus:ring-2 focus:ring-ring text-muted-foreground transition-colors"
                     onClick={() =>
                       editor.chain().focus().addColumnBefore().run()
                     }
@@ -307,7 +306,7 @@ const TableControls: React.FC<TableControlsProps> = memo(
               <Tooltip>
                 <TooltipTrigger asChild>
                   <button
-                    className="p-2 rounded hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-purple-500 text-gray-600 transition-colors"
+                    className="p-2 rounded hover:bg-accent focus:outline-none focus:ring-2 focus:ring-ring text-muted-foreground transition-colors"
                     onClick={() =>
                       editor.chain().focus().addColumnAfter().run()
                     }
@@ -325,7 +324,7 @@ const TableControls: React.FC<TableControlsProps> = memo(
               <Tooltip>
                 <TooltipTrigger asChild>
                   <button
-                    className="p-2 rounded hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-purple-500 text-red-600 transition-colors"
+                    className="p-2 rounded hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-ring text-red-600 transition-colors"
                     onClick={() => editor.chain().focus().deleteColumn().run()}
                   >
                     <div className="flex items-center">
@@ -424,7 +423,7 @@ const TableContextMenu: React.FC<TableContextMenuProps> = memo(
 
     return (
       <div
-        className="table-context-menu fixed z-50 bg-white border border-gray-200 rounded-lg shadow-lg py-1 min-w-[180px]"
+        className="table-context-menu fixed z-50 bg-card border border-border rounded-lg shadow-lg py-1 min-w-[180px]"
         style={{
           left: position.x,
           top: position.y,
@@ -435,14 +434,14 @@ const TableContextMenu: React.FC<TableContextMenuProps> = memo(
         {menuItems.map((item, index) => {
           if (item.type === "separator") {
             return (
-              <div key={index} className="border-t border-gray-200 my-1" />
+              <div key={index} className="border-t border-border my-1" />
             );
           }
 
           return (
             <button
               key={index}
-              className={`w-full px-3 py-2 text-left text-sm flex items-center space-x-2 hover:bg-gray-50 focus:bg-gray-50 focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed ${
+              className={`w-full px-3 py-2 text-left text-sm flex items-center space-x-2 hover:bg-accent focus:bg-accent focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed ${
                 item.className || ""
               }`}
               onClick={() => {
@@ -507,18 +506,6 @@ const AssignmentEditor: React.FC<AssignmentEditorProps> = ({
   // Memoize slash commands to prevent recreation on every render
   const slashCommands: SlashCommandItem[] = useMemo(
     () => [
-      {
-        title: "Generate with AI",
-        description: "Use AI to generate assignment content.",
-        icon: (
-          <div className="w-4 h-4 bg-gradient-to-br from-blue-500 to-purple-600 rounded flex items-center justify-center">
-            <Sparkles className="w-3 h-3 text-white" />
-          </div>
-        ),
-        command: (editor) => {
-          editor.chain().focus().insertAIBlock().run();
-        },
-      },
       {
         title: "Text",
         description: "Just start writing with plain text.",
@@ -817,6 +804,26 @@ const AssignmentEditor: React.FC<AssignmentEditorProps> = ({
         },
       },
       {
+        title: "Image",
+        description: "Add an image (supports GIFs).",
+        icon: <ImageLucideIcon className="w-4 h-4" />,
+        command: (editor) => {
+          editor.chain().focus().insertContent({
+            type: "imageBlock",
+            attrs: {
+              imageData: {
+                id: generateUUID(),
+                s3Key: "",
+                assignmentId: "",
+                alt: "",
+                width: 0,
+                alignment: "center",
+              },
+            },
+          }).run();
+        },
+      },
+      {
         title: "Discussion/Forum",
         description: "Add a discussion/forum block.",
         icon: <Quote className="w-4 h-4" />,
@@ -909,12 +916,9 @@ const AssignmentEditor: React.FC<AssignmentEditorProps> = ({
       RevealContentBlock,
       PollBlock,
       EmbedBlock,
+      ImageBlock,
       DiscussionBlock,
       IDEBlock,
-      AIBlock.configure({
-        assignmentId: assignment.id,
-      }),
-      GeneratingBlock,
     ],
     [assignment.id]
   );
@@ -949,86 +953,33 @@ const AssignmentEditor: React.FC<AssignmentEditorProps> = ({
       if (!isReadOnly) {
         const { from, to } = editor.state.selection;
 
-        // Check if selection is within an MCQ block or AI block
+        // Check if selection is within an MCQ block
         const $from = editor.state.doc.resolve(from);
         const $to = editor.state.doc.resolve(to);
 
-        // Check if we're inside an MCQ block or AI block by traversing up the node tree
+        // Check if we're inside an MCQ block by traversing up the node tree
         let isInMCQBlock = false;
-        let isInAIBlock = false;
         for (let depth = $from.depth; depth >= 0; depth--) {
           const node = $from.node(depth);
           if (node.type.name === "mcqBlock") {
             isInMCQBlock = true;
             break;
           }
-          if (node.type.name === "aiBlock") {
-            isInAIBlock = true;
-            break;
-          }
         }
 
         // Also check the end position
-        if (!isInMCQBlock && !isInAIBlock) {
+        if (!isInMCQBlock) {
           for (let depth = $to.depth; depth >= 0; depth--) {
             const node = $to.node(depth);
             if (node.type.name === "mcqBlock") {
               isInMCQBlock = true;
               break;
             }
-            if (node.type.name === "aiBlock") {
-              isInAIBlock = true;
-              break;
-            }
           }
         }
 
-        // Handle "++" shortcut detection (only at start of line, not in blocks)
-        if (!isInMCQBlock && !isInAIBlock && from === to) {
-          try {
-            // Get the current position
-            const $pos = editor.state.doc.resolve(from);
-            
-            // Find the start of the current block (paragraph, heading, etc.)
-            let blockStart = from;
-            for (let depth = $pos.depth; depth > 0; depth--) {
-              const node = $pos.node(depth);
-              if (node.type.isBlock) {
-                blockStart = $pos.start(depth);
-                break;
-              }
-            }
-            
-            // Get text from the start of the block to the cursor
-            const textBeforeCursor = editor.state.doc.textBetween(
-              blockStart,
-              from,
-              ""
-            );
-            
-            // Only trigger if "++" is at the very start (no text before it except whitespace)
-            const trimmedBefore = textBeforeCursor.trim();
-            if (trimmedBefore === "" || trimmedBefore === "++") {
-              // Check if the last 2 characters are "++"
-              const lastTwoChars = textBeforeCursor.slice(-2);
-              if (lastTwoChars === "++") {
-                // Delete "++" and insert AI block
-                editor
-                  .chain()
-                  .focus()
-                  .deleteRange({ from: from - 2, to: from })
-                  .insertAIBlock()
-                  .run();
-                return;
-              }
-            }
-          } catch (error) {
-            // Silently fail if detection fails
-          }
-        }
-
-        // Handle floating toolbar for text selection (but not in MCQ blocks or AI blocks)
-        if (from !== to && !isInMCQBlock && !isInAIBlock) {
+        // Handle floating toolbar for text selection (but not in MCQ blocks)
+        if (from !== to && !isInMCQBlock) {
           // Text is selected and not in MCQ block
           try {
             const coords = editor.view.coordsAtPos(from);
@@ -1049,8 +1000,8 @@ const AssignmentEditor: React.FC<AssignmentEditorProps> = ({
           // No text selected or in MCQ block
           setShowFloatingToolbar(false);
 
-          // Handle slash command detection with throttling for performance (but not in MCQ blocks or AI blocks)
-          if (!isInMCQBlock && !isInAIBlock) {
+          // Handle slash command detection with throttling for performance (but not in MCQ blocks)
+          if (!isInMCQBlock) {
             try {
               const text = editor.state.doc.textBetween(from - 10, to, " ");
               const slashIndex = text.lastIndexOf("/");
@@ -1084,7 +1035,7 @@ const AssignmentEditor: React.FC<AssignmentEditorProps> = ({
               setShowSlashMenu(false);
             }
           } else {
-            // Hide slash menu when in MCQ block or AI block
+            // Hide slash menu when in MCQ block
             setShowSlashMenu(false);
           }
         }
@@ -1351,7 +1302,7 @@ const AssignmentEditor: React.FC<AssignmentEditorProps> = ({
   }
 
   return (
-    <div className="h-full flex flex-col bg-white relative">
+    <div className="h-full flex flex-col bg-background relative">
       {/* Save status, preview toggle, and performance info - floating */}
       {!isReadOnly && (
         <div className="absolute top-4 right-4 z-10 space-y-2">
@@ -1363,7 +1314,7 @@ const AssignmentEditor: React.FC<AssignmentEditorProps> = ({
                 className={`flex items-center gap-1.5 rounded-lg px-3 py-1 text-sm font-medium shadow-sm border transition-colors ${
                   isPreviewMode
                     ? "bg-amber-500 text-white border-amber-500 hover:bg-amber-600"
-                    : "bg-white/90 backdrop-blur-sm text-gray-600 hover:bg-gray-100 hover:text-gray-900"
+                    : "bg-card/90 backdrop-blur-sm text-muted-foreground hover:bg-accent hover:text-foreground"
                 }`}
                 title={isPreviewMode ? "Exit student preview" : "Preview as student"}
               >
@@ -1382,7 +1333,7 @@ const AssignmentEditor: React.FC<AssignmentEditorProps> = ({
             )}
 
             {/* Saved Indicator */}
-            <div className="bg-white/90 backdrop-blur-sm rounded-lg px-3 py-1 text-sm text-gray-500 shadow-sm border">
+            <div className="bg-card/90 backdrop-blur-sm rounded-lg px-3 py-1 text-sm text-muted-foreground shadow-sm border">
               {isSaving ? (
                 <div className="flex items-center">
                   <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-purple-600 mr-2"></div>
@@ -1551,7 +1502,7 @@ const AssignmentEditor: React.FC<AssignmentEditorProps> = ({
       {/* Slash Command Menu with accessibility improvements */}
       {!isReadOnly && showSlashMenu && (
         <div
-          className="fixed z-50 bg-white rounded-lg shadow-lg border border-gray-200 py-2 min-w-[280px] max-h-[400px] overflow-y-auto"
+          className="fixed z-50 bg-card rounded-lg shadow-lg border border-border py-2 min-w-[280px] max-h-[400px] overflow-y-auto"
           style={{
             left: slashMenuPosition.x,
             top: slashMenuOpensUpward 
@@ -1582,25 +1533,25 @@ const AssignmentEditor: React.FC<AssignmentEditorProps> = ({
             filteredCommands.map((command, index) => (
               <button
                 key={command.title}
-                className="w-full px-4 py-2 text-left hover:bg-gray-50 focus:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-inset flex items-center space-x-3 transition-colors"
+                className="w-full px-4 py-2 text-left hover:bg-accent focus:bg-accent focus:outline-none focus:ring-2 focus:ring-ring focus:ring-inset flex items-center space-x-3 transition-colors"
                 onClick={() => handleSlashCommand(command)}
                 role="menuitem"
                 tabIndex={index === 0 ? 0 : -1}
                 aria-describedby={`command-desc-${index}`}
               >
                 <div
-                  className="flex-shrink-0 w-8 h-8 rounded-md bg-gray-100 flex items-center justify-center"
+                  className="flex-shrink-0 w-8 h-8 rounded-md bg-muted flex items-center justify-center"
                   aria-hidden="true"
                 >
                   {command.icon}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className="text-sm font-medium text-gray-900">
+                  <div className="text-sm font-medium text-foreground">
                     {command.title}
                   </div>
                   <div
                     id={`command-desc-${index}`}
-                    className="text-xs text-gray-500 truncate"
+                    className="text-xs text-muted-foreground truncate"
                   >
                     {command.description}
                   </div>
@@ -1608,7 +1559,7 @@ const AssignmentEditor: React.FC<AssignmentEditorProps> = ({
               </button>
             ))
           ) : (
-            <div className="px-4 py-2 text-sm text-gray-500" role="status">
+            <div className="px-4 py-2 text-sm text-muted-foreground" role="status">
               No matching commands
             </div>
           )}
@@ -1618,7 +1569,7 @@ const AssignmentEditor: React.FC<AssignmentEditorProps> = ({
       {/* Floating Toolbar for Text Selection with accessibility improvements */}
       {!isReadOnly && showFloatingToolbar && (
         <div
-          className="fixed z-50 bg-white text-gray-700 rounded-lg shadow-lg border border-gray-200 flex items-center divide-x divide-gray-200"
+          className="fixed z-50 bg-card text-foreground rounded-lg shadow-lg border border-border flex items-center divide-x divide-border"
           style={{
             left: floatingToolbarPosition.x,
             top: floatingToolbarPosition.y - 30,
@@ -1640,8 +1591,8 @@ const AssignmentEditor: React.FC<AssignmentEditorProps> = ({
           >
             <button
               onClick={() => editor.chain().focus().toggleBold().run()}
-              className={`p-2 rounded hover:bg-gray-100 focus:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-purple-500 transition-colors ${
-                editor.isActive("bold") ? "bg-purple-100 text-purple-700" : ""
+              className={`p-2 rounded hover:bg-accent focus:bg-accent focus:outline-none focus:ring-2 focus:ring-ring transition-colors ${
+                editor.isActive("bold") ? "bg-primary/20 text-primary" : ""
               }`}
               title="Bold (Ctrl+B)"
               aria-label="Bold"
@@ -1651,8 +1602,8 @@ const AssignmentEditor: React.FC<AssignmentEditorProps> = ({
             </button>
             <button
               onClick={() => editor.chain().focus().toggleItalic().run()}
-              className={`p-2 rounded hover:bg-gray-100 focus:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-purple-500 transition-colors ${
-                editor.isActive("italic") ? "bg-purple-100 text-purple-700" : ""
+              className={`p-2 rounded hover:bg-accent focus:bg-accent focus:outline-none focus:ring-2 focus:ring-ring transition-colors ${
+                editor.isActive("italic") ? "bg-primary/20 text-primary" : ""
               }`}
               title="Italic (Ctrl+I)"
               aria-label="Italic"
@@ -1662,9 +1613,9 @@ const AssignmentEditor: React.FC<AssignmentEditorProps> = ({
             </button>
             <button
               onClick={() => editor.chain().focus().toggleUnderline().run()}
-              className={`p-2 rounded hover:bg-gray-100 focus:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-purple-500 transition-colors ${
+              className={`p-2 rounded hover:bg-accent focus:bg-accent focus:outline-none focus:ring-2 focus:ring-ring transition-colors ${
                 editor.isActive("underline")
-                  ? "bg-purple-100 text-purple-700"
+                  ? "bg-primary/20 text-primary"
                   : ""
               }`}
               title="Underline (Ctrl+U)"
@@ -1675,8 +1626,8 @@ const AssignmentEditor: React.FC<AssignmentEditorProps> = ({
             </button>
             <button
               onClick={() => editor.chain().focus().toggleStrike().run()}
-              className={`p-2 rounded hover:bg-gray-100 focus:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-purple-500 transition-colors ${
-                editor.isActive("strike") ? "bg-purple-100 text-purple-700" : ""
+              className={`p-2 rounded hover:bg-accent focus:bg-accent focus:outline-none focus:ring-2 focus:ring-ring transition-colors ${
+                editor.isActive("strike") ? "bg-primary/20 text-primary" : ""
               }`}
               title="Strikethrough"
               aria-label="Strikethrough"
@@ -1697,8 +1648,8 @@ const AssignmentEditor: React.FC<AssignmentEditorProps> = ({
                   editor.chain().focus().setLink({ href: url }).run();
                 }
               }}
-              className={`p-2 rounded hover:bg-gray-100 focus:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-purple-500 transition-colors ${
-                editor.isActive("link") ? "bg-purple-100 text-purple-700" : ""
+              className={`p-2 rounded hover:bg-accent focus:bg-accent focus:outline-none focus:ring-2 focus:ring-ring transition-colors ${
+                editor.isActive("link") ? "bg-primary/20 text-primary" : ""
               }`}
               title="Add Link (Ctrl+K)"
               aria-label="Add Link"
@@ -1708,8 +1659,8 @@ const AssignmentEditor: React.FC<AssignmentEditorProps> = ({
             </button>
             <button
               onClick={() => editor.chain().focus().toggleCode().run()}
-              className={`p-2 rounded hover:bg-gray-100 focus:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-purple-500 transition-colors ${
-                editor.isActive("code") ? "bg-purple-100 text-purple-700" : ""
+              className={`p-2 rounded hover:bg-accent focus:bg-accent focus:outline-none focus:ring-2 focus:ring-ring transition-colors ${
+                editor.isActive("code") ? "bg-primary/20 text-primary" : ""
               }`}
               title="Inline Code"
               aria-label="Inline Code"

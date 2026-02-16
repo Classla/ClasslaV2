@@ -73,7 +73,7 @@ const DiscussionEditor: React.FC<DiscussionEditorProps> = memo(
           }
         }}
       >
-        <div className="discussion-editor border border-gray-200 rounded-lg p-3 bg-white shadow-sm select-none">
+        <div className="discussion-editor border border-border rounded-lg p-3 bg-card shadow-sm select-none">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-3">
               <div
@@ -90,7 +90,7 @@ const DiscussionEditor: React.FC<DiscussionEditorProps> = memo(
                 )}
               </div>
               <div className="select-none">
-                <div className="text-sm font-medium text-gray-900">Discussion/Forum</div>
+                <div className="text-sm font-medium text-foreground">Discussion/Forum</div>
                 {validationErrors.length > 0 && (
                   <div className="text-xs text-red-600 mt-0.5">
                     {validationErrors.length} error
@@ -109,10 +109,10 @@ const DiscussionEditor: React.FC<DiscussionEditorProps> = memo(
             </Button>
           </div>
 
-          <div className="p-6 bg-gray-50 rounded-lg border border-dashed border-gray-300 text-center">
-            <MessageSquare className="w-12 h-12 text-gray-400 mx-auto mb-3" />
-            <h3 className="text-lg font-semibold text-gray-900 mb-2">Coming Soon</h3>
-            <p className="text-sm text-gray-600">
+          <div className="p-6 bg-muted rounded-lg border border-dashed border-border text-center">
+            <MessageSquare className="w-12 h-12 text-muted-foreground mx-auto mb-3" />
+            <h3 className="text-lg font-semibold text-foreground mb-2">Coming Soon</h3>
+            <p className="text-sm text-muted-foreground">
               Discussion/Forum functionality is under development. This feature will allow students to engage in threaded discussions and peer collaboration.
             </p>
           </div>

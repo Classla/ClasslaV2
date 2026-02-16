@@ -98,7 +98,7 @@ const OrganizationLayout: React.FC<OrganizationLayoutProps> = ({ children }) => 
     return (
       <div className="flex items-center justify-center h-64">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-600"></div>
-        <span className="ml-3 text-gray-600">Loading organization...</span>
+        <span className="ml-3 text-muted-foreground">Loading organization...</span>
       </div>
     );
   }
@@ -106,25 +106,25 @@ const OrganizationLayout: React.FC<OrganizationLayoutProps> = ({ children }) => 
   if (!organization) {
     return (
       <div className="flex items-center justify-center h-64">
-        <p className="text-gray-600">Organization not found</p>
+        <p className="text-muted-foreground">Organization not found</p>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-background">
       {/* Header */}
-      <div className="bg-white border-b">
+      <div className="bg-card border-b border-border">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-4">
               <Building2 className="h-8 w-8 text-purple-600" />
               <div>
-                <h1 className="text-2xl font-bold text-gray-900">
+                <h1 className="text-2xl font-bold text-foreground">
                   {organization.name}
                 </h1>
                 <div className="flex items-center space-x-2 mt-1">
-                  <span className="text-sm text-gray-500">
+                  <span className="text-sm text-muted-foreground">
                     Join Code: {organization.slug}
                   </span>
                   <Button
@@ -142,7 +142,7 @@ const OrganizationLayout: React.FC<OrganizationLayoutProps> = ({ children }) => 
               </div>
             </div>
             <div className="flex items-center space-x-2">
-              <span className="text-sm text-gray-500 bg-gray-100 px-3 py-1 rounded">
+              <span className="text-sm text-muted-foreground bg-muted px-3 py-1 rounded">
                 {userRole === OrganizationRole.ADMIN ? "Admin" : "Member"}
               </span>
             </div>
@@ -151,7 +151,7 @@ const OrganizationLayout: React.FC<OrganizationLayoutProps> = ({ children }) => 
       </div>
 
       {/* Navigation Tabs */}
-      <div className="bg-white border-b">
+      <div className="bg-card border-b border-border">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <nav className="flex space-x-8">
             {navigationTabs.map((tab) => {
@@ -166,7 +166,7 @@ const OrganizationLayout: React.FC<OrganizationLayoutProps> = ({ children }) => 
                     ${
                       isActive
                         ? "border-purple-600 text-purple-600"
-                        : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                        : "border-transparent text-muted-foreground hover:text-foreground hover:border-border"
                     }
                   `}
                 >

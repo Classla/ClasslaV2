@@ -23,7 +23,7 @@ const RevealContentViewer: React.FC<RevealContentViewerProps> = memo(
         draggable={false}
         contentEditable={false}
       >
-        <div className="reveal-content-viewer border border-gray-200 rounded-lg p-4 bg-white">
+        <div className="reveal-content-viewer border border-border rounded-lg p-4 bg-card">
           <Button
             variant="outline"
             onClick={() => setIsExpanded(!isExpanded)}

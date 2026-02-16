@@ -47,7 +47,7 @@ const GradebookTable: React.FC<GradebookTableProps> = React.memo(
         const finalGrade = calculateFinalGrade(grader);
         const totalPoints = getTotalPoints(assignment);
         return (
-          <span className="text-gray-900 text-sm font-medium">
+          <span className="text-foreground text-sm font-medium">
             {finalGrade}/{totalPoints}
           </span>
         );
@@ -63,18 +63,18 @@ const GradebookTable: React.FC<GradebookTableProps> = React.memo(
     };
 
     return (
-      <div className="w-full overflow-hidden border border-gray-200 rounded-lg shadow-sm bg-white">
+      <div className="w-full overflow-hidden border border-border rounded-lg shadow-sm bg-card">
         <div className="overflow-x-auto">
           <table className="w-full border-collapse">
             <thead>
-              <tr className="bg-gradient-to-r from-purple-50 to-gray-50">
-                <th className="sticky left-0 z-20 bg-gradient-to-r from-purple-50 to-gray-50 px-6 py-4 text-left text-sm font-bold text-gray-900 border-b-2 border-r-2 border-gray-300 min-w-[220px] shadow-sm">
+              <tr className="bg-gradient-to-r from-primary/10 to-muted">
+                <th className="sticky left-0 z-20 bg-gradient-to-r from-primary/10 to-muted px-6 py-4 text-left text-sm font-bold text-foreground border-b-2 border-r-2 border-border min-w-[220px] shadow-sm">
                   Student Name
                 </th>
                 {assignments.map((assignment) => (
                   <th
                     key={assignment.id}
-                    className="px-4 py-4 text-center text-sm font-semibold text-gray-900 border-b-2 border-gray-300 min-w-[140px]"
+                    className="px-4 py-4 text-center text-sm font-semibold text-foreground border-b-2 border-border min-w-[140px]"
                   >
                     <div className="flex flex-col gap-1">
                       <span
@@ -83,7 +83,7 @@ const GradebookTable: React.FC<GradebookTableProps> = React.memo(
                       >
                         {assignment.name}
                       </span>
-                      <span className="text-xs text-gray-600 font-medium">
+                      <span className="text-xs text-muted-foreground font-medium">
                         Out of {getTotalPoints(assignment)}
                       </span>
                     </div>
@@ -97,17 +97,17 @@ const GradebookTable: React.FC<GradebookTableProps> = React.memo(
                   key={student.userId}
                   className={`transition-colors ${
                     index % 2 === 0
-                      ? "bg-white hover:bg-gray-50"
-                      : "bg-gray-50 hover:bg-gray-100"
+                      ? "bg-card hover:bg-accent"
+                      : "bg-muted hover:bg-accent"
                   }`}
                 >
-                  <td className="sticky left-0 z-10 px-6 py-4 text-sm font-semibold text-gray-900 border-b border-r-2 border-gray-200 bg-inherit shadow-sm">
+                  <td className="sticky left-0 z-10 px-6 py-4 text-sm font-semibold text-foreground border-b border-r-2 border-border bg-inherit shadow-sm">
                     {student.lastName}, {student.firstName}
                   </td>
                   {assignments.map((assignment) => (
                     <td
                       key={`${student.userId}_${assignment.id}`}
-                      className="px-4 py-4 text-center border-b border-gray-200 cursor-pointer hover:bg-purple-50 hover:shadow-inner transition-all duration-150"
+                      className="px-4 py-4 text-center border-b border-border cursor-pointer hover:bg-primary/10 hover:shadow-inner transition-all duration-150"
                       onClick={() => onCellClick(student.userId, assignment.id)}
                     >
                       {renderCell(student, assignment)}

@@ -43,8 +43,8 @@ const TabbedContentViewer: React.FC<TabbedContentViewerProps> = memo(
           draggable={false}
           contentEditable={false}
         >
-          <div className="tabbed-content-viewer border border-gray-200 rounded-lg p-4 bg-white">
-            <p className="text-sm text-gray-500">No tabs configured</p>
+          <div className="tabbed-content-viewer border border-border rounded-lg p-4 bg-card">
+            <p className="text-sm text-muted-foreground">No tabs configured</p>
           </div>
         </NodeViewWrapper>
       );
@@ -57,7 +57,7 @@ const TabbedContentViewer: React.FC<TabbedContentViewerProps> = memo(
         draggable={false}
         contentEditable={false}
       >
-        <div className="tabbed-content-viewer border border-gray-200 rounded-lg p-4 bg-white">
+        <div className="tabbed-content-viewer border border-border rounded-lg p-4 bg-card">
           <Tabs
             value={activeTab}
             onValueChange={setActiveTab}

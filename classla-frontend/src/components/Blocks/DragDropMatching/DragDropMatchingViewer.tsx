@@ -67,7 +67,7 @@ const SortableItem: React.FC<SortableItemProps> = ({
     opacity: isDragging ? 0.5 : 1,
   };
 
-  const bgColor = "bg-white border-gray-300";
+  const bgColor = "bg-card border-border";
 
   return (
     <div
@@ -80,7 +80,7 @@ const SortableItem: React.FC<SortableItemProps> = ({
       } ${isMatched ? "cursor-default" : "cursor-grab active:cursor-grabbing"}`}
     >
       {!isMatched && (
-        <GripVertical className="w-4 h-4 text-gray-400 flex-shrink-0" />
+        <GripVertical className="w-4 h-4 text-muted-foreground flex-shrink-0" />
       )}
       <span className="flex-1 text-sm">{item.text}</span>
     </div>
@@ -222,9 +222,9 @@ const DragDropMatchingViewer: React.FC<DragDropMatchingViewerProps> = memo(
         draggable={false}
         contentEditable={false}
       >
-        <div className="drag-drop-matching-viewer border border-gray-200 rounded-lg p-4 bg-white shadow-sm">
+        <div className="drag-drop-matching-viewer border border-border rounded-lg p-4 bg-card shadow-sm">
           <div className="mb-4">
-            <h3 className="text-sm font-medium text-gray-900 mb-2">
+            <h3 className="text-sm font-medium text-foreground mb-2">
               {rawDragDropMatchingData.instruction || "Match the items"}
             </h3>
           </div>
@@ -238,7 +238,7 @@ const DragDropMatchingViewer: React.FC<DragDropMatchingViewerProps> = memo(
             <div className="grid grid-cols-2 gap-4">
               {/* Source Items Column */}
               <div>
-                <div className="text-xs font-medium text-gray-700 mb-2">
+                <div className="text-xs font-medium text-foreground mb-2">
                   Source Items
                 </div>
                 <DroppableZone id="source-area">
@@ -246,7 +246,7 @@ const DragDropMatchingViewer: React.FC<DragDropMatchingViewerProps> = memo(
                     items={unmatchedItems.map((item) => item.id)}
                     strategy={undefined}
                   >
-                    <div className="space-y-2 min-h-[200px] p-2 bg-gray-50 rounded border border-dashed border-gray-300">
+                    <div className="space-y-2 min-h-[200px] p-2 bg-muted rounded border border-dashed border-border">
                       {unmatchedItems.map((item) => (
                         <SortableItem
                           key={item.id}
@@ -255,7 +255,7 @@ const DragDropMatchingViewer: React.FC<DragDropMatchingViewerProps> = memo(
                         />
                       ))}
                       {unmatchedItems.length === 0 && (
-                        <div className="text-xs text-gray-400 text-center py-4">
+                        <div className="text-xs text-muted-foreground text-center py-4">
                           All items matched
                         </div>
                       )}
@@ -266,7 +266,7 @@ const DragDropMatchingViewer: React.FC<DragDropMatchingViewerProps> = memo(
 
               {/* Target Zones Column */}
               <div>
-                <div className="text-xs font-medium text-gray-700 mb-2">
+                <div className="text-xs font-medium text-foreground mb-2">
                   Target Zones
                 </div>
                 <div className="space-y-2 min-h-[200px]">
@@ -279,24 +279,24 @@ const DragDropMatchingViewer: React.FC<DragDropMatchingViewerProps> = memo(
                         <div
                           className={`p-3 rounded border-2 border-dashed ${
                             matchedItems.length > 0
-                              ? "bg-purple-50 border-purple-200"
-                              : "bg-gray-50 border-gray-300"
+                              ? "bg-primary/10 border-primary/30"
+                              : "bg-muted border-border"
                           }`}
                         >
-                          <div className="text-sm font-medium text-gray-900 mb-2">
+                          <div className="text-sm font-medium text-foreground mb-2">
                             {zone.label}
                           </div>
                           <div className="space-y-1">
                             {matchedItems.map((item) => (
                               <div
                                 key={item.id}
-                                className="p-2 rounded text-xs bg-white border border-gray-300"
+                                className="p-2 rounded text-xs bg-card border border-border"
                               >
                                 {item.text}
                               </div>
                             ))}
                             {matchedItems.length === 0 && (
-                              <div className="text-xs text-gray-400 text-center py-2">
+                              <div className="text-xs text-muted-foreground text-center py-2">
                                 Drop items here
                               </div>
                             )}
@@ -311,7 +311,7 @@ const DragDropMatchingViewer: React.FC<DragDropMatchingViewerProps> = memo(
 
             <DragOverlay>
               {activeId ? (
-                <div className="p-3 bg-white border border-gray-300 rounded shadow-lg">
+                <div className="p-3 bg-card border border-border rounded shadow-lg">
                   {sourceItems.find((item) => item.id === activeId)?.text}
                 </div>
               ) : null}

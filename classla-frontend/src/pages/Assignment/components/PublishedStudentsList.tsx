@@ -99,9 +99,9 @@ const PublishedStudentsList: React.FC<PublishedStudentsListProps> = ({
     return (
       <div className="p-4 w-64">
         <div className="animate-pulse">
-          <div className="h-4 bg-gray-200 rounded mb-2"></div>
-          <div className="h-4 bg-gray-200 rounded mb-2"></div>
-          <div className="h-4 bg-gray-200 rounded"></div>
+          <div className="h-4 bg-muted rounded mb-2"></div>
+          <div className="h-4 bg-muted rounded mb-2"></div>
+          <div className="h-4 bg-muted rounded"></div>
         </div>
       </div>
     );
@@ -110,14 +110,14 @@ const PublishedStudentsList: React.FC<PublishedStudentsListProps> = ({
   if (publishedStudents.length === 0) {
     return (
       <div className="p-4 w-64">
-        <p className="text-sm text-gray-600">No students published to yet</p>
+        <p className="text-sm text-muted-foreground">No students published to yet</p>
       </div>
     );
   }
 
   return (
     <div className="p-4 w-64 max-h-64 overflow-y-auto">
-      <h4 className="font-medium text-sm text-gray-900 mb-3">
+      <h4 className="font-medium text-sm text-foreground mb-3">
         Published to {publishedStudents.length} student
         {publishedStudents.length !== 1 ? "s" : ""}:
       </h4>
@@ -127,8 +127,8 @@ const PublishedStudentsList: React.FC<PublishedStudentsListProps> = ({
             key={enrollment.id}
             className="flex items-center space-x-2 text-sm"
           >
-            <User className="w-3 h-3 text-gray-400" />
-            <span className="text-gray-700">
+            <User className="w-3 h-3 text-muted-foreground" />
+            <span className="text-foreground">
               {getStudentDisplayName(enrollment)}
             </span>
           </div>

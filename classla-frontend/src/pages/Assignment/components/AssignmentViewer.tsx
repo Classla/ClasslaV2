@@ -40,6 +40,7 @@ import { TabbedContentBlockViewer } from "../../../components/extensions/TabbedC
 import { RevealContentBlockViewer } from "../../../components/extensions/RevealContentBlockViewer";
 import { PollBlockViewer } from "../../../components/extensions/PollBlockViewer";
 import { EmbedBlockViewer } from "../../../components/extensions/EmbedBlockViewer";
+import { ImageBlockViewer } from "../../../components/extensions/ImageBlockViewer";
 import { DiscussionBlockViewer } from "../../../components/extensions/DiscussionBlockViewer";
 import { validateMCQData, sanitizeMCQData } from "../../../components/extensions/MCQBlock";
 import { Button } from "../../../components/ui/button";
@@ -49,6 +50,12 @@ import SubmissionSuccessModal from "./SubmissionSuccessModal";
 import { randomizeMCQBlocks } from "../../../utils/randomization";
 import { Popover } from "../../../components/ui/popover";
 import AssignmentContentSkeleton from "./AssignmentContentSkeleton";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "../../../components/ui/tooltip";
 
 interface AssignmentViewerProps {
   assignment: Assignment;
@@ -753,6 +760,7 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
       RevealContentBlockViewer, // Add Reveal Content viewer extension
       PollBlockViewer, // Add Poll viewer extension
       EmbedBlockViewer, // Add Embed viewer extension
+      ImageBlockViewer, // Add Image viewer extension
       DiscussionBlockViewer, // Add Discussion viewer extension
       IDEBlockViewer, // Add IDE viewer extension
     ],
@@ -1004,7 +1012,7 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
       <div className="flex items-center justify-center p-12">
         <div className="text-center">
           <Loader2 className="h-8 w-8 animate-spin text-purple-600 mx-auto mb-4" />
-          <p className="text-gray-600">Loading assignment...</p>
+          <p className="text-muted-foreground">Loading assignment...</p>
         </div>
       </div>
     );
@@ -1295,7 +1303,7 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
   ]);
 
   return (
-    <div className="h-full flex flex-col bg-white relative">
+    <div className="h-full flex flex-col bg-background relative">
       {/* Preview Mode Banner */}
       {previewMode && (
         <div className="bg-amber-100 border-b border-amber-300 px-4 py-3">
@@ -1330,12 +1338,30 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
                 clipRule="evenodd"
               />
             </svg>
-            <span className="font-medium">
-              {grader?.raw_assignment_score != null && totalPossiblePoints != null
-                ? `Assignment Submitted - Your score: ${grader.raw_assignment_score} / ${totalPossiblePoints} points`
-                : showResponsesAfterSubmission
-                ? "Assignment Submitted - You can view your responses below"
-                : "Assignment Submitted - Your answers are locked"}
+            <span className="font-medium flex items-center gap-2">
+              {grader?.raw_assignment_score != null && totalPossiblePoints != null ? (
+                <>
+                  Assignment Submitted - Your score: {grader.raw_assignment_score} / {totalPossiblePoints} points
+                  {(!grader.reviewed_at) && (
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span className="inline-flex items-center px-2 py-0.5 rounded bg-orange-500 text-white text-xs font-semibold cursor-help">
+                            Pending
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent className="bg-card border-border text-foreground">
+                          <p>Instructor has not marked as reviewed</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  )}
+                </>
+              ) : showResponsesAfterSubmission ? (
+                "Assignment Submitted - You can view your responses below"
+              ) : (
+                "Assignment Submitted - Your answers are locked"
+              )}
             </span>
           </div>
         </div>
@@ -1352,10 +1378,28 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
                 clipRule="evenodd"
               />
             </svg>
-            <span className="font-medium">
-              {grader?.raw_assignment_score != null && totalPossiblePoints != null
-                ? `Assignment Graded - Your score: ${grader.raw_assignment_score} / ${totalPossiblePoints} points`
-                : "Assignment Graded - View your results below"}
+            <span className="font-medium flex items-center gap-2">
+              {grader?.raw_assignment_score != null && totalPossiblePoints != null ? (
+                <>
+                  Assignment Graded - Your score: {grader.raw_assignment_score} / {totalPossiblePoints} points
+                  {(!grader.reviewed_at) && (
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span className="inline-flex items-center px-2 py-0.5 rounded bg-orange-500 text-white text-xs font-semibold cursor-help">
+                            Pending
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent className="bg-card border-border text-foreground">
+                          <p>Instructor has not marked as reviewed</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  )}
+                </>
+              ) : (
+                "Assignment Graded - View your results below"
+              )}
             </span>
           </div>
         </div>
@@ -1363,14 +1407,14 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
 
       {/* Submission Selector Header */}
       {hasSubmission && (allSubmissions?.length ?? 0) > 1 && (
-        <div className="bg-gray-50 border-b border-gray-200 px-4 py-2">
+        <div className="bg-muted border-b border-border px-4 py-2">
           <div className="max-w-4xl mx-auto flex items-center justify-end">
             <div className="flex items-center gap-2">
-              <span className="text-sm text-gray-600">Viewing:</span>
+              <span className="text-sm text-muted-foreground">Viewing:</span>
               <Popover
                 minWidth="auto"
                 trigger={
-                  <button className="flex items-center gap-2 text-sm border border-gray-300 rounded-md px-3 py-1.5 bg-white hover:border-gray-400 hover:bg-gray-50 transition-colors">
+                  <button className="flex items-center gap-2 text-sm border border-border rounded-md px-3 py-1.5 bg-card hover:border-foreground/30 hover:bg-accent transition-colors">
                     <span>
                       {allSubmissions.findIndex(
                         (s) => s.id === (selectedSubmissionId || submissionId)
@@ -1384,16 +1428,16 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
                             )
                           }`}
                     </span>
-                    <ChevronDown className="w-4 h-4 text-gray-500" />
+                    <ChevronDown className="w-4 h-4 text-muted-foreground" />
                   </button>
                 }
                 content={
                   <div className="w-80 max-h-96 overflow-y-auto">
-                    <div className="p-3 border-b bg-gray-50">
-                      <h3 className="font-semibold text-gray-900">
+                    <div className="p-3 border-b border-border bg-muted">
+                      <h3 className="font-semibold text-foreground">
                         Submission History
                       </h3>
-                      <p className="text-xs text-gray-600 mt-1">
+                      <p className="text-xs text-muted-foreground mt-1">
                         {allSubmissions.length} submission
                         {allSubmissions.length !== 1 ? "s" : ""}
                       </p>
@@ -1420,21 +1464,21 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
                           <button
                             key={sub.id}
                             onClick={() => onSubmissionSelect?.(sub.id)}
-                            className={`w-full p-3 text-left hover:bg-gray-50 transition-colors ${
+                            className={`w-full p-3 text-left hover:bg-accent transition-colors ${
                               isSelected
-                                ? "bg-purple-50 border-l-4 border-purple-600"
+                                ? "bg-primary/10 border-l-4 border-purple-600"
                                 : ""
                             }`}
                           >
                             <div className="flex items-start justify-between">
                               <div className="flex-1">
                                 <div className="flex items-center gap-2">
-                                  <Clock className="w-4 h-4 text-gray-400" />
-                                  <span className="text-sm font-medium text-gray-900">
+                                  <Clock className="w-4 h-4 text-muted-foreground" />
+                                  <span className="text-sm font-medium text-foreground">
                                     {label}
                                   </span>
                                 </div>
-                                <p className="text-xs text-gray-600 mt-1 ml-6">
+                                <p className="text-xs text-muted-foreground mt-1 ml-6">
                                   {timestamp}
                                 </p>
                                 {sub.status === "graded" &&
@@ -1519,7 +1563,7 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
         {submissionStatus === "submitted" && !showResponsesAfterSubmission ? (
           // Show submission success screen when responses are disabled
           <div className="max-w-2xl mx-auto p-8">
-            <div className="bg-white rounded-lg border border-gray-200 p-8 text-center">
+            <div className="bg-card rounded-lg border border-border p-8 text-center">
               <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
                 <svg
                   className="w-10 h-10 text-green-600"
@@ -1533,16 +1577,16 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
                   />
                 </svg>
               </div>
-              <h2 className="text-2xl font-bold text-gray-900 mb-2">
+              <h2 className="text-2xl font-bold text-foreground mb-2">
                 Assignment Submitted Successfully
               </h2>
-              <p className="text-gray-600 mb-6">
+              <p className="text-muted-foreground mb-6">
                 Your submission has been recorded and will be reviewed by your
                 instructor.
               </p>
-              <div className="bg-gray-50 rounded-lg p-4 mb-6">
-                <div className="text-sm text-gray-600 mb-1">Submitted at</div>
-                <div className="text-lg font-medium text-gray-900">
+              <div className="bg-muted rounded-lg p-4 mb-6">
+                <div className="text-sm text-muted-foreground mb-1">Submitted at</div>
+                <div className="text-lg font-medium text-foreground">
                   {submissionTimestamp
                     ? new Date(submissionTimestamp).toLocaleString("en-US", {
                         month: "long",
@@ -1581,7 +1625,7 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
 
       {/* Fixed Bottom Bar for Students (hidden in preview mode) */}
       {isStudent && !previewMode && (
-        <div className="sticky bottom-0 left-0 right-0 border-t border-gray-200 bg-white shadow-lg z-40">
+        <div className="sticky bottom-0 left-0 right-0 border-t border-border bg-background shadow-lg z-40">
           <div className="max-w-4xl mx-auto px-6 py-4 flex items-center justify-between">
             <div className="flex items-center gap-4">
               {submissionStatus === "submitted" && (
@@ -1595,7 +1639,7 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
                 </div>
               )}
               {submissionStatus === "in-progress" && (
-                <div className="text-sm text-gray-600">In Progress</div>
+                <div className="text-sm text-muted-foreground">In Progress</div>
               )}
               {autogradingFailed && submissionStatus === "submitted" && (
                 <div className="flex items-center gap-2 text-sm text-amber-600">
@@ -1632,7 +1676,7 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
                   disabled={isSubmitting}
                   variant="outline"
                   size="lg"
-                  className="border-purple-600 text-purple-600 hover:bg-purple-50"
+                  className="border-purple-600 text-purple-600 hover:bg-primary/10"
                 >
                   {isSubmitting ? (
                     <>
@@ -1656,7 +1700,7 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
                   !submissionId ||
                   previewMode
                 }
-                className="bg-purple-600 hover:bg-purple-700 text-white disabled:opacity-50 disabled:cursor-not-allowed"
+                className="bg-purple-600 hover:bg-purple-700 dark:bg-purple-800 dark:hover:bg-purple-900 text-white disabled:opacity-50 disabled:cursor-not-allowed"
                 size="lg"
               >
                 {isSubmitting ? (

@@ -264,17 +264,17 @@ const ClickableAreaEditor: React.FC<ClickableAreaEditorProps> = memo(
           }
         }}
       >
-        <div className="clickable-area-editor border border-gray-200 rounded-lg p-3 bg-white shadow-sm select-none">
+        <div className="clickable-area-editor border border-border rounded-lg p-3 bg-card shadow-sm select-none">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-3">
               <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-gradient-to-br from-purple-500 to-pink-600 text-white shadow-sm">
                 <span className="text-sm font-bold">C</span>
               </div>
               <div>
-                <div className="text-sm font-medium text-gray-900">
+                <div className="text-sm font-medium text-foreground">
                   Code Selection Block
                 </div>
-                <div className="text-xs text-gray-500">
+                <div className="text-xs text-muted-foreground">
                   Line selection exercise
                 </div>
               </div>
@@ -309,7 +309,7 @@ const ClickableAreaEditor: React.FC<ClickableAreaEditorProps> = memo(
           )}
 
           <div className="mb-3">
-            <Label className="text-sm font-medium text-gray-700 mb-1 block">
+            <Label className="text-sm font-medium text-foreground mb-1 block">
               Instruction
             </Label>
             <Input
@@ -335,7 +335,7 @@ const ClickableAreaEditor: React.FC<ClickableAreaEditorProps> = memo(
 
           <div className="mb-3">
             <div className="flex items-center justify-between mb-1">
-              <Label className="text-sm font-medium text-gray-700">
+              <Label className="text-sm font-medium text-foreground">
                 Content (Code or Text)
               </Label>
               <Button
@@ -367,26 +367,26 @@ const ClickableAreaEditor: React.FC<ClickableAreaEditorProps> = memo(
               className="w-full font-mono text-sm"
               rows={10}
             />
-            <div className="text-xs text-gray-500 mt-1">
+            <div className="text-xs text-muted-foreground mt-1">
               Click "Parse into Lines" to automatically create lines from your content
             </div>
           </div>
 
           {clickableAreaData.lines.length > 0 && (
             <div className="mb-3">
-              <Label className="text-sm font-medium text-gray-700 mb-2 block">
+              <Label className="text-sm font-medium text-foreground mb-2 block">
                 Line Configuration ({clickableAreaData.lines.length} lines, {correctCount} correct)
               </Label>
-              <div className="space-y-1 max-h-60 overflow-y-auto border border-gray-200 rounded p-2">
+              <div className="space-y-1 max-h-60 overflow-y-auto border border-border rounded p-2">
                 {clickableAreaData.lines.map((line) => (
                   <div
                     key={line.lineNumber}
-                    className="flex items-center gap-2 p-2 hover:bg-gray-50 rounded"
+                    className="flex items-center gap-2 p-2 hover:bg-accent rounded"
                   >
-                    <span className="text-xs text-gray-500 w-8 text-right">
+                    <span className="text-xs text-muted-foreground w-8 text-right">
                       {line.lineNumber}
                     </span>
-                    <code className="flex-1 text-sm font-mono bg-white px-2 py-1 rounded border">
+                    <code className="flex-1 text-sm font-mono bg-background px-2 py-1 rounded border">
                       {line.content || " "}
                     </code>
                     <Button
@@ -396,7 +396,7 @@ const ClickableAreaEditor: React.FC<ClickableAreaEditorProps> = memo(
                       className={`h-7 w-7 p-0 ${
                         line.isClickable
                           ? "text-blue-600 hover:text-blue-700"
-                          : "text-gray-400 hover:text-gray-500"
+                          : "text-muted-foreground hover:text-muted-foreground/80"
                       }`}
                       title={line.isClickable ? "Clickable" : "Not clickable"}
                     >
@@ -413,7 +413,7 @@ const ClickableAreaEditor: React.FC<ClickableAreaEditorProps> = memo(
                       className={`h-7 w-7 p-0 ${
                         line.isCorrect
                           ? "text-green-600 hover:text-green-700"
-                          : "text-gray-400 hover:text-gray-500"
+                          : "text-muted-foreground hover:text-muted-foreground/80"
                       }`}
                       title={line.isCorrect ? "Correct answer" : "Not correct"}
                       disabled={!line.isClickable}
@@ -431,25 +431,25 @@ const ClickableAreaEditor: React.FC<ClickableAreaEditorProps> = memo(
           )}
 
           {/* Grading Setup - Collapsible - At Bottom */}
-          <div className="mt-4 border border-gray-200 rounded-md">
+          <div className="mt-4 border border-border rounded-md">
             <button
               type="button"
               onClick={() => setShowGradingSetup(!showGradingSetup)}
-              className="w-full flex items-center justify-between p-3 bg-gray-50 hover:bg-gray-100 transition-colors"
+              className="w-full flex items-center justify-between p-3 bg-muted hover:bg-accent transition-colors"
             >
-              <span className="text-sm font-medium text-gray-700">
+              <span className="text-sm font-medium text-foreground">
                 Grading Setup
               </span>
               {showGradingSetup ? (
-                <ChevronUp className="w-4 h-4 text-gray-600" />
+                <ChevronUp className="w-4 h-4 text-muted-foreground" />
               ) : (
-                <ChevronDown className="w-4 h-4 text-gray-600" />
+                <ChevronDown className="w-4 h-4 text-muted-foreground" />
               )}
             </button>
             {showGradingSetup && (
-              <div className="p-3 space-y-3 border-t border-gray-200">
+              <div className="p-3 space-y-3 border-t border-border">
                 <div className="flex items-center justify-between">
-                  <Label className="text-sm text-gray-700">Points</Label>
+                  <Label className="text-sm text-foreground">Points</Label>
                   <Input
                     type="number"
                     min="0"
@@ -506,7 +506,7 @@ const ClickableAreaEditor: React.FC<ClickableAreaEditorProps> = memo(
             )}
           </div>
 
-          <div className="mt-4 pt-3 border-t border-gray-200 text-xs text-gray-500 select-none">
+          <div className="mt-4 pt-3 border-t border-border text-xs text-muted-foreground select-none">
             <div className="flex justify-between items-center">
               <span>
                 {clickableAreaData.lines.length} line

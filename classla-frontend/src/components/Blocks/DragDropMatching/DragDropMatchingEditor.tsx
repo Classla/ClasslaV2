@@ -232,7 +232,7 @@ const DragDropMatchingEditor: React.FC<DragDropMatchingEditorProps> = memo(
           }
         }}
       >
-        <div className="drag-drop-matching-editor border border-gray-200 rounded-lg p-3 bg-white shadow-sm select-none">
+        <div className="drag-drop-matching-editor border border-border rounded-lg p-3 bg-card shadow-sm select-none">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-3">
               <div
@@ -249,7 +249,7 @@ const DragDropMatchingEditor: React.FC<DragDropMatchingEditorProps> = memo(
                 )}
               </div>
               <div className="select-none">
-                <div className="text-sm font-medium text-gray-900">
+                <div className="text-sm font-medium text-foreground">
                   Drag-and-Drop Matching
                 </div>
                 {validationErrors.length > 0 && (
@@ -271,7 +271,7 @@ const DragDropMatchingEditor: React.FC<DragDropMatchingEditorProps> = memo(
           </div>
 
           <div className="mb-3">
-            <Label className="text-sm font-medium text-gray-700 mb-1 block">
+            <Label className="text-sm font-medium text-foreground mb-1 block">
               Instruction
             </Label>
             <Textarea
@@ -298,7 +298,7 @@ const DragDropMatchingEditor: React.FC<DragDropMatchingEditorProps> = memo(
 
           <div className="mb-3">
             <div className="flex items-center justify-between mb-2">
-              <Label className="text-sm font-medium text-gray-700">
+              <Label className="text-sm font-medium text-foreground">
                 Source Items (Draggable)
               </Label>
               <Button
@@ -315,9 +315,9 @@ const DragDropMatchingEditor: React.FC<DragDropMatchingEditorProps> = memo(
               {dragDropMatchingData.sourceItems.map((item) => (
                 <div
                   key={item.id}
-                  className="flex items-center gap-2 p-2 bg-gray-50 border border-gray-200 rounded"
+                  className="flex items-center gap-2 p-2 bg-muted border border-border rounded"
                 >
-                  <GripVertical className="w-4 h-4 text-gray-400" />
+                  <GripVertical className="w-4 h-4 text-muted-foreground" />
                   <Input
                     value={item.text}
                     onChange={(e) =>
@@ -368,7 +368,7 @@ const DragDropMatchingEditor: React.FC<DragDropMatchingEditorProps> = memo(
 
           <div className="mb-3">
             <div className="flex items-center justify-between mb-2">
-              <Label className="text-sm font-medium text-gray-700">
+              <Label className="text-sm font-medium text-foreground">
                 Target Zones (Drop Areas)
               </Label>
               <Button
@@ -385,7 +385,7 @@ const DragDropMatchingEditor: React.FC<DragDropMatchingEditorProps> = memo(
               {dragDropMatchingData.targetZones.map((zone) => (
                 <div
                   key={zone.id}
-                  className="p-3 bg-purple-50 border border-purple-200 rounded"
+                  className="p-3 bg-primary/10 border border-purple-200 rounded"
                 >
                   <div className="flex items-center gap-2 mb-2">
                     <Input
@@ -432,14 +432,14 @@ const DragDropMatchingEditor: React.FC<DragDropMatchingEditorProps> = memo(
                       <X className="w-4 h-4" />
                     </Button>
                   </div>
-                  <div className="text-xs text-gray-600 mb-2">
+                  <div className="text-xs text-muted-foreground mb-2">
                     Select correct items for this zone:
                   </div>
                   <div className="flex flex-wrap gap-2">
                     {dragDropMatchingData.sourceItems.map((item) => (
                       <label
                         key={item.id}
-                        className="flex items-center gap-1 px-2 py-1 bg-white border border-gray-300 rounded cursor-pointer hover:bg-gray-50"
+                        className="flex items-center gap-1 px-2 py-1 bg-card border border-border rounded cursor-pointer hover:bg-accent"
                       >
                         <input
                           type="checkbox"
@@ -457,7 +457,7 @@ const DragDropMatchingEditor: React.FC<DragDropMatchingEditorProps> = memo(
           </div>
 
           <div className="mb-3">
-            <Label className="text-sm font-medium text-gray-700 mb-2 block">
+            <Label className="text-sm font-medium text-foreground mb-2 block">
               Match Type
             </Label>
             <div className="flex gap-2 mb-3">
@@ -469,7 +469,7 @@ const DragDropMatchingEditor: React.FC<DragDropMatchingEditorProps> = memo(
                 className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${
                   dragDropMatchingData.matchType === "one-to-one"
                     ? "bg-purple-600 text-white"
-                    : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                    : "bg-muted text-foreground hover:bg-accent"
                 }`}
               >
                 One-to-one
@@ -482,13 +482,13 @@ const DragDropMatchingEditor: React.FC<DragDropMatchingEditorProps> = memo(
                 className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${
                   dragDropMatchingData.matchType === "many-to-one"
                     ? "bg-purple-600 text-white"
-                    : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                    : "bg-muted text-foreground hover:bg-accent"
                 }`}
               >
                 Many-to-one
               </button>
             </div>
-            <p className="text-xs text-gray-500">
+            <p className="text-xs text-muted-foreground">
               {dragDropMatchingData.matchType === "one-to-one"
                 ? "Each item matches one zone"
                 : "Multiple items can match the same zone"}
@@ -509,25 +509,25 @@ const DragDropMatchingEditor: React.FC<DragDropMatchingEditorProps> = memo(
           </div>
 
           {/* Grading Setup - Collapsible - At Bottom */}
-          <div className="mt-4 border border-gray-200 rounded-md">
+          <div className="mt-4 border border-border rounded-md">
             <button
               type="button"
               onClick={() => setShowGradingSetup(!showGradingSetup)}
-              className="w-full flex items-center justify-between p-3 bg-gray-50 hover:bg-gray-100 transition-colors"
+              className="w-full flex items-center justify-between p-3 bg-muted hover:bg-accent transition-colors"
             >
-              <span className="text-sm font-medium text-gray-700">
+              <span className="text-sm font-medium text-foreground">
                 Grading Setup
               </span>
               {showGradingSetup ? (
-                <ChevronUp className="w-4 h-4 text-gray-600" />
+                <ChevronUp className="w-4 h-4 text-muted-foreground" />
               ) : (
-                <ChevronDown className="w-4 h-4 text-gray-600" />
+                <ChevronDown className="w-4 h-4 text-muted-foreground" />
               )}
             </button>
             {showGradingSetup && (
-              <div className="p-3 space-y-3 border-t border-gray-200">
+              <div className="p-3 space-y-3 border-t border-border">
                 <div className="flex items-center justify-between">
-                  <Label className="text-sm text-gray-700">Points</Label>
+                  <Label className="text-sm text-foreground">Points</Label>
                   <Input
                     type="number"
                     min="0"
@@ -569,7 +569,7 @@ const DragDropMatchingEditor: React.FC<DragDropMatchingEditorProps> = memo(
           </div>
 
           {/* Footer info */}
-          <div className="mt-4 pt-3 border-t border-gray-200 text-xs text-gray-500 space-y-2 select-none">
+          <div className="mt-4 pt-3 border-t border-border text-xs text-muted-foreground space-y-2 select-none">
             <div className="flex justify-between items-center">
               <span>Drag-and-drop matching</span>
               <span>{dragDropMatchingData.points} points</span>

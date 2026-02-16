@@ -165,11 +165,11 @@ const UserSettings = () => {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-purple-50 to-indigo-100 p-4">
+      <div className="min-h-screen bg-gradient-to-br from-purple-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800 p-4">
         <div className="max-w-2xl mx-auto pt-8">
           <div className="flex items-center justify-center h-64">
-            <Loader2 className="h-8 w-8 animate-spin text-purple-600" />
-            <span className="ml-3 text-gray-600">Loading your profile...</span>
+            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            <span className="ml-3 text-muted-foreground">Loading your profile...</span>
           </div>
         </div>
       </div>
@@ -178,7 +178,7 @@ const UserSettings = () => {
 
   if (!profile) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-purple-50 to-indigo-100 p-4">
+      <div className="min-h-screen bg-gradient-to-br from-purple-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800 p-4">
         <div className="max-w-2xl mx-auto pt-8">
           <Card className="shadow-xl border-0">
             <CardHeader>
@@ -196,17 +196,17 @@ const UserSettings = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-purple-50 to-indigo-100 p-4">
+    <div className="min-h-screen bg-gradient-to-br from-purple-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800 p-4">
       <div className="max-w-2xl mx-auto pt-8">
         <div className="mb-6">
-          <h1 className="text-3xl font-bold text-gray-900">User Settings</h1>
-          <p className="text-gray-600 mt-1">Manage your profile information</p>
+          <h1 className="text-3xl font-bold text-foreground">User Settings</h1>
+          <p className="text-muted-foreground mt-1">Manage your profile information</p>
         </div>
 
         <Card className="shadow-xl border-0">
           <CardHeader>
             <div className="flex items-center space-x-2">
-              <User className="h-5 w-5 text-purple-600" />
+              <User className="h-5 w-5 text-primary" />
               <CardTitle className="text-2xl font-semibold">Profile Information</CardTitle>
             </div>
             <CardDescription>
@@ -218,7 +218,7 @@ const UserSettings = () => {
               {/* Email Field */}
               <div className="space-y-2">
                 <Label htmlFor="email" className="flex items-center space-x-2">
-                  <Mail className="h-4 w-4 text-gray-500" />
+                  <Mail className="h-4 w-4 text-muted-foreground" />
                   <span>Email</span>
                 </Label>
                 <Input
@@ -226,9 +226,9 @@ const UserSettings = () => {
                   id="email"
                   value={profile.email}
                   disabled
-                  className="bg-gray-50 cursor-not-allowed"
+                  className="bg-muted cursor-not-allowed"
                 />
-                <p className="text-sm text-gray-500">Email cannot be changed</p>
+                <p className="text-sm text-muted-foreground">Email cannot be changed</p>
               </div>
 
               {/* First Name Field */}
@@ -280,7 +280,7 @@ const UserSettings = () => {
                 <Button
                   type="submit"
                   disabled={saving}
-                  className="bg-purple-600 hover:bg-purple-700 text-white min-w-[120px]"
+                  className="bg-purple-600 hover:bg-purple-700 dark:bg-purple-800 dark:hover:bg-purple-900 text-white min-w-[120px]"
                 >
                   {saving ? (
                     <>
@@ -301,7 +301,7 @@ const UserSettings = () => {
           <Card className="shadow-xl border-0 mt-6">
             <CardHeader>
               <div className="flex items-center space-x-2">
-                <Lock className="h-5 w-5 text-purple-600" />
+                <Lock className="h-5 w-5 text-primary" />
                 <CardTitle className="text-2xl font-semibold">Change Password</CardTitle>
               </div>
               <CardDescription>
@@ -362,7 +362,7 @@ const UserSettings = () => {
                   <Button
                     type="submit"
                     disabled={changingPassword || !currentPassword || !newPassword || !confirmPassword}
-                    className="bg-purple-600 hover:bg-purple-700 text-white min-w-[140px]"
+                    className="bg-purple-600 hover:bg-purple-700 dark:bg-purple-800 dark:hover:bg-purple-900 text-white min-w-[140px]"
                   >
                     {changingPassword ? (
                       <>
@@ -384,7 +384,7 @@ const UserSettings = () => {
           <Card className="shadow-xl border-0 mt-6">
             <CardHeader>
               <div className="flex items-center space-x-2">
-                <Users className="h-5 w-5 text-purple-600" />
+                <Users className="h-5 w-5 text-primary" />
                 <CardTitle className="text-2xl font-semibold">Managed Students</CardTitle>
               </div>
               <CardDescription>

@@ -88,14 +88,14 @@ const BlockControls: React.FC<BlockControlsProps> = ({ block, onAddBlock }) => {
       onMouseLeave={() => {}} // Let parent handle hiding
     >
       <button
-        className="w-5 h-5 rounded flex items-center justify-center text-gray-400 hover:text-gray-600 opacity-0 group-hover:opacity-100 transition-all"
+        className="w-5 h-5 rounded flex items-center justify-center text-muted-foreground hover:text-foreground opacity-0 group-hover:opacity-100 transition-all"
         title="Add block below"
         onClick={onAddBlock}
       >
         <Plus className="w-4 h-4" />
       </button>
       <button
-        className="w-5 h-5 rounded flex items-center justify-center text-gray-400 hover:text-gray-600 cursor-grab active:cursor-grabbing opacity-0 group-hover:opacity-100 transition-all"
+        className="w-5 h-5 rounded flex items-center justify-center text-muted-foreground hover:text-foreground cursor-grab active:cursor-grabbing opacity-0 group-hover:opacity-100 transition-all"
         title="Drag to move"
       >
         <GripVertical className="w-4 h-4" />
@@ -382,11 +382,11 @@ const CourseEditor: React.FC<CourseEditorProps> = ({
   }
 
   return (
-    <div className="h-full flex flex-col bg-white relative">
+    <div className="h-full flex flex-col bg-card relative">
       {/* Save status - floating */}
       {!isReadOnly && (
         <div className="absolute top-4 right-4 z-10">
-          <div className="bg-white/90 backdrop-blur-sm rounded-lg px-3 py-1 text-sm text-gray-500 shadow-sm border">
+          <div className="bg-card/90 backdrop-blur-sm rounded-lg px-3 py-1 text-sm text-muted-foreground shadow-sm border">
             {isSaving ? (
               <div className="flex items-center">
                 <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-purple-600 mr-2"></div>
@@ -470,7 +470,7 @@ const CourseEditor: React.FC<CourseEditorProps> = ({
       {/* Slash Command Menu */}
       {!isReadOnly && showSlashMenu && (
         <div
-          className="fixed z-50 bg-white rounded-lg shadow-lg border border-gray-200 py-2 min-w-[280px] max-h-[400px] overflow-y-auto"
+          className="fixed z-50 bg-card rounded-lg shadow-lg border border-border py-2 min-w-[280px] max-h-[400px] overflow-y-auto"
           style={{
             left: slashMenuPosition.x,
             top: slashMenuOpensUpward 
@@ -483,24 +483,24 @@ const CourseEditor: React.FC<CourseEditorProps> = ({
             filteredCommands.map((command) => (
               <button
                 key={command.title}
-                className="w-full px-4 py-2 text-left hover:bg-gray-50 flex items-center space-x-3 transition-colors"
+                className="w-full px-4 py-2 text-left hover:bg-accent flex items-center space-x-3 transition-colors"
                 onClick={() => handleSlashCommand(command)}
               >
-                <div className="flex-shrink-0 w-8 h-8 rounded-md bg-gray-100 flex items-center justify-center">
+                <div className="flex-shrink-0 w-8 h-8 rounded-md bg-muted flex items-center justify-center">
                   {command.icon}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className="text-sm font-medium text-gray-900">
+                  <div className="text-sm font-medium text-foreground">
                     {command.title}
                   </div>
-                  <div className="text-xs text-gray-500 truncate">
+                  <div className="text-xs text-muted-foreground truncate">
                     {command.description}
                   </div>
                 </div>
               </button>
             ))
           ) : (
-            <div className="px-4 py-2 text-sm text-gray-500">
+            <div className="px-4 py-2 text-sm text-muted-foreground">
               No matching commands
             </div>
           )}
@@ -510,7 +510,7 @@ const CourseEditor: React.FC<CourseEditorProps> = ({
       {/* Floating Toolbar for Text Selection */}
       {!isReadOnly && showFloatingToolbar && (
         <div
-          className="fixed z-50 bg-white text-gray-700 rounded-lg shadow-lg border border-gray-200 flex items-center divide-x divide-gray-200"
+          className="fixed z-50 bg-card text-foreground rounded-lg shadow-lg border border-border flex items-center divide-x divide-border"
           style={{
             left: floatingToolbarPosition.x,
             top: floatingToolbarPosition.y - 30,
@@ -520,8 +520,8 @@ const CourseEditor: React.FC<CourseEditorProps> = ({
           <div className="flex items-center px-1">
             <button
               onClick={() => editor.chain().focus().toggleBold().run()}
-              className={`p-2 rounded hover:bg-gray-100 transition-colors ${
-                editor.isActive("bold") ? "bg-purple-100 text-purple-700" : ""
+              className={`p-2 rounded hover:bg-accent transition-colors ${
+                editor.isActive("bold") ? "bg-primary/20 text-primary" : ""
               }`}
               title="Bold"
             >
@@ -529,8 +529,8 @@ const CourseEditor: React.FC<CourseEditorProps> = ({
             </button>
             <button
               onClick={() => editor.chain().focus().toggleItalic().run()}
-              className={`p-2 rounded hover:bg-gray-100 transition-colors ${
-                editor.isActive("italic") ? "bg-purple-100 text-purple-700" : ""
+              className={`p-2 rounded hover:bg-accent transition-colors ${
+                editor.isActive("italic") ? "bg-primary/20 text-primary" : ""
               }`}
               title="Italic"
             >
@@ -538,9 +538,9 @@ const CourseEditor: React.FC<CourseEditorProps> = ({
             </button>
             <button
               onClick={() => editor.chain().focus().toggleUnderline().run()}
-              className={`p-2 rounded hover:bg-gray-100 transition-colors ${
+              className={`p-2 rounded hover:bg-accent transition-colors ${
                 editor.isActive("underline")
-                  ? "bg-purple-100 text-purple-700"
+                  ? "bg-primary/20 text-primary"
                   : ""
               }`}
               title="Underline"
@@ -549,8 +549,8 @@ const CourseEditor: React.FC<CourseEditorProps> = ({
             </button>
             <button
               onClick={() => editor.chain().focus().toggleStrike().run()}
-              className={`p-2 rounded hover:bg-gray-100 transition-colors ${
-                editor.isActive("strike") ? "bg-purple-100 text-purple-700" : ""
+              className={`p-2 rounded hover:bg-accent transition-colors ${
+                editor.isActive("strike") ? "bg-primary/20 text-primary" : ""
               }`}
               title="Strikethrough"
             >
@@ -565,8 +565,8 @@ const CourseEditor: React.FC<CourseEditorProps> = ({
                   editor.chain().focus().setLink({ href: url }).run();
                 }
               }}
-              className={`p-2 rounded hover:bg-gray-100 transition-colors ${
-                editor.isActive("link") ? "bg-purple-100 text-purple-700" : ""
+              className={`p-2 rounded hover:bg-accent transition-colors ${
+                editor.isActive("link") ? "bg-primary/20 text-primary" : ""
               }`}
               title="Add Link"
             >
@@ -574,8 +574,8 @@ const CourseEditor: React.FC<CourseEditorProps> = ({
             </button>
             <button
               onClick={() => editor.chain().focus().toggleCode().run()}
-              className={`p-2 rounded hover:bg-gray-100 transition-colors ${
-                editor.isActive("code") ? "bg-purple-100 text-purple-700" : ""
+              className={`p-2 rounded hover:bg-accent transition-colors ${
+                editor.isActive("code") ? "bg-primary/20 text-primary" : ""
               }`}
               title="Inline Code"
             >

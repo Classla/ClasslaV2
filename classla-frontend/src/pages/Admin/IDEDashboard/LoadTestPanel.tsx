@@ -58,7 +58,7 @@ const StatusBadge: React.FC<{ status: LoadTestContainerStatus }> = ({
   status,
 }) => {
   const variants: Record<LoadTestContainerStatus, string> = {
-    pending: "bg-gray-100 text-gray-800",
+    pending: "bg-muted text-foreground",
     starting: "bg-yellow-100 text-yellow-800",
     running: "bg-blue-100 text-blue-800",
     executing: "bg-purple-100 text-purple-800",
@@ -67,7 +67,7 @@ const StatusBadge: React.FC<{ status: LoadTestContainerStatus }> = ({
   };
 
   return (
-    <Badge className={variants[status] || "bg-gray-100 text-gray-800"}>
+    <Badge className={variants[status] || "bg-muted text-foreground"}>
       {status}
     </Badge>
   );
@@ -84,12 +84,12 @@ const ProgressBar: React.FC<{
   return (
     <div className="space-y-1">
       <div className="flex justify-between text-sm">
-        <span className="text-gray-600">{label}</span>
+        <span className="text-muted-foreground">{label}</span>
         <span className="font-medium">
           {current} / {total}
         </span>
       </div>
-      <div className="w-full bg-gray-200 rounded-full h-2">
+      <div className="w-full bg-accent rounded-full h-2">
         <div
           className="bg-purple-600 h-2 rounded-full transition-all duration-300"
           style={{ width: `${percentage}%` }}
@@ -238,7 +238,7 @@ const LoadTestPanel: React.FC = () => {
   const getStatusIcon = (status: LoadTestContainerStatus) => {
     switch (status) {
       case "pending":
-        return <Clock className="w-4 h-4 text-gray-500" />;
+        return <Clock className="w-4 h-4 text-muted-foreground" />;
       case "starting":
         return <Loader2 className="w-4 h-4 text-yellow-500 animate-spin" />;
       case "running":
@@ -352,7 +352,7 @@ const LoadTestPanel: React.FC = () => {
             <Label htmlFor="testCode">Test Code (Python)</Label>
             <textarea
               id="testCode"
-              className="w-full h-48 p-3 font-mono text-sm border rounded-md bg-gray-50 focus:outline-none focus:ring-2 focus:ring-purple-500"
+              className="w-full h-48 p-3 font-mono text-sm border rounded-md bg-muted focus:outline-none focus:ring-2 focus:ring-ring"
               value={config.testCode}
               onChange={(e) =>
                 setConfig({ ...config, testCode: e.target.value })
@@ -366,7 +366,7 @@ const LoadTestPanel: React.FC = () => {
             <Button
               onClick={handleStartTest}
               disabled={isRunning}
-              className="bg-purple-600 hover:bg-purple-700"
+              className="bg-purple-600 hover:bg-purple-700 dark:bg-purple-800 dark:hover:bg-purple-900"
             >
               <Play className="w-4 h-4 mr-2" />
               Start Load Test
@@ -424,11 +424,11 @@ const LoadTestPanel: React.FC = () => {
 
               {/* Summary Stats */}
               <div className="grid gap-2 md:grid-cols-6">
-                <div className="text-center p-2 bg-gray-100 rounded">
-                  <div className="text-2xl font-bold text-gray-600">
+                <div className="text-center p-2 bg-muted rounded">
+                  <div className="text-2xl font-bold text-muted-foreground">
                     {metrics.summary.pending}
                   </div>
-                  <div className="text-xs text-gray-500">Pending</div>
+                  <div className="text-xs text-muted-foreground">Pending</div>
                 </div>
                 <div className="text-center p-2 bg-yellow-100 rounded">
                   <div className="text-2xl font-bold text-yellow-600">
@@ -465,9 +465,9 @@ const LoadTestPanel: React.FC = () => {
               {/* Resource Usage */}
               {metrics.resourceUsage && (
                 <div className="grid gap-4 md:grid-cols-2">
-                  <div className="p-3 bg-gray-50 rounded">
+                  <div className="p-3 bg-muted rounded">
                     <div className="flex justify-between items-center">
-                      <span className="text-sm text-gray-500">CPU Usage</span>
+                      <span className="text-sm text-muted-foreground">CPU Usage</span>
                       <span
                         className={`text-xl font-semibold ${
                           metrics.resourceUsage.cpu > 85
@@ -480,7 +480,7 @@ const LoadTestPanel: React.FC = () => {
                         {metrics.resourceUsage.cpu.toFixed(1)}%
                       </span>
                     </div>
-                    <div className="w-full bg-gray-200 rounded-full h-2 mt-2">
+                    <div className="w-full bg-accent rounded-full h-2 mt-2">
                       <div
                         className={`h-2 rounded-full ${
                           metrics.resourceUsage.cpu > 85
@@ -493,9 +493,9 @@ const LoadTestPanel: React.FC = () => {
                       />
                     </div>
                   </div>
-                  <div className="p-3 bg-gray-50 rounded">
+                  <div className="p-3 bg-muted rounded">
                     <div className="flex justify-between items-center">
-                      <span className="text-sm text-gray-500">Memory Usage</span>
+                      <span className="text-sm text-muted-foreground">Memory Usage</span>
                       <span
                         className={`text-xl font-semibold ${
                           metrics.resourceUsage.memory > 85
@@ -508,7 +508,7 @@ const LoadTestPanel: React.FC = () => {
                         {metrics.resourceUsage.memory.toFixed(1)}%
                       </span>
                     </div>
-                    <div className="w-full bg-gray-200 rounded-full h-2 mt-2">
+                    <div className="w-full bg-accent rounded-full h-2 mt-2">
                       <div
                         className={`h-2 rounded-full ${
                           metrics.resourceUsage.memory > 85
@@ -529,8 +529,8 @@ const LoadTestPanel: React.FC = () => {
                 metrics.averageExecutionLatency !== undefined) && (
                 <div className="grid gap-4 md:grid-cols-3">
                   {metrics.averageStartLatency !== undefined && (
-                    <div className="p-3 bg-gray-50 rounded">
-                      <div className="text-sm text-gray-500">
+                    <div className="p-3 bg-muted rounded">
+                      <div className="text-sm text-muted-foreground">
                         Avg Start Latency
                       </div>
                       <div className="text-xl font-semibold">
@@ -539,8 +539,8 @@ const LoadTestPanel: React.FC = () => {
                     </div>
                   )}
                   {metrics.averageExecutionLatency !== undefined && (
-                    <div className="p-3 bg-gray-50 rounded">
-                      <div className="text-sm text-gray-500">
+                    <div className="p-3 bg-muted rounded">
+                      <div className="text-sm text-muted-foreground">
                         Avg Execution Time
                       </div>
                       <div className="text-xl font-semibold">
@@ -549,8 +549,8 @@ const LoadTestPanel: React.FC = () => {
                     </div>
                   )}
                   {metrics.totalDuration !== undefined && (
-                    <div className="p-3 bg-gray-50 rounded">
-                      <div className="text-sm text-gray-500">
+                    <div className="p-3 bg-muted rounded">
+                      <div className="text-sm text-muted-foreground">
                         Total Duration
                       </div>
                       <div className="text-xl font-semibold">

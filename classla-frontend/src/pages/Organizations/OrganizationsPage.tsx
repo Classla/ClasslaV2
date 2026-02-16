@@ -143,8 +143,8 @@ const OrganizationsPage: React.FC = () => {
             {[1, 2, 3].map((i) => (
               <Card key={i} className="animate-pulse">
                 <CardHeader>
-                  <div className="h-4 bg-gray-200 rounded w-3/4 mb-2"></div>
-                  <div className="h-3 bg-gray-200 rounded w-1/2"></div>
+                  <div className="h-4 bg-accent rounded w-3/4 mb-2"></div>
+                  <div className="h-3 bg-accent rounded w-1/2"></div>
                 </CardHeader>
               </Card>
             ))}
@@ -249,11 +249,11 @@ const OrganizationsPage: React.FC = () => {
 
         {organizations.length === 0 ? (
           <Card className="p-12 text-center">
-            <Building2 className="mx-auto h-12 w-12 text-gray-400 mb-4" />
+            <Building2 className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
             <h3 className="text-lg font-semibold mb-2">
               No organizations yet
             </h3>
-            <p className="text-gray-500 mb-4">
+            <p className="text-muted-foreground mb-4">
               Create or join an organization to get started with course templates.
             </p>
             <Button onClick={() => setCreateDialogOpen(true)}>
@@ -276,14 +276,14 @@ const OrganizationsPage: React.FC = () => {
                   <CardHeader>
                     <CardTitle className="flex items-center justify-between">
                       {org.name}
-                      <span className="text-xs font-normal text-gray-500 bg-gray-100 px-2 py-1 rounded">
+                      <span className="text-xs font-normal text-muted-foreground bg-muted px-2 py-1 rounded">
                         {membership.role}
                       </span>
                     </CardTitle>
                     <CardDescription>Join Code: {org.slug}</CardDescription>
                   </CardHeader>
                   <CardFooter className="flex justify-between items-center">
-                    <div className="text-sm text-gray-500">
+                    <div className="text-sm text-muted-foreground">
                       <Building2 className="inline h-4 w-4 mr-1" />
                       Organization
                     </div>

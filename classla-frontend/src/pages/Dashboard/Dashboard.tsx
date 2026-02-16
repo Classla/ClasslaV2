@@ -284,7 +284,7 @@ const Dashboard: React.FC = () => {
                 }}
               />
             </div>
-            <p className="text-sm text-gray-500">
+            <p className="text-sm text-muted-foreground">
               At least one name is required to continue.
             </p>
           </div>
@@ -292,7 +292,7 @@ const Dashboard: React.FC = () => {
             <Button
               onClick={handleSaveName}
               disabled={savingName || (!firstName.trim() && !lastName.trim())}
-              className="bg-purple-600 hover:bg-purple-700"
+              className="bg-purple-600 hover:bg-purple-700 dark:bg-purple-800 dark:hover:bg-purple-900"
             >
               {savingName ? "Saving..." : "Save"}
             </Button>
@@ -303,8 +303,8 @@ const Dashboard: React.FC = () => {
       {/* Header */}
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Dashboard</h1>
-          <p className="text-gray-600 mt-1">
+          <h1 className="text-3xl font-bold text-foreground">Dashboard</h1>
+          <p className="text-muted-foreground mt-1">
             Welcome back, {user?.firstName || user?.email?.split("@")[0]}!
           </p>
         </div>
@@ -315,7 +315,7 @@ const Dashboard: React.FC = () => {
               <DialogTrigger asChild>
                 <Button
                   variant="outline"
-                  className="border-purple-600 text-purple-600 hover:bg-purple-50"
+                  className="border-primary text-primary hover:bg-primary/10"
                 >
                   <BookOpen className="w-4 h-4 mr-2" />
                   Join Course
@@ -355,7 +355,7 @@ const Dashboard: React.FC = () => {
                   <Button
                     onClick={handleJoinCourse}
                     disabled={joinCode.length !== 6}
-                    className="bg-purple-600 hover:bg-purple-700"
+                    className="bg-purple-600 hover:bg-purple-700 dark:bg-purple-800 dark:hover:bg-purple-900"
                   >
                     Join Course
                   </Button>
@@ -387,7 +387,7 @@ const Dashboard: React.FC = () => {
                       onChange={(e) => setNewCourseName(e.target.value)}
                       maxLength={150}
                     />
-                    <p className="text-sm text-gray-500 text-right">
+                    <p className="text-sm text-muted-foreground text-right">
                       {newCourseName.length}/150
                     </p>
                   </div>
@@ -400,7 +400,7 @@ const Dashboard: React.FC = () => {
                       onChange={(e) => setNewCourseDescription(e.target.value)}
                       maxLength={250}
                     />
-                    <p className="text-sm text-gray-500 text-right">
+                    <p className="text-sm text-muted-foreground text-right">
                       {newCourseDescription.length}/250
                     </p>
                   </div>
@@ -415,7 +415,7 @@ const Dashboard: React.FC = () => {
                   <Button
                     onClick={handleCreateCourse}
                     disabled={!newCourseName.trim()}
-                    className="bg-purple-600 hover:bg-purple-700"
+                    className="bg-purple-600 hover:bg-purple-700 dark:bg-purple-800 dark:hover:bg-purple-900"
                   >
                     Create Course
                   </Button>
@@ -429,11 +429,11 @@ const Dashboard: React.FC = () => {
       {/* Courses Grid */}
       {courses.length === 0 ? (
         <div className="text-center py-12">
-          <BookOpen className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-          <h3 className="text-lg font-medium text-gray-900 mb-2">
+          <BookOpen className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
+          <h3 className="text-lg font-medium text-foreground mb-2">
             No courses found
           </h3>
-          <p className="text-gray-600 mb-6">
+          <p className="text-muted-foreground mb-6">
             {isManagedStudent
               ? "You haven't been enrolled in any courses yet. Please contact your teacher."
               : "It looks like you're not part of any courses yet. Create or join one to get started!"}
@@ -443,13 +443,13 @@ const Dashboard: React.FC = () => {
               <Button
                 variant="outline"
                 onClick={() => setJoinDialogOpen(true)}
-                className="border-purple-600 text-purple-600 hover:bg-purple-50"
+                className="border-primary text-primary hover:bg-primary/10"
               >
                 Join Course
               </Button>
               <Button
                 onClick={() => setCreateDialogOpen(true)}
-                className="bg-purple-600 hover:bg-purple-700"
+                className="bg-purple-600 hover:bg-purple-700 dark:bg-purple-800 dark:hover:bg-purple-900"
               >
                 Create Course
               </Button>
@@ -477,7 +477,7 @@ const Dashboard: React.FC = () => {
                     className="w-full h-full object-cover object-top"
                   />
                 </div>
-                <CardTitle className="text-lg group-hover:text-purple-600 transition-colors">
+                <CardTitle className="text-lg group-hover:text-primary transition-colors">
                   {course.name}
                 </CardTitle>
                 <CardDescription className="line-clamp-2">
@@ -485,7 +485,7 @@ const Dashboard: React.FC = () => {
                 </CardDescription>
               </CardHeader>
               <CardFooter className="pt-0">
-                <div className="flex items-center text-sm text-gray-500">
+                <div className="flex items-center text-sm text-muted-foreground">
                   <Users className="w-4 h-4 mr-1" />
                   <span>
                     {course.student_count} {course.student_count === 1 ? "student" : "students"}

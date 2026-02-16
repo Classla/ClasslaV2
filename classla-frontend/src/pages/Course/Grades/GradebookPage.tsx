@@ -122,11 +122,11 @@ const GradebookPage: React.FC<GradebookPageProps> = ({
   // Loading state
   if (isLoading) {
     return (
-      <div className="p-8 bg-gray-50 min-h-screen">
+      <div className="p-8 bg-background min-h-screen">
         <div className="mb-8">
           <div className="animate-pulse">
-            <div className="h-9 bg-gray-300 rounded w-48 mb-2"></div>
-            <div className="h-5 bg-gray-200 rounded w-64"></div>
+            <div className="h-9 bg-accent rounded w-48 mb-2"></div>
+            <div className="h-5 bg-accent rounded w-64"></div>
           </div>
         </div>
         <GradebookTableSkeleton />
@@ -137,8 +137,8 @@ const GradebookPage: React.FC<GradebookPageProps> = ({
   // Error state
   if (error) {
     return (
-      <div className="p-8 bg-gray-50 min-h-screen">
-        <div className="text-center py-16 bg-white rounded-lg border border-red-200 shadow-sm max-w-2xl mx-auto">
+      <div className="p-8 bg-background min-h-screen">
+        <div className="text-center py-16 bg-card rounded-lg border border-red-200 shadow-sm max-w-2xl mx-auto">
           <div className="mb-4 text-red-500">
             <svg
               className="w-16 h-16 mx-auto"
@@ -154,10 +154,10 @@ const GradebookPage: React.FC<GradebookPageProps> = ({
               />
             </svg>
           </div>
-          <h3 className="text-xl font-bold text-gray-900 mb-3">
+          <h3 className="text-xl font-bold text-foreground mb-3">
             Error Loading Gradebook
           </h3>
-          <p className="text-gray-600 mb-8 px-6">{error}</p>
+          <p className="text-muted-foreground mb-8 px-6">{error}</p>
           <button
             onClick={() => window.location.reload()}
             className="px-6 py-3 bg-purple-600 text-white rounded-md hover:bg-purple-700 transition-colors font-semibold"
@@ -172,9 +172,9 @@ const GradebookPage: React.FC<GradebookPageProps> = ({
   // No data state
   if (!gradebookData) {
     return (
-      <div className="p-8 bg-gray-50 min-h-screen">
-        <div className="text-center py-16 bg-white rounded-lg border border-gray-200 shadow-sm max-w-2xl mx-auto">
-          <div className="mb-4 text-gray-300">
+      <div className="p-8 bg-background min-h-screen">
+        <div className="text-center py-16 bg-card rounded-lg border border-border shadow-sm max-w-2xl mx-auto">
+          <div className="mb-4 text-muted-foreground">
             <svg
               className="w-16 h-16 mx-auto"
               fill="none"
@@ -189,10 +189,10 @@ const GradebookPage: React.FC<GradebookPageProps> = ({
               />
             </svg>
           </div>
-          <h3 className="text-xl font-bold text-gray-900 mb-3">
+          <h3 className="text-xl font-bold text-foreground mb-3">
             No Gradebook Data
           </h3>
-          <p className="text-gray-600 px-6">
+          <p className="text-muted-foreground px-6">
             There is no gradebook data available for this course yet.
           </p>
         </div>
@@ -201,23 +201,23 @@ const GradebookPage: React.FC<GradebookPageProps> = ({
   }
 
   return (
-    <div className="p-8 bg-gray-50 min-h-screen">
+    <div className="p-8 bg-background min-h-screen">
       {/* Page Header */}
       <div className="mb-8">
         <div className="flex items-center justify-between flex-wrap gap-4">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900 mb-2">Gradebook</h1>
-            <p className="text-gray-600">
+            <h1 className="text-3xl font-bold text-foreground mb-2">Gradebook</h1>
+            <p className="text-muted-foreground">
               View and manage grades for all students
             </p>
           </div>
 
           {/* Section Filter */}
           {sections.length > 0 && (
-            <div className="flex items-center space-x-3 bg-white px-4 py-3 rounded-lg border border-gray-200 shadow-sm">
+            <div className="flex items-center space-x-3 bg-card px-4 py-3 rounded-lg border border-border shadow-sm">
               <label
                 htmlFor="section-filter"
-                className="text-sm font-semibold text-gray-700"
+                className="text-sm font-semibold text-foreground"
               >
                 Filter by section:
               </label>
@@ -229,7 +229,7 @@ const GradebookPage: React.FC<GradebookPageProps> = ({
               >
                 <SelectTrigger
                   id="section-filter"
-                  className="w-[220px] border-gray-300 focus:border-purple-500 focus:ring-purple-500"
+                  className="w-[220px] border-border focus:border-primary focus:ring-ring"
                 >
                   <SelectValue placeholder="All sections" />
                 </SelectTrigger>
@@ -249,8 +249,8 @@ const GradebookPage: React.FC<GradebookPageProps> = ({
 
       {/* Gradebook Table */}
       {filteredStudents.length === 0 ? (
-        <div className="text-center py-16 bg-white rounded-lg border border-gray-200 shadow-sm">
-          <div className="mb-4 text-gray-300">
+        <div className="text-center py-16 bg-card rounded-lg border border-border shadow-sm">
+          <div className="mb-4 text-muted-foreground">
             <svg
               className="w-16 h-16 mx-auto"
               fill="none"
@@ -265,12 +265,12 @@ const GradebookPage: React.FC<GradebookPageProps> = ({
               />
             </svg>
           </div>
-          <p className="text-gray-700 font-semibold text-lg mb-2">
+          <p className="text-foreground font-semibold text-lg mb-2">
             {selectedSectionId
               ? "No students found in the selected section"
               : "No students enrolled yet"}
           </p>
-          <p className="text-gray-500">
+          <p className="text-muted-foreground">
             {selectedSectionId
               ? "Try selecting a different section"
               : "Students will appear here once they enroll in the course"}

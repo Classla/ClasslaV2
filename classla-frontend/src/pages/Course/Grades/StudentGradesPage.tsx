@@ -94,9 +94,9 @@ const StudentGradesPage: React.FC = () => {
   // Loading state
   if (isLoading) {
     return (
-      <div className="container mx-auto px-4 py-8 bg-gray-50 min-h-screen">
+      <div className="container mx-auto px-4 py-8 bg-background min-h-screen">
         <div className="max-w-4xl mx-auto">
-          <h1 className="text-3xl font-bold text-gray-900 mb-8">My Grades</h1>
+          <h1 className="text-3xl font-bold text-foreground mb-8">My Grades</h1>
           <div className="space-y-4">
             {[1, 2, 3, 4, 5].map((i) => (
               <GradeItemSkeleton key={i} />
@@ -110,10 +110,10 @@ const StudentGradesPage: React.FC = () => {
   // Error state
   if (error) {
     return (
-      <div className="container mx-auto px-4 py-8 bg-gray-50 min-h-screen">
+      <div className="container mx-auto px-4 py-8 bg-background min-h-screen">
         <div className="max-w-4xl mx-auto">
-          <h1 className="text-3xl font-bold text-gray-900 mb-8">My Grades</h1>
-          <div className="bg-white border border-red-200 rounded-lg p-8 shadow-sm">
+          <h1 className="text-3xl font-bold text-foreground mb-8">My Grades</h1>
+          <div className="bg-card border border-red-200 rounded-lg p-8 shadow-sm">
             <Alert variant="destructive" className="mb-4">
               <AlertDescription className="text-base">{error}</AlertDescription>
             </Alert>
@@ -132,11 +132,11 @@ const StudentGradesPage: React.FC = () => {
   // Empty state
   if (!data || data.assignments.length === 0) {
     return (
-      <div className="container mx-auto px-4 py-8 bg-gray-50 min-h-screen">
+      <div className="container mx-auto px-4 py-8 bg-background min-h-screen">
         <div className="max-w-4xl mx-auto">
-          <h1 className="text-3xl font-bold text-gray-900 mb-8">My Grades</h1>
-          <div className="text-center py-16 bg-white rounded-lg border border-gray-200 shadow-sm">
-            <div className="mb-4 text-gray-300">
+          <h1 className="text-3xl font-bold text-foreground mb-8">My Grades</h1>
+          <div className="text-center py-16 bg-card rounded-lg border border-border shadow-sm">
+            <div className="mb-4 text-muted-foreground">
               <svg
                 className="w-20 h-20 mx-auto"
                 fill="none"
@@ -151,10 +151,10 @@ const StudentGradesPage: React.FC = () => {
                 />
               </svg>
             </div>
-            <p className="text-gray-700 text-xl font-semibold mb-2">
+            <p className="text-foreground text-xl font-semibold mb-2">
               No assignments available yet
             </p>
-            <p className="text-gray-500 text-base">
+            <p className="text-muted-foreground text-base">
               Check back later for assignments and grades
             </p>
           </div>
@@ -169,11 +169,11 @@ const StudentGradesPage: React.FC = () => {
   };
 
   return (
-    <div className="container mx-auto px-4 py-8 bg-gray-50 min-h-screen">
+    <div className="container mx-auto px-4 py-8 bg-background min-h-screen">
       <div className="max-w-6xl mx-auto">
         <div className="mb-6">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">My Grades</h1>
-          <p className="text-gray-600">
+          <h1 className="text-3xl font-bold text-foreground mb-2">My Grades</h1>
+          <p className="text-muted-foreground">
             View your grades and feedback for all assignments
           </p>
         </div>

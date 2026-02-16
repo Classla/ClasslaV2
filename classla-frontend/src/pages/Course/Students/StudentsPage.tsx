@@ -225,7 +225,7 @@ const StudentsPage: React.FC<StudentsPageProps> = ({
   const getRoleColor = (role: UserRole) => {
     switch (role) {
       case UserRole.INSTRUCTOR:
-        return "bg-purple-100 text-purple-800";
+        return "bg-primary/20 text-purple-800";
       case UserRole.ADMIN:
         return "bg-red-100 text-red-800";
       case UserRole.TEACHING_ASSISTANT:
@@ -233,9 +233,9 @@ const StudentsPage: React.FC<StudentsPageProps> = ({
       case UserRole.STUDENT:
         return "bg-green-100 text-green-800";
       case UserRole.AUDIT:
-        return "bg-gray-100 text-gray-800";
+        return "bg-muted text-foreground";
       default:
-        return "bg-gray-100 text-gray-800";
+        return "bg-muted text-foreground";
     }
   };
 
@@ -321,10 +321,10 @@ const StudentsPage: React.FC<StudentsPageProps> = ({
     return (
       <div className="p-8 text-center">
         <div className="max-w-md mx-auto">
-          <h2 className="text-2xl font-bold text-gray-900 mb-2">
+          <h2 className="text-2xl font-bold text-foreground mb-2">
             Permission Denied
           </h2>
-          <p className="text-gray-600">
+          <p className="text-muted-foreground">
             You don't have permission to view students in this course.
           </p>
         </div>
@@ -336,7 +336,7 @@ const StudentsPage: React.FC<StudentsPageProps> = ({
     return (
       <div className="flex items-center justify-center h-64">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-600"></div>
-        <span className="ml-3 text-gray-600">Loading students...</span>
+        <span className="ml-3 text-muted-foreground">Loading students...</span>
       </div>
     );
   }
@@ -345,7 +345,7 @@ const StudentsPage: React.FC<StudentsPageProps> = ({
     <div className="p-6 max-w-7xl mx-auto">
       <div className="flex justify-between items-center mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+          <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
             <Users className="w-6 h-6" />
             {isInstructor ? "Course Members" : "Students"}
           </h1>
@@ -356,7 +356,7 @@ const StudentsPage: React.FC<StudentsPageProps> = ({
               </span>
             </div>
           )}
-          <p className="text-gray-600 mt-1">
+          <p className="text-muted-foreground mt-1">
             {(() => {
               // Count only actual students (not instructors, TAs, admins, or audit users)
               const actualStudentCount = visibleStudents.filter(
@@ -383,7 +383,7 @@ const StudentsPage: React.FC<StudentsPageProps> = ({
               onOpenChange={setShowCreateSection}
             >
               <DialogTrigger asChild>
-                <Button className="bg-purple-600 hover:bg-purple-700">
+                <Button className="bg-purple-600 hover:bg-purple-700 dark:bg-purple-800 dark:hover:bg-purple-900">
                   <FolderPlus className="w-4 h-4 mr-2" />
                   Create Section
                 </Button>
@@ -394,7 +394,7 @@ const StudentsPage: React.FC<StudentsPageProps> = ({
                 </DialogHeader>
                 <div className="space-y-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <label className="block text-sm font-medium text-foreground mb-1">
                       Section Name
                     </label>
                     <Input
@@ -402,7 +402,7 @@ const StudentsPage: React.FC<StudentsPageProps> = ({
                       onChange={(e) => setNewSectionName(e.target.value)}
                       placeholder="e.g., Section A, Morning Class"
                     />
-                    <p className="text-xs text-gray-500 mt-1">
+                    <p className="text-xs text-muted-foreground mt-1">
                       A unique section code will be automatically generated
                     </p>
                   </div>
@@ -417,7 +417,7 @@ const StudentsPage: React.FC<StudentsPageProps> = ({
                     <Button
                       onClick={createSection}
                       disabled={!newSectionName.trim()}
-                      className="bg-purple-600 hover:bg-purple-700"
+                      className="bg-purple-600 hover:bg-purple-700 dark:bg-purple-800 dark:hover:bg-purple-900"
                     >
                       Create Section
                     </Button>
@@ -431,7 +431,7 @@ const StudentsPage: React.FC<StudentsPageProps> = ({
 
       {isInstructor && (
         <div className="mb-6">
-          <label className="block text-sm font-medium text-gray-700 mb-2">
+          <label className="block text-sm font-medium text-foreground mb-2">
             Filter by Section
           </label>
           <Select value={selectedSection} onValueChange={setSelectedSection}>
@@ -452,11 +452,11 @@ const StudentsPage: React.FC<StudentsPageProps> = ({
                   <SelectItem
                     key={section.id}
                     value={section.id}
-                    className={isEmpty ? "text-gray-400" : ""}
+                    className={isEmpty ? "text-muted-foreground" : ""}
                   >
                     {section.name}
                     {isEmpty && (
-                      <span className="text-gray-400 ml-1">(empty)</span>
+                      <span className="text-muted-foreground ml-1">(empty)</span>
                     )}
                   </SelectItem>
                 );
@@ -490,26 +490,26 @@ const StudentsPage: React.FC<StudentsPageProps> = ({
                 {instructorsAndAdmins.length > 0 && (
                   <>
                     <div className="flex items-center gap-2 mt-2">
-                      <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wider">
+                      <h3 className="text-sm font-semibold text-foreground uppercase tracking-wider">
                         Instructors
                       </h3>
-                      <div className="flex-1 h-px bg-gray-200"></div>
+                      <div className="flex-1 h-px bg-border"></div>
                     </div>
                     {instructorsAndAdmins.map((student) => (
                       <Card key={student.id}>
                         <CardContent className="p-4">
                           <div className="flex items-center justify-between">
                             <div className="flex items-center gap-4">
-                              <div className="w-10 h-10 bg-purple-100 rounded-full flex items-center justify-center">
-                                <span className="text-purple-600 font-medium">
+                              <div className="w-10 h-10 bg-primary/20 rounded-full flex items-center justify-center">
+                                <span className="text-primary font-medium">
                                   {getInitials(student)}
                                 </span>
                               </div>
                               <div>
-                                <h3 className="font-medium text-gray-900">
+                                <h3 className="font-medium text-foreground">
                                   {getDisplayName(student)}
                                 </h3>
-                                <p className="text-sm text-gray-600">
+                                <p className="text-sm text-muted-foreground">
                                   {student.email}
                                 </p>
                               </div>
@@ -530,30 +530,30 @@ const StudentsPage: React.FC<StudentsPageProps> = ({
                 {tas.length > 0 && (
                   <>
                     <div className="flex items-center gap-2 mt-4">
-                      <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wider">
+                      <h3 className="text-sm font-semibold text-foreground uppercase tracking-wider">
                         Teaching Assistants
                       </h3>
-                      <div className="flex-1 h-px bg-gray-200"></div>
+                      <div className="flex-1 h-px bg-border"></div>
                     </div>
                     {tas.map((student) => (
                       <Card key={student.id}>
                         <CardContent className="p-4">
                           <div className="flex items-center justify-between">
                             <div className="flex items-center gap-4">
-                              <div className="w-10 h-10 bg-purple-100 rounded-full flex items-center justify-center">
-                                <span className="text-purple-600 font-medium">
+                              <div className="w-10 h-10 bg-primary/20 rounded-full flex items-center justify-center">
+                                <span className="text-primary font-medium">
                                   {getInitials(student)}
                                 </span>
                               </div>
                               <div>
-                                <h3 className="font-medium text-gray-900">
+                                <h3 className="font-medium text-foreground">
                                   {getDisplayName(student)}
                                 </h3>
-                                <p className="text-sm text-gray-600">
+                                <p className="text-sm text-muted-foreground">
                                   {student.email}
                                 </p>
                                 {student.section && (
-                                  <p className="text-xs text-gray-500">
+                                  <p className="text-xs text-muted-foreground">
                                     Section: {student.section.name}
                                   </p>
                                 )}
@@ -575,30 +575,30 @@ const StudentsPage: React.FC<StudentsPageProps> = ({
                 {students.length > 0 && (
                   <>
                     <div className="flex items-center gap-2 mt-4">
-                      <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wider">
+                      <h3 className="text-sm font-semibold text-foreground uppercase tracking-wider">
                         Classmates
                       </h3>
-                      <div className="flex-1 h-px bg-gray-200"></div>
+                      <div className="flex-1 h-px bg-border"></div>
                     </div>
                     {students.map((student) => (
                       <Card key={student.id}>
                         <CardContent className="p-4">
                           <div className="flex items-center justify-between">
                             <div className="flex items-center gap-4">
-                              <div className="w-10 h-10 bg-purple-100 rounded-full flex items-center justify-center">
-                                <span className="text-purple-600 font-medium">
+                              <div className="w-10 h-10 bg-primary/20 rounded-full flex items-center justify-center">
+                                <span className="text-primary font-medium">
                                   {getInitials(student)}
                                 </span>
                               </div>
                               <div>
-                                <h3 className="font-medium text-gray-900">
+                                <h3 className="font-medium text-foreground">
                                   {getDisplayName(student)}
                                 </h3>
-                                <p className="text-sm text-gray-600">
+                                <p className="text-sm text-muted-foreground">
                                   {student.email}
                                 </p>
                                 {student.section && (
-                                  <p className="text-xs text-gray-500">
+                                  <p className="text-xs text-muted-foreground">
                                     Section: {student.section.name}
                                   </p>
                                 )}
@@ -624,18 +624,18 @@ const StudentsPage: React.FC<StudentsPageProps> = ({
                 <CardContent className="p-4">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-4">
-                      <div className="w-10 h-10 bg-purple-100 rounded-full flex items-center justify-center">
-                        <span className="text-purple-600 font-medium">
+                      <div className="w-10 h-10 bg-primary/20 rounded-full flex items-center justify-center">
+                        <span className="text-primary font-medium">
                           {getInitials(student)}
                         </span>
                       </div>
                       <div>
-                        <h3 className="font-medium text-gray-900">
+                        <h3 className="font-medium text-foreground">
                           {getDisplayName(student)}
                         </h3>
-                        <p className="text-sm text-gray-600">{student.email}</p>
+                        <p className="text-sm text-muted-foreground">{student.email}</p>
                         {student.section && (
-                          <p className="text-xs text-gray-500">
+                          <p className="text-xs text-muted-foreground">
                             Section: {student.section.name}
                           </p>
                         )}
@@ -678,11 +678,11 @@ const StudentsPage: React.FC<StudentsPageProps> = ({
                                     <SelectItem
                                       key={section.id}
                                       value={section.id}
-                                      className={isEmpty ? "text-gray-400" : ""}
+                                      className={isEmpty ? "text-muted-foreground" : ""}
                                     >
                                       {section.name}
                                       {isEmpty && (
-                                        <span className="text-gray-400 ml-1">
+                                        <span className="text-muted-foreground ml-1">
                                           (empty)
                                         </span>
                                       )}
@@ -747,11 +747,11 @@ const StudentsPage: React.FC<StudentsPageProps> = ({
         {visibleStudents.length === 0 && (
           <Card>
             <CardContent className="p-8 text-center">
-              <Users className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-              <h3 className="text-lg font-medium text-gray-900 mb-2">
+              <Users className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
+              <h3 className="text-lg font-medium text-foreground mb-2">
                 {isInstructor ? "No members found" : "No students found"}
               </h3>
-              <p className="text-gray-600">
+              <p className="text-muted-foreground">
                 {selectedSection === "all"
                   ? isInstructor
                     ? "No members are enrolled in this course yet."

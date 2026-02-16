@@ -148,13 +148,13 @@ const CreateJoinLinkModal: React.FC<CreateJoinLinkModalProps> = ({
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <Card className="bg-white rounded-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
+      <Card className="bg-card rounded-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
         <div className="p-6">
           <div className="flex justify-between items-center mb-6">
-            <h2 className="text-2xl font-bold text-gray-900">Join Links</h2>
+            <h2 className="text-2xl font-bold text-foreground">Join Links</h2>
             <button
               onClick={handleClose}
-              className="text-gray-400 hover:text-gray-600 transition-colors"
+              className="text-muted-foreground hover:text-muted-foreground transition-colors"
             >
               <X className="w-6 h-6" />
             </button>
@@ -163,7 +163,7 @@ const CreateJoinLinkModal: React.FC<CreateJoinLinkModalProps> = ({
           {/* Existing Links Section */}
           <div className="mb-6">
             <div className="flex justify-between items-center mb-4">
-              <h3 className="text-lg font-semibold text-gray-900">
+              <h3 className="text-lg font-semibold text-foreground">
                 Active Links
               </h3>
               <button
@@ -176,8 +176,8 @@ const CreateJoinLinkModal: React.FC<CreateJoinLinkModalProps> = ({
             </div>
 
             {existingLinks.length === 0 ? (
-              <div className="text-center py-8 text-gray-500">
-                <LinkIcon className="w-12 h-12 mx-auto mb-3 text-gray-300" />
+              <div className="text-center py-8 text-muted-foreground">
+                <LinkIcon className="w-12 h-12 mx-auto mb-3 text-muted-foreground" />
                 <p>No active join links</p>
                 <p className="text-sm">Create your first link to get started</p>
               </div>
@@ -186,26 +186,26 @@ const CreateJoinLinkModal: React.FC<CreateJoinLinkModalProps> = ({
                 {existingLinks.map((link) => (
                   <div
                     key={link.id}
-                    className="border border-gray-200 rounded-lg p-4"
+                    className="border border-border rounded-lg p-4"
                   >
                     <div className="flex justify-between items-start mb-3">
                       <div className="flex-1">
                         <div className="flex items-center space-x-2 mb-1">
-                          <LinkIcon className="w-4 h-4 text-purple-600" />
-                          <span className="font-medium text-gray-900">
+                          <LinkIcon className="w-4 h-4 text-primary" />
+                          <span className="font-medium text-foreground">
                             {link.section_slug
                               ? `Section: ${link.section_slug}`
                               : "Course-wide"}
                           </span>
                         </div>
-                        <p className="text-sm text-gray-600">
+                        <p className="text-sm text-muted-foreground">
                           Expires: {new Date(link.expiry_date).toLocaleString()}
                         </p>
                       </div>
                       <div className="flex items-center space-x-2">
                         <button
                           onClick={() => handleCopyLink(link.id)}
-                          className="p-2 text-gray-500 hover:text-purple-600 hover:bg-purple-50 rounded-md transition-colors"
+                          className="p-2 text-muted-foreground hover:text-primary hover:bg-primary/10 rounded-md transition-colors"
                           title="Copy link"
                         >
                           {copiedLinkId === link.id ? (
@@ -218,26 +218,26 @@ const CreateJoinLinkModal: React.FC<CreateJoinLinkModalProps> = ({
                           onClick={() =>
                             window.open(generateJoinUrl(link.id), "_blank")
                           }
-                          className="p-2 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-colors"
+                          className="p-2 text-muted-foreground hover:text-blue-600 hover:bg-blue-50 rounded-md transition-colors"
                           title="Open link"
                         >
                           <ExternalLink className="w-4 h-4" />
                         </button>
                         <button
                           onClick={() => handleDeleteLink(link.id)}
-                          className="p-2 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors"
+                          className="p-2 text-muted-foreground hover:text-red-600 hover:bg-red-50 rounded-md transition-colors"
                           title="Delete link"
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
                       </div>
                     </div>
-                    <div className="bg-gray-50 rounded p-2">
+                    <div className="bg-muted rounded p-2">
                       <input
                         type="text"
                         value={generateJoinUrl(link.id)}
                         readOnly
-                        className="w-full text-sm text-gray-600 bg-transparent border-none outline-none"
+                        className="w-full text-sm text-muted-foreground bg-transparent border-none outline-none"
                       />
                     </div>
                   </div>
@@ -249,7 +249,7 @@ const CreateJoinLinkModal: React.FC<CreateJoinLinkModalProps> = ({
           {/* Create New Link Form */}
           {showCreateForm && (
             <div className="border-t pt-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">
+              <h3 className="text-lg font-semibold text-foreground mb-4">
                 Create New Link
               </h3>
 
@@ -261,13 +261,13 @@ const CreateJoinLinkModal: React.FC<CreateJoinLinkModalProps> = ({
                 )}
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className="block text-sm font-medium text-foreground mb-2">
                     Section (Optional)
                   </label>
                   <select
                     value={sectionSlug}
                     onChange={(e) => setSectionSlug(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                    className="w-full px-3 py-2 border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent"
                   >
                     <option value="">Course-wide (all sections)</option>
                     {Array.isArray(sections) && sections.map((section) => (
@@ -276,7 +276,7 @@ const CreateJoinLinkModal: React.FC<CreateJoinLinkModalProps> = ({
                       </option>
                     ))}
                   </select>
-                  <p className="text-xs text-gray-500 mt-1">
+                  <p className="text-xs text-muted-foreground mt-1">
                     If a section is selected, students will join that specific
                     section
                   </p>
@@ -284,7 +284,7 @@ const CreateJoinLinkModal: React.FC<CreateJoinLinkModalProps> = ({
 
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                    <label className="block text-sm font-medium text-foreground mb-2">
                       <Calendar className="w-4 h-4 inline mr-1" />
                       Expiry Date
                     </label>
@@ -294,12 +294,12 @@ const CreateJoinLinkModal: React.FC<CreateJoinLinkModalProps> = ({
                       onChange={(e) => setExpiryDate(e.target.value)}
                       required
                       min={new Date().toISOString().split("T")[0]}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                      className="w-full px-3 py-2 border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent"
                     />
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                    <label className="block text-sm font-medium text-foreground mb-2">
                       <Clock className="w-4 h-4 inline mr-1" />
                       Expiry Time
                     </label>
@@ -308,7 +308,7 @@ const CreateJoinLinkModal: React.FC<CreateJoinLinkModalProps> = ({
                       value={expiryTime}
                       onChange={(e) => setExpiryTime(e.target.value)}
                       required
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                      className="w-full px-3 py-2 border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent"
                     />
                   </div>
                 </div>
@@ -317,7 +317,7 @@ const CreateJoinLinkModal: React.FC<CreateJoinLinkModalProps> = ({
                   <button
                     type="button"
                     onClick={() => setShowCreateForm(false)}
-                    className="flex-1 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                    className="flex-1 py-2 border border-border text-foreground rounded-lg hover:bg-accent transition-colors"
                   >
                     Cancel
                   </button>

@@ -29,28 +29,40 @@
     --input: 214.3 31.8% 91.4%;
     --ring: 262.1 83.3% 57.8%;
     --radius: 0.5rem;
+    --editor-heading: 222.2 84% 4.9%;
+    --editor-text: 220 13.4% 25.9%;
+    --editor-text-secondary: 220 8.9% 46.1%;
+    --editor-surface: 210 40% 98%;
+    --editor-surface-alt: 220 14.3% 95.9%;
+    --editor-border: 220 13% 83%;
   }
 
   .dark {
-    --background: 222.2 84% 4.9%;
-    --foreground: 210 40% 98%;
-    --card: 222.2 84% 4.9%;
-    --card-foreground: 210 40% 98%;
-    --popover: 222.2 84% 4.9%;
-    --popover-foreground: 210 40% 98%;
+    --background: 260 25% 9%;
+    --foreground: 260 15% 85%;
+    --card: 260 22% 12%;
+    --card-foreground: 260 15% 85%;
+    --popover: 260 22% 12%;
+    --popover-foreground: 260 15% 85%;
     --primary: 262.1 83.3% 57.8%;
-    --primary-foreground: 210 40% 98%;
-    --secondary: 217.2 32.6% 17.5%;
-    --secondary-foreground: 210 40% 98%;
-    --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: 215 20.2% 65.1%;
-    --accent: 217.2 32.6% 17.5%;
-    --accent-foreground: 210 40% 98%;
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
+    --primary-foreground: 260 15% 95%;
+    --secondary: 260 18% 18%;
+    --secondary-foreground: 260 15% 85%;
+    --muted: 260 18% 18%;
+    --muted-foreground: 260 10% 55%;
+    --accent: 260 18% 18%;
+    --accent-foreground: 260 15% 85%;
+    --destructive: 0 62.8% 40%;
+    --destructive-foreground: 260 15% 95%;
+    --border: 260 18% 20%;
+    --input: 260 18% 20%;
     --ring: 262.1 83.3% 57.8%;
+    --editor-heading: 260 15% 88%;
+    --editor-text: 260 12% 78%;
+    --editor-text-secondary: 260 10% 55%;
+    --editor-surface: 260 25% 9%;
+    --editor-surface-alt: 260 18% 16%;
+    --editor-border: 260 18% 22%;
   }
 }
 
@@ -108,7 +120,7 @@
   .assignment-viewer-content.prose blockquote {
     margin: 0;
     padding-left: 1rem;
-    border-left: 4px solid #e5e7eb;
+    border-left: 4px solid hsl(var(--editor-border));
   }
 
   .assignment-editor-content.prose pre,
@@ -379,7 +391,7 @@
   .prose ul:not([data-type="taskList"]) li::marker,
   .tiptap-bullet-list .tiptap-list-item::marker {
     content: "•";
-    color: #374151;
+    color: hsl(var(--editor-text));
     font-size: 1em;
     font-weight: normal;
   }
@@ -389,7 +401,7 @@
   .assignment-viewer-content ol li::marker,
   .prose ol li::marker,
   .tiptap-ordered-list .tiptap-list-item::marker {
-    color: #374151;
+    color: hsl(var(--editor-text));
     font-size: 1em;
     font-weight: 500;
   }
@@ -414,22 +426,39 @@
 
 /* Allotment Customization */
 :root {
-  --focus-border: #9333ea; /* Purple-600 to match theme */
-  --separator-border: #d1d5db; /* Gray-300 */
+  --focus-border: hsl(var(--primary));
+  --separator-border: hsl(var(--border));
 }
 
 /* Make the sash more visible and easier to grab */
 .split-view .sash {
-  background-color: transparent;
+  background-color: hsl(var(--border));
 }
 
 .split-view .sash:hover,
 .split-view .sash-hover {
-  background-color: rgba(147, 51, 234, 0.1); /* Purple with opacity */
+  background-color: rgba(147, 51, 234, 0.3); /* Purple with opacity */
 }
 
 .split-view .sash-active {
-  background-color: rgba(147, 51, 234, 0.2); /* Darker purple when dragging */
+  background-color: rgba(147, 51, 234, 0.4); /* Darker purple when dragging */
+}
+
+/* Dark mode - make separators more visible */
+.dark .split-view .sash {
+  background-color: hsl(var(--border));
+  opacity: 0.8;
+}
+
+.dark .split-view .sash:hover,
+.dark .split-view .sash-hover {
+  background-color: rgba(147, 51, 234, 0.5);
+  opacity: 1;
+}
+
+.dark .split-view .sash-active {
+  background-color: rgba(147, 51, 234, 0.6);
+  opacity: 1;
 }
 
 /* Increase the hit area for better UX */

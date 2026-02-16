@@ -1441,7 +1441,7 @@ const IDEBlockEditor: React.FC<IDEBlockEditorProps> = memo(
           }
         }}
       >
-        <div className="ide-editor border border-gray-200 rounded-lg p-4 bg-white shadow-sm select-none">
+        <div className="ide-editor border border-border rounded-lg p-4 bg-card shadow-sm select-none">
           {/* Header */}
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-3">
@@ -1449,10 +1449,10 @@ const IDEBlockEditor: React.FC<IDEBlockEditorProps> = memo(
                 <Code2 className="w-5 h-5" />
               </div>
               <div>
-                <div className="text-sm font-medium text-gray-900">
+                <div className="text-sm font-medium text-foreground">
                   IDE Block - Virtual Codespace
                 </div>
-                <div className="text-xs text-gray-500">
+                <div className="text-xs text-muted-foreground">
                   Interactive coding environment
                 </div>
               </div>
@@ -1744,14 +1744,14 @@ const IDEBlockEditor: React.FC<IDEBlockEditorProps> = memo(
           </Tabs>
 
           {/* Footer */}
-          <div className="mt-4 pt-3 border-t border-gray-200 flex items-center justify-between">
+          <div className="mt-4 pt-3 border-t border-border flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <Label htmlFor="points" className="text-sm text-gray-700">
+              <Label htmlFor="points" className="text-sm text-foreground">
                 Points:
               </Label>
               {activeTab === "autoGrading" && (ideData.autograder?.tests || []).length > 0 ? (
                 // On autograder tab with tests, show computed points (read-only)
-                <span className="text-sm font-medium text-gray-900 w-20">
+                <span className="text-sm font-medium text-foreground w-20">
                   {ideData.points}
                 </span>
               ) : (
@@ -1876,20 +1876,20 @@ const IDETabContent: React.FC<IDETabContentProps> = memo(
           <div className="flex items-center gap-2">
             {/* Admin-only IDE environment toggle */}
             {isAdmin && (
-              <div className="flex items-center gap-2 px-2 py-1 rounded-md border border-gray-300 bg-gray-50">
-                <Label htmlFor={`ide-env-toggle-${tab}`} className="text-xs text-gray-600 cursor-pointer whitespace-nowrap">
+              <div className="flex items-center gap-2 px-2 py-1 rounded-md border border-border bg-muted">
+                <Label htmlFor={`ide-env-toggle-${tab}`} className="text-xs text-muted-foreground cursor-pointer whitespace-nowrap">
                   {useLocalIDE ? "Local" : "Production"}
                 </Label>
                 <button
                   id={`ide-env-toggle-${tab}`}
                   onClick={onToggleIDEEnvironment}
-                  className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 ${
-                    useLocalIDE ? "bg-purple-600" : "bg-gray-300"
+                  className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 ${
+                    useLocalIDE ? "bg-purple-600" : "bg-muted-foreground"
                   }`}
                   title={`Switch to ${useLocalIDE ? "production" : "local"} IDE environment`}
                 >
                   <span
-                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                    className={`inline-block h-4 w-4 transform rounded-full bg-card transition-transform ${
                       useLocalIDE ? "translate-x-5" : "translate-x-0.5"
                     }`}
                   />
@@ -1900,7 +1900,7 @@ const IDETabContent: React.FC<IDETabContentProps> = memo(
         </div>
 
         {/* Container area */}
-        <div className="border border-gray-200 rounded-lg overflow-hidden bg-gray-50">
+        <div className="border border-border rounded-lg overflow-hidden bg-muted">
           {/* Show Monaco IDE if we have a bucketId (files can be viewed/edited even without container) */}
           {bucketId && (
             <div className="h-[600px]">
@@ -1950,41 +1950,41 @@ const IDETabContent: React.FC<IDETabContentProps> = memo(
           {!bucketId && !container && isStarting && (
             <div className="h-[600px] flex flex-col relative">
               {/* Skeleton toolbar */}
-              <div className="flex items-center gap-2 p-2 border-b border-gray-200 bg-gray-100">
-                <div className="w-8 h-8 bg-gray-300 rounded animate-pulse" />
-                <div className="w-20 h-6 bg-gray-300 rounded animate-pulse" />
-                <div className="w-16 h-6 bg-gray-300 rounded animate-pulse" />
+              <div className="flex items-center gap-2 p-2 border-b border-border bg-muted">
+                <div className="w-8 h-8 bg-accent rounded animate-pulse" />
+                <div className="w-20 h-6 bg-accent rounded animate-pulse" />
+                <div className="w-16 h-6 bg-accent rounded animate-pulse" />
                 <div className="flex-1" />
-                <div className="w-24 h-8 bg-gray-300 rounded animate-pulse" />
+                <div className="w-24 h-8 bg-accent rounded animate-pulse" />
               </div>
               <div className="flex flex-1">
                 {/* Skeleton file explorer */}
-                <div className="w-48 border-r border-gray-200 bg-gray-50 p-3 space-y-2">
-                  <div className="w-full h-5 bg-gray-300 rounded animate-pulse" />
-                  <div className="w-3/4 h-5 bg-gray-300 rounded animate-pulse ml-4" />
-                  <div className="w-2/3 h-5 bg-gray-300 rounded animate-pulse ml-4" />
-                  <div className="w-4/5 h-5 bg-gray-300 rounded animate-pulse" />
+                <div className="w-48 border-r border-border bg-muted p-3 space-y-2">
+                  <div className="w-full h-5 bg-accent rounded animate-pulse" />
+                  <div className="w-3/4 h-5 bg-accent rounded animate-pulse ml-4" />
+                  <div className="w-2/3 h-5 bg-accent rounded animate-pulse ml-4" />
+                  <div className="w-4/5 h-5 bg-accent rounded animate-pulse" />
                 </div>
                 {/* Skeleton editor */}
                 <div className="flex-1 bg-gray-900 p-4 space-y-2">
-                  <div className="w-1/3 h-4 bg-gray-700 rounded animate-pulse" />
-                  <div className="w-2/3 h-4 bg-gray-700 rounded animate-pulse" />
-                  <div className="w-1/2 h-4 bg-gray-700 rounded animate-pulse" />
-                  <div className="w-3/4 h-4 bg-gray-700 rounded animate-pulse" />
-                  <div className="w-1/4 h-4 bg-gray-700 rounded animate-pulse" />
-                  <div className="w-2/3 h-4 bg-gray-700 rounded animate-pulse" />
+                  <div className="w-1/3 h-4 bg-muted rounded animate-pulse" />
+                  <div className="w-2/3 h-4 bg-muted rounded animate-pulse" />
+                  <div className="w-1/2 h-4 bg-muted rounded animate-pulse" />
+                  <div className="w-3/4 h-4 bg-muted rounded animate-pulse" />
+                  <div className="w-1/4 h-4 bg-muted rounded animate-pulse" />
+                  <div className="w-2/3 h-4 bg-muted rounded animate-pulse" />
                 </div>
               </div>
               {/* Skeleton terminal */}
-              <div className="h-32 border-t border-gray-200 bg-gray-900 p-3">
-                <div className="w-1/4 h-4 bg-gray-700 rounded animate-pulse mb-2" />
-                <div className="w-1/2 h-4 bg-gray-700 rounded animate-pulse" />
+              <div className="h-32 border-t border-border bg-gray-900 p-3">
+                <div className="w-1/4 h-4 bg-muted rounded animate-pulse mb-2" />
+                <div className="w-1/2 h-4 bg-muted rounded animate-pulse" />
               </div>
               {/* Loading overlay */}
-              <div className="absolute inset-0 bg-white/50 flex items-center justify-center">
+              <div className="absolute inset-0 bg-card/50 flex items-center justify-center">
                 <div className="flex flex-col items-center gap-3">
                   <Loader2 className="w-8 h-8 text-purple-600 animate-spin" />
-                  <p className="text-sm text-gray-600 font-medium">Starting Virtual Codespace...</p>
+                  <p className="text-sm text-muted-foreground font-medium">Starting Virtual Codespace...</p>
                 </div>
               </div>
             </div>
@@ -1999,7 +1999,7 @@ const IDETabContent: React.FC<IDETabContentProps> = memo(
                   onClick={onGenerateModelSolution}
                   disabled={isGeneratingModelSolution}
                   variant="outline"
-                  className="mb-6 border-purple-300 text-purple-700 hover:bg-purple-50 hover:border-purple-400"
+                  className="mb-6 border-purple-300 text-primary hover:bg-primary/10 hover:border-purple-400"
                 >
                   {isGeneratingModelSolution ? (
                     <Loader2 className="w-4 h-4 mr-2 animate-spin" />
@@ -2009,18 +2009,18 @@ const IDETabContent: React.FC<IDETabContentProps> = memo(
                   {isGeneratingModelSolution ? "Generating..." : "Create with AI"}
                 </Button>
               )}
-              <Code2 className="w-16 h-16 text-gray-400 mb-4" />
-              <p className="text-gray-600 font-medium mb-2">
+              <Code2 className="w-16 h-16 text-muted-foreground mb-4" />
+              <p className="text-muted-foreground font-medium mb-2">
                 Start Virtual Codespace
               </p>
-              <p className="text-sm text-gray-500 mb-4">
+              <p className="text-sm text-muted-foreground mb-4">
                 Select a programming language to get started
               </p>
               <div className="flex gap-3">
                 <Button
                   onClick={() => onLanguageSelect("python")}
                   variant="outline"
-                  className="flex flex-col items-center gap-2 h-auto py-4 px-6 hover:border-purple-500 hover:bg-purple-50"
+                  className="flex flex-col items-center gap-2 h-auto py-4 px-6 hover:border-purple-500 hover:bg-primary/10"
                 >
                   <svg className="w-8 h-8" viewBox="0 0 256 255" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid">
                     <defs>
@@ -2041,7 +2041,7 @@ const IDETabContent: React.FC<IDETabContentProps> = memo(
                 <Button
                   onClick={() => onLanguageSelect("java")}
                   variant="outline"
-                  className="flex flex-col items-center gap-2 h-auto py-4 px-6 hover:border-purple-500 hover:bg-purple-50"
+                  className="flex flex-col items-center gap-2 h-auto py-4 px-6 hover:border-purple-500 hover:bg-primary/10"
                 >
                   <svg className="w-8 h-8" viewBox="0 0 256 346" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid">
                     <path d="M82.554 267.473s-13.198 7.675 9.393 10.272c27.369 3.122 41.356 2.675 71.517-3.034 0 0 7.93 4.972 19.003 9.279-67.611 28.977-153.019-1.679-99.913-16.517M74.292 229.659s-14.803 10.958 7.805 13.296c29.236 3.016 52.324 3.263 92.276-4.43 0 0 5.526 5.602 14.215 8.666-81.747 23.904-172.798 1.885-114.296-17.532" fill="#5382A1"/>

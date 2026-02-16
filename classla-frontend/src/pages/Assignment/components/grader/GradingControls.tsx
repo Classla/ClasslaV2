@@ -330,12 +330,12 @@ export const GradingControls: React.FC<GradingControlsProps> = React.memo(
     // Show skeleton loader while creating grader
     if (isCreating) {
       return (
-        <div className="space-y-6 p-6 border border-gray-200 rounded-lg bg-white shadow-sm animate-pulse">
-          <div className="flex items-center justify-between border-b border-gray-200 pb-4">
-            <div className="h-6 bg-gray-200 rounded w-40"></div>
+        <div className="space-y-6 p-6 border border-border rounded-lg bg-card shadow-sm animate-pulse">
+          <div className="flex items-center justify-between border-b border-border pb-4">
+            <div className="h-6 bg-accent rounded w-40"></div>
             <div className="flex items-center">
-              <Loader2 className="h-4 w-4 animate-spin text-purple-600 mr-2" />
-              <span className="text-sm text-purple-600 font-medium">
+              <Loader2 className="h-4 w-4 animate-spin text-primary mr-2" />
+              <span className="text-sm text-primary font-medium">
                 Initializing grading...
               </span>
             </div>
@@ -343,45 +343,45 @@ export const GradingControls: React.FC<GradingControlsProps> = React.memo(
 
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <div className="h-4 bg-gray-200 rounded w-32"></div>
-              <div className="h-10 bg-gray-100 rounded"></div>
+              <div className="h-4 bg-accent rounded w-32"></div>
+              <div className="h-10 bg-muted rounded"></div>
             </div>
             <div className="space-y-2">
-              <div className="h-4 bg-gray-200 rounded w-32"></div>
-              <div className="h-10 bg-gray-100 rounded"></div>
+              <div className="h-4 bg-accent rounded w-32"></div>
+              <div className="h-10 bg-muted rounded"></div>
             </div>
           </div>
 
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <div className="h-4 bg-gray-200 rounded w-28"></div>
-              <div className="h-10 bg-gray-100 rounded"></div>
+              <div className="h-4 bg-accent rounded w-28"></div>
+              <div className="h-10 bg-muted rounded"></div>
             </div>
             <div className="space-y-2">
-              <div className="h-4 bg-gray-200 rounded w-24"></div>
-              <div className="h-10 bg-gray-100 rounded"></div>
+              <div className="h-4 bg-accent rounded w-24"></div>
+              <div className="h-10 bg-muted rounded"></div>
             </div>
           </div>
 
           <div className="space-y-2">
-            <div className="h-4 bg-gray-200 rounded w-20"></div>
-            <div className="h-24 bg-gray-100 rounded"></div>
+            <div className="h-4 bg-accent rounded w-20"></div>
+            <div className="h-24 bg-muted rounded"></div>
           </div>
 
           <div className="flex items-center space-x-2">
-            <div className="h-4 w-4 bg-gray-200 rounded"></div>
-            <div className="h-4 bg-gray-200 rounded w-48"></div>
+            <div className="h-4 w-4 bg-accent rounded"></div>
+            <div className="h-4 bg-accent rounded w-48"></div>
           </div>
         </div>
       );
     }
 
     return (
-      <div className="space-y-6 p-6 border border-gray-200 rounded-lg bg-white shadow-sm">
-        <div className="flex items-center justify-between border-b border-gray-200 pb-4">
-          <h3 className="text-lg font-bold text-gray-900">Grading Controls</h3>
+      <div className="space-y-6 p-6 border border-border rounded-lg bg-card shadow-sm">
+        <div className="flex items-center justify-between border-b border-border pb-4">
+          <h3 className="text-lg font-bold text-foreground">Grading Controls</h3>
           {isSaving && (
-            <div className="flex items-center text-sm text-purple-600 font-medium">
+            <div className="flex items-center text-sm text-primary font-medium">
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               Saving...
             </div>
@@ -391,10 +391,10 @@ export const GradingControls: React.FC<GradingControlsProps> = React.memo(
         <div className="grid grid-cols-2 gap-4">
           {/* Autograded Score (read-only) */}
           <div className="space-y-2">
-            <Label className="text-sm font-semibold text-gray-700">
+            <Label className="text-sm font-semibold text-foreground">
               Autograded Score
             </Label>
-            <div className="flex h-10 w-full rounded-md border border-gray-300 bg-gray-50 px-3 py-2 text-sm text-gray-700 font-medium">
+            <div className="flex h-10 w-full rounded-md border border-border bg-muted px-3 py-2 text-sm text-foreground font-medium">
               {grader?.raw_assignment_score !== undefined
                 ? `${grader.raw_assignment_score}`
                 : "-"}
@@ -403,10 +403,10 @@ export const GradingControls: React.FC<GradingControlsProps> = React.memo(
 
           {/* Raw Rubric Score (read-only) */}
           <div className="space-y-2">
-            <Label className="text-sm font-semibold text-gray-700">
+            <Label className="text-sm font-semibold text-foreground">
               Raw Rubric Score
             </Label>
-            <div className="flex h-10 w-full rounded-md border border-gray-300 bg-gray-50 px-3 py-2 text-sm text-gray-700 font-medium">
+            <div className="flex h-10 w-full rounded-md border border-border bg-muted px-3 py-2 text-sm text-foreground font-medium">
               {grader?.raw_rubric_score !== undefined
                 ? `${grader.raw_rubric_score}`
                 : "-"}
@@ -419,7 +419,7 @@ export const GradingControls: React.FC<GradingControlsProps> = React.memo(
           <div className="space-y-2">
             <Label
               htmlFor="score-modifier"
-              className="text-sm font-semibold text-gray-700"
+              className="text-sm font-semibold text-foreground"
             >
               Score Modifier
             </Label>
@@ -431,16 +431,16 @@ export const GradingControls: React.FC<GradingControlsProps> = React.memo(
               onFocus={handleFocus}
               disabled={isCreating}
               placeholder="0"
-              className="border-gray-300 focus:border-purple-500 focus:ring-purple-500"
+              className="border-border focus:border-primary focus:ring-ring"
             />
           </div>
 
           {/* Final Grade (calculated, read-only) */}
           <div className="space-y-2">
-            <Label className="text-sm font-semibold text-gray-700">
+            <Label className="text-sm font-semibold text-foreground">
               Final Grade
             </Label>
-            <div className="flex h-10 w-full rounded-md border-2 border-purple-200 bg-purple-50 px-3 py-2 text-sm font-bold text-purple-900">
+            <div className="flex h-10 w-full rounded-md border-2 border-primary/30 bg-primary/10 px-3 py-2 text-sm font-bold text-primary">
               {finalGrade}
             </div>
           </div>
@@ -462,7 +462,7 @@ export const GradingControls: React.FC<GradingControlsProps> = React.memo(
         <div className="space-y-2">
           <Label
             htmlFor="feedback"
-            className="text-sm font-semibold text-gray-700"
+            className="text-sm font-semibold text-foreground"
           >
             Feedback
           </Label>
@@ -474,12 +474,12 @@ export const GradingControls: React.FC<GradingControlsProps> = React.memo(
             disabled={isCreating}
             placeholder="Enter feedback for the student..."
             rows={6}
-            className="border-gray-300 focus:border-purple-500 focus:ring-purple-500 resize-none"
+            className="border-border focus:border-primary focus:ring-ring resize-none"
           />
         </div>
 
         {/* Reviewed checkbox */}
-        <div className="flex items-center space-x-3 p-4 bg-gray-50 rounded-md border border-gray-200">
+        <div className="flex items-center space-x-3 p-4 bg-muted rounded-md border border-border">
           <Checkbox
             id="reviewed"
             checked={isReviewed}
@@ -489,11 +489,11 @@ export const GradingControls: React.FC<GradingControlsProps> = React.memo(
           />
           <Label
             htmlFor="reviewed"
-            className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer text-gray-900"
+            className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer text-foreground"
           >
             Mark as Reviewed
             {grader?.reviewed_at && (
-              <span className="ml-2 text-xs text-gray-500 font-normal">
+              <span className="ml-2 text-xs text-muted-foreground font-normal">
                 (Last reviewed: {new Date(grader.reviewed_at).toLocaleString()})
               </span>
             )}

@@ -3,7 +3,17 @@ import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../../../contexts/AuthContext";
 import { apiClient } from "../../../lib/api";
 import { useToast } from "../../../hooks/use-toast";
+import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "../../../components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "../../../components/ui/dialog";
+import { Input } from "../../../components/ui/input";
+import { Label } from "../../../components/ui/label";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -12,13 +22,14 @@ import {
 } from "../../../components/ui/dropdown-menu";
 import Logo from "../../../components/Logo";
 import ModuleTree from "../../../components/ModuleTree";
-import { BookOpen, Users, Settings, BarChart3, Plus, FileText, Folder } from "lucide-react";
+import { BookOpen, Users, Settings, BarChart3, Plus, FileText, Folder, Sun, Moon } from "lucide-react";
 import { Course, UserRole } from "../../../types";
 import { hasTAPermission } from "../../../lib/taPermissions";
 import { Allotment } from "allotment";
 import "allotment/dist/style.css";
 import { IDEPanelProvider, useIDEPanel } from "../../../contexts/IDEPanelContext";
 import CourseLayoutSkeleton from "./CourseLayoutSkeleton";
+import { useTheme } from "../../../hooks/useTheme";
 
 interface CourseLayoutProps {
   children: React.ReactNode;
@@ -31,11 +42,15 @@ const CourseLayoutInner: React.FC<CourseLayoutProps> = ({ children }) => {
   const navigate = useNavigate();
   const location = useLocation();
   const { panelMode } = useIDEPanel();
+  const { isDark, toggle } = useTheme();
 
   const [course, setCourse] = useState<Course | null>(null);
   const [userRole, setUserRole] = useState<UserRole | null>(null);
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);
+  const [folderDialogOpen, setFolderDialogOpen] = useState(false);
+  const [folderName, setFolderName] = useState("");
+  const queryClient = useQueryClient();
 
   // Get current page from URL
   const currentPage = location.pathname.split("/").pop() || "summary";
@@ -104,6 +119,30 @@ const CourseLayoutInner: React.FC<CourseLayoutProps> = ({ children }) => {
     }
   };
 
+  const handleCreateFolder = async () => {
+    if (!folderName.trim() || !course) return;
+    try {
+      await apiClient.createFolder({
+        course_id: course.id,
+        path: [folderName.trim()],
+        name: folderName.trim(),
+        order_index: 0,
+      });
+      queryClient.invalidateQueries({ queryKey: ["courseFolders", course.id] });
+      setFolderDialogOpen(false);
+      toast({
+        title: "Folder created",
+        description: "New folder has been created successfully",
+      });
+    } catch (error: any) {
+      toast({
+        title: "Error creating folder",
+        description: error.message || "Failed to create folder",
+        variant: "destructive",
+      });
+    }
+  };
+
   const isStudent =
     userRole === UserRole.STUDENT || userRole === UserRole.AUDIT;
   const isInstructor =
@@ -165,10 +204,10 @@ const CourseLayoutInner: React.FC<CourseLayoutProps> = ({ children }) => {
   if (!course) {
     return (
       <div className="text-center py-12">
-        <h3 className="text-lg font-medium text-gray-900 mb-2">
+        <h3 className="text-lg font-medium text-foreground mb-2">
           Course not found
         </h3>
-        <p className="text-gray-600 mb-6">
+        <p className="text-muted-foreground mb-6">
           The course you're looking for doesn't exist or you don't have access
           to it.
         </p>
@@ -183,9 +222,9 @@ const CourseLayoutInner: React.FC<CourseLayoutProps> = ({ children }) => {
   }
 
   return (
-    <div className="h-screen bg-gray-50 flex flex-col">
+    <div className="h-screen bg-background flex flex-col">
       {/* Course Header */}
-      <header className="bg-purple-600 shadow-sm">
+      <header className="bg-purple-600 dark:bg-purple-900 shadow-sm">
         <div className="px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
             <div className="flex items-center space-x-4">
@@ -218,6 +257,13 @@ const CourseLayoutInner: React.FC<CourseLayoutProps> = ({ children }) => {
                   Settings
                 </Button>
               )}
+              <button
+                onClick={toggle}
+                className="text-purple-100 hover:text-white transition-colors duration-200 p-2"
+                aria-label="Toggle dark mode"
+              >
+                {isDark ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
+              </button>
             </nav>
           </div>
         </div>
@@ -228,7 +274,7 @@ const CourseLayoutInner: React.FC<CourseLayoutProps> = ({ children }) => {
           {/* Sidebar - Resizable - Hidden in side-panel mode */}
           {panelMode !== 'side-panel' && (
             <Allotment.Pane minSize={200} maxSize={400} preferredSize={256}>
-              <div className="h-full bg-white border-r border-gray-200 flex flex-col">
+              <div className="h-full bg-card border-r border-border flex flex-col">
                 {/* Navigation Items */}
                 <div className="flex-1 overflow-auto py-6">
                   <nav className="space-y-1 px-3">
@@ -244,8 +290,8 @@ const CourseLayoutInner: React.FC<CourseLayoutProps> = ({ children }) => {
                           }
                           className={`w-full flex items-center space-x-3 px-3 py-2 text-sm font-medium rounded-md transition-colors ${
                             isActive
-                              ? "bg-purple-100 text-purple-700"
-                              : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
+                              ? "bg-primary/10 text-primary"
+                              : "text-muted-foreground hover:bg-accent hover:text-foreground"
                           }`}
                         >
                           <Icon className="w-5 h-5" />
@@ -269,10 +315,10 @@ const CourseLayoutInner: React.FC<CourseLayoutProps> = ({ children }) => {
 
                 {/* Create button at bottom */}
                 {canCreate && (
-                  <div className="border-t border-gray-200 p-3">
+                  <div className="border-t border-border p-3">
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
-                        <Button className="w-full bg-purple-600 hover:bg-purple-700 text-white">
+                        <Button className="w-full bg-purple-600 hover:bg-purple-700 dark:bg-purple-800 dark:hover:bg-purple-900 text-white">
                           <Plus className="w-4 h-4 mr-2" />
                           Create
                         </Button>
@@ -293,6 +339,8 @@ const CourseLayoutInner: React.FC<CourseLayoutProps> = ({ children }) => {
                                 lockdown_time_map: {},
                                 order_index: 0,
                               });
+
+                              queryClient.invalidateQueries({ queryKey: ["courseAssignments", course.id] });
 
                               const newAssignment = response.data;
                               navigate(`/course/${courseSlug}/assignment/${newAssignment.id}`);
@@ -315,29 +363,9 @@ const CourseLayoutInner: React.FC<CourseLayoutProps> = ({ children }) => {
                           Create Assignment
                         </DropdownMenuItem>
                         <DropdownMenuItem
-                          onClick={async () => {
-                            const folderName = prompt("Enter folder name:");
-                            if (!folderName?.trim()) return;
-
-                            try {
-                              await apiClient.createFolder({
-                                course_id: course.id,
-                                path: [folderName.trim()],
-                                name: folderName.trim(),
-                                order_index: 0,
-                              });
-
-                              toast({
-                                title: "Folder created",
-                                description: "New folder has been created successfully",
-                              });
-                            } catch (error: any) {
-                              toast({
-                                title: "Error creating folder",
-                                description: error.message || "Failed to create folder",
-                                variant: "destructive",
-                              });
-                            }
+                          onClick={() => {
+                            setFolderName("");
+                            setFolderDialogOpen(true);
                           }}
                           className="cursor-pointer"
                         >
@@ -368,6 +396,44 @@ const CourseLayoutInner: React.FC<CourseLayoutProps> = ({ children }) => {
           </Allotment.Pane>
         </Allotment>
       </div>
+
+      {/* Create Folder Dialog */}
+      <Dialog open={folderDialogOpen} onOpenChange={setFolderDialogOpen}>
+        <DialogContent className="sm:max-w-[400px]">
+          <DialogHeader>
+            <DialogTitle>Create Folder</DialogTitle>
+          </DialogHeader>
+          <div className="py-4">
+            <Label htmlFor="folder-name">Folder name</Label>
+            <Input
+              id="folder-name"
+              value={folderName}
+              onChange={(e) => setFolderName(e.target.value)}
+              placeholder="Enter folder name"
+              autoFocus
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && folderName.trim()) {
+                  e.preventDefault();
+                  handleCreateFolder();
+                }
+              }}
+              className="mt-2"
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setFolderDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleCreateFolder}
+              disabled={!folderName.trim()}
+              className="bg-purple-600 hover:bg-purple-700 dark:bg-purple-800 dark:hover:bg-purple-900 text-white"
+            >
+              Create
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

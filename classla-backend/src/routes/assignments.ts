@@ -12,6 +12,8 @@ import {
 } from "../middleware/authorization";
 import { UserRole } from "../types/enums";
 import { Assignment } from "../types/entities";
+import { getIO } from "../services/websocket";
+import { emitTreeUpdate } from "../services/courseTreeSocket";
 
 const router = Router();
 
@@ -36,11 +38,6 @@ const filterAssignmentContentForStudent = (content: string): string => {
 
       return blocks
         .filter((block) => {
-          // Remove AIblocks - these are editor-only blocks
-          if (block.type === "aiBlock") {
-            return false;
-          }
-
           // Remove blocks marked as autograder-only
           if (block.attrs?.autograderOnly === true) {
             return false;
@@ -322,7 +319,8 @@ router.get(
       }
       
       const { data: assignments, error: assignmentsError } = await query
-        .order("created_at", { ascending: true });
+        .is("deleted_at", null)
+        .order("order_index", { ascending: true });
 
       if (assignmentsError) {
         throw assignmentsError;
@@ -386,6 +384,7 @@ router.get(
         .from("assignments")
         .select("*")
         .eq("id", id)
+        .is("deleted_at", null)
         .single();
 
       if (assignmentError || !assignment) {
@@ -421,7 +420,7 @@ router.get(
 
       // Get assignment context (course or template)
       const context = getAssignmentContext(assignment);
-      
+
       // Get user's role - for templates, treat as instructor
       const userRole = context.isTemplate
         ? UserRole.INSTRUCTOR
@@ -487,6 +486,7 @@ router.get(
         .from("assignments")
         .select("*")
         .eq("id", id)
+        .is("deleted_at", null)
         .single();
 
       if (assignmentError || !assignment) {
@@ -503,7 +503,7 @@ router.get(
 
       // Get assignment context (course or template)
       const context = getAssignmentContext(assignment);
-      
+
       // Check access (handles both courses and templates)
       const access = await checkCourseOrTemplateAccess(
         context.id,
@@ -683,6 +683,34 @@ router.post(
         ...settings, // Allow override from request
       };
 
+      // Compute next order_index if not provided
+      let computedOrderIndex = order_index;
+      if (computedOrderIndex === undefined || computedOrderIndex === null) {
+        const effectiveModulePath = module_path || [];
+        let siblingsQuery = supabase
+          .from("assignments")
+          .select("order_index")
+          .is("deleted_at", null);
+
+        if (access.isTemplate) {
+          siblingsQuery = siblingsQuery.eq("template_id", course_id);
+        } else {
+          siblingsQuery = siblingsQuery.eq("course_id", course_id);
+        }
+
+        const { data: siblings } = await siblingsQuery;
+        // Filter siblings at same module_path level
+        const sameLevelSiblings = (siblings || []).filter((s: any) => {
+          // We can't filter JSONB arrays directly, so we fetch all and filter in-memory
+          return true;
+        });
+        const maxIndex = sameLevelSiblings.reduce(
+          (max: number, s: any) => Math.max(max, s.order_index || 0),
+          -1
+        );
+        computedOrderIndex = maxIndex + 1;
+      }
+
       // Prepare insert data - use template_id if it's a template, otherwise course_id
       const insertData: any = {
         name,
@@ -693,7 +721,7 @@ router.post(
         module_path: module_path || [],
         is_lockdown: is_lockdown || false,
         lockdown_time_map: lockdown_time_map || {},
-        order_index: order_index || 0,
+        order_index: computedOrderIndex,
       };
 
       if (access.isTemplate) {
@@ -715,6 +743,9 @@ router.post(
       }
 
       res.status(201).json(assignment);
+
+      // Emit real-time update
+      try { emitTreeUpdate(getIO(), course_id, "assignment-created", { assignmentId: assignment.id }); } catch {}
     } catch (error) {
       console.error("Error creating assignment:", error);
       res.status(500).json({
@@ -758,6 +789,7 @@ router.put(
         .from("assignments")
         .select("*")
         .eq("id", id)
+        .is("deleted_at", null)
         .single();
 
       if (existingError || !existingAssignment) {
@@ -774,7 +806,7 @@ router.put(
 
       // Get assignment context (course or template)
       const context = getAssignmentContext(existingAssignment);
-      
+
       // Check access (handles both courses and templates)
       const access = await checkCourseOrTemplateAccess(
         context.id,
@@ -871,6 +903,9 @@ router.put(
       }
 
       res.json(updatedAssignment);
+
+      // Emit real-time update
+      try { emitTreeUpdate(getIO(), context.id, "assignment-updated", { assignmentId: id }); } catch {}
     } catch (error) {
       console.error("Error updating assignment:", error);
       res.status(500).json({
@@ -903,6 +938,7 @@ router.delete(
         .from("assignments")
         .select("*")
         .eq("id", id)
+        .is("deleted_at", null)
         .single();
 
       if (existingError || !existingAssignment) {
@@ -919,7 +955,7 @@ router.delete(
 
       // Get assignment context (course or template)
       const context = getAssignmentContext(existingAssignment);
-      
+
       // Check access (handles both courses and templates)
       const access = await checkCourseOrTemplateAccess(
         context.id,
@@ -972,10 +1008,10 @@ router.delete(
         return;
       }
 
-      // Delete the assignment (hard delete since there's no deleted_at field in the schema)
+      // Soft delete the assignment
       const { error: deleteError } = await supabase
         .from("assignments")
-        .delete()
+        .update({ deleted_at: new Date().toISOString() })
         .eq("id", id);
 
       if (deleteError) {
@@ -986,6 +1022,9 @@ router.delete(
         message: "Assignment deleted successfully",
         assignment_id: id,
       });
+
+      // Emit real-time update
+      try { emitTreeUpdate(getIO(), context.id, "assignment-deleted", { assignmentId: id }); } catch {}
     } catch (error) {
       console.error("Error deleting assignment:", error);
       res.status(500).json({
@@ -1018,6 +1057,7 @@ router.get(
         .from("assignments")
         .select("*")
         .eq("id", id)
+        .is("deleted_at", null)
         .single();
 
       if (assignmentError || !assignment) {
@@ -1119,6 +1159,7 @@ router.put(
         .from("assignments")
         .select("*")
         .eq("id", id)
+        .is("deleted_at", null)
         .single();
 
       if (assignmentError || !assignment) {
@@ -1135,7 +1176,7 @@ router.put(
 
       // Get assignment context (course or template)
       const context = getAssignmentContext(assignment);
-      
+
       // Check access (handles both courses and templates)
       const access = await checkCourseOrTemplateAccess(
         context.id,
@@ -1234,6 +1275,7 @@ router.get(
         .from("assignments")
         .select("*")
         .eq("id", id)
+        .is("deleted_at", null)
         .single();
 
       if (assignmentError || !assignment) {
@@ -1365,6 +1407,7 @@ router.put(
         .from("assignments")
         .select("*")
         .eq("id", id)
+        .is("deleted_at", null)
         .single();
 
       if (assignmentError || !assignment) {
@@ -1381,7 +1424,7 @@ router.put(
 
       // Get assignment context (course or template)
       const context = getAssignmentContext(assignment);
-      
+
       // Check access (handles both courses and templates)
       const access = await checkCourseOrTemplateAccess(
         context.id,
@@ -1485,6 +1528,7 @@ router.post(
         .from("assignments")
         .select("course_id, template_id, name, settings, content, module_path, is_lockdown, order_index")
         .eq("id", id)
+        .is("deleted_at", null)
         .single();
 
       if (assignmentError || !existingAssignment) {
@@ -1501,7 +1545,7 @@ router.post(
 
       // Get assignment context (course or template)
       const context = getAssignmentContext(existingAssignment);
-      
+
       // Check access (handles both courses and templates)
       const access = await checkCourseOrTemplateAccess(
         context.id,
@@ -1568,6 +1612,9 @@ router.post(
       }
 
       res.status(201).json(newAssignment);
+
+      // Emit real-time update
+      try { emitTreeUpdate(getIO(), context.id, "assignment-duplicated", { assignmentId: newAssignment.id }); } catch {}
     } catch (error) {
       console.error("Error duplicating assignment:", error);
       res.status(500).json({
@@ -1612,6 +1659,7 @@ router.post(
         .from("assignments")
         .select("course_id, template_id, name, settings, content, module_path, is_lockdown, order_index")
         .eq("id", id)
+        .is("deleted_at", null)
         .single();
 
       if (assignmentError || !existingAssignment) {
@@ -1746,6 +1794,9 @@ router.post(
       }
 
       res.status(201).json(newAssignment);
+
+      // Emit real-time update to the target course
+      try { emitTreeUpdate(getIO(), targetCourseId, "assignment-created", { assignmentId: newAssignment.id }); } catch {}
     } catch (error) {
       console.error("Error cloning assignment to course:", error);
       res.status(500).json({

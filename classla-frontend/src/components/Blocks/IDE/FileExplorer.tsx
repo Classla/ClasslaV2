@@ -77,9 +77,9 @@ export function getFileIcon(fileName: string): React.ReactNode {
         </svg>
       );
     case "txt":
-      return <FileText className="w-4 h-4 text-gray-500 flex-shrink-0" />;
+      return <FileText className="w-4 h-4 text-muted-foreground flex-shrink-0" />;
     default:
-      return <File className="w-4 h-4 text-gray-500 flex-shrink-0" />;
+      return <File className="w-4 h-4 text-muted-foreground flex-shrink-0" />;
   }
 }
 
@@ -139,8 +139,8 @@ const FileExplorer: React.FC<FileExplorerProps> = ({
       return (
         <div key={node.path}>
           <div
-            className={`group flex items-center gap-1 px-2 py-1 cursor-pointer hover:bg-gray-100 rounded ${
-              isSelected ? "bg-blue-100" : ""
+            className={`group flex items-center gap-1 px-2 py-1 cursor-pointer hover:bg-accent rounded ${
+              isSelected ? "bg-blue-100 dark:bg-blue-900/50" : ""
             }`}
             style={{ paddingLeft: `${depth * 16 + 8}px` }}
             onClick={() => handleFileClick(node.path, node.type)}
@@ -153,12 +153,12 @@ const FileExplorer: React.FC<FileExplorerProps> = ({
                     e.stopPropagation();
                     toggleFolder(node.path);
                   }}
-                  className="flex items-center justify-center w-4 h-4 mr-1 hover:bg-gray-200 rounded"
+                  className="flex items-center justify-center w-4 h-4 mr-1 hover:bg-accent rounded"
                 >
                   {isExpanded ? (
-                    <ChevronDown className="w-3 h-3 text-gray-600" />
+                    <ChevronDown className="w-3 h-3 text-muted-foreground" />
                   ) : (
-                    <ChevronRight className="w-3 h-3 text-gray-600" />
+                    <ChevronRight className="w-3 h-3 text-muted-foreground" />
                   )}
                 </button>
                 {isExpanded ? (
@@ -263,8 +263,8 @@ const FileExplorer: React.FC<FileExplorerProps> = ({
   );
 
   return (
-    <div className="h-full flex flex-col border-r border-gray-200 bg-white">
-      <div className="p-2 border-b border-gray-200 flex items-center justify-between">
+    <div className="h-full flex flex-col border-r border-border bg-background">
+      <div className="p-2 border-b border-border flex items-center justify-between">
         <span className="text-sm font-semibold">Files</span>
         <div className="flex gap-1">
           {onCreateFile && (
@@ -340,7 +340,7 @@ const FileExplorer: React.FC<FileExplorerProps> = ({
       </div>
       <div className="flex-1 overflow-y-auto">
         {files.length === 0 ? (
-          <div className="p-4 text-sm text-gray-500 text-center">
+          <div className="p-4 text-sm text-muted-foreground text-center">
             No files found
           </div>
         ) : (

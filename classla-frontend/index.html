@@ -17,6 +17,11 @@
     <meta name="theme-color" content="#8b5cf6" />
     
     <title>Classla</title>
+    <script>
+      if (localStorage.getItem('classla-theme') === 'dark') {
+        document.documentElement.classList.add('dark');
+      }
+    </script>
   </head>
   <body>
     <div id="root"></div>

@@ -129,7 +129,7 @@ const RubricEditor: React.FC<RubricEditorProps> = ({
             </SelectItem>
           </SelectContent>
         </Select>
-        <p className="text-xs text-gray-600">
+        <p className="text-xs text-muted-foreground">
           {type === RubricType.CHECKBOX
             ? "Students receive full points or zero for each criterion"
             : "Students can receive partial points on a scale for each criterion"}
@@ -166,19 +166,19 @@ const RubricEditor: React.FC<RubricEditorProps> = ({
           {items.map((item, index) => (
             <div
               key={index}
-              className="flex items-center gap-2 p-3 border rounded-lg bg-gray-50"
+              className="flex items-center gap-2 p-3 border rounded-lg bg-muted"
             >
-              <GripVertical className="w-4 h-4 text-gray-400 flex-shrink-0" />
+              <GripVertical className="w-4 h-4 text-muted-foreground flex-shrink-0" />
               <div className="flex-1 space-y-2">
                 <Input
                   value={item.title}
                   onChange={(e) => updateItem(index, "title", e.target.value)}
                   placeholder="Criterion description"
-                  className="bg-white"
+                  className="bg-background"
                 />
                 <div className="space-y-2">
                   <div className="flex items-center gap-2">
-                    <Label className="text-xs text-gray-600 whitespace-nowrap">
+                    <Label className="text-xs text-muted-foreground whitespace-nowrap">
                       Points:
                     </Label>
                     <Input
@@ -188,7 +188,7 @@ const RubricEditor: React.FC<RubricEditorProps> = ({
                         updateItem(index, "points", e.target.value)
                       }
                       placeholder="0"
-                      className="w-24 bg-white"
+                      className="w-24 bg-background"
                       step={type === RubricType.CHECKBOX ? "1" : "0.5"}
                     />
                     {type === RubricType.CHECKBOX && item.points < 0 && (
@@ -209,7 +209,7 @@ const RubricEditor: React.FC<RubricEditorProps> = ({
                       />
                       <Label
                         htmlFor={`extra-credit-${index}`}
-                        className="text-xs text-gray-700 cursor-pointer"
+                        className="text-xs text-foreground cursor-pointer"
                       >
                         Extra Credit (not counted in total)
                       </Label>

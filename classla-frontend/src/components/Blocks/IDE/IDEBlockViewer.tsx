@@ -1032,7 +1032,7 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
         draggable={false}
         contentEditable={false}
       >
-        <div className="ide-viewer border border-gray-200 rounded-lg p-4 bg-white shadow-sm select-none">
+        <div className="ide-viewer border border-border rounded-lg p-4 bg-card shadow-sm select-none">
           {/* Header */}
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-3">
@@ -1040,10 +1040,10 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
                 <Code2 className="w-5 h-5" />
               </div>
               <div>
-                <div className="text-sm font-medium text-gray-900">
+                <div className="text-sm font-medium text-foreground">
                   IDE Block - Virtual Codespace
                 </div>
-                <div className="text-xs text-gray-500">
+                <div className="text-xs text-muted-foreground">
                   Interactive coding environment
                 </div>
               </div>
@@ -1078,7 +1078,7 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
             <TabsContent value="code" className="mt-4">
               <div className="space-y-4">
                 {/* Container area */}
-                <div className="border border-gray-200 rounded-lg overflow-hidden bg-gray-50">
+                <div className="border border-border rounded-lg overflow-hidden bg-muted">
                   {/* Show MonacoIDE if student has a cloned bucket */}
                   {studentBucketId ? (
                     <div className="h-[600px]">
@@ -1141,27 +1141,27 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
                   ) : (
                     /* Show start button if no bucket exists yet */
                     <div className="flex flex-col items-center justify-center h-96">
-                      <Code2 className="w-16 h-16 text-gray-400 mb-4" />
+                      <Code2 className="w-16 h-16 text-muted-foreground mb-4" />
                       {isViewingOtherStudent ? (
                         <>
-                          <p className="text-gray-600 font-medium mb-2">
+                          <p className="text-muted-foreground font-medium mb-2">
                             No Student Work
                           </p>
-                          <p className="text-sm text-gray-500">
+                          <p className="text-sm text-muted-foreground">
                             This student hasn't started this coding environment yet.
                           </p>
                         </>
                       ) : (
                         <>
-                          <p className="text-gray-600 font-medium mb-2">
+                          <p className="text-muted-foreground font-medium mb-2">
                             Start Virtual Codespace
                           </p>
-                          <p className="text-sm text-gray-500 mb-4">
+                          <p className="text-sm text-muted-foreground mb-4">
                             Launch a containerized development environment
                           </p>
                           <Button
                             onClick={startContainer}
-                            className="bg-purple-600 hover:bg-purple-700 text-white"
+                            className="bg-purple-600 hover:bg-purple-700 dark:bg-purple-800 dark:hover:bg-purple-900 text-white"
                             disabled={isStarting}
                           >
                             {isStarting ? (
@@ -1188,7 +1188,7 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
                   <div className="flex items-center justify-between">
                     <div>
                       <h3 className="text-xl font-bold">Autograder</h3>
-                      <p className="text-sm text-gray-600">
+                      <p className="text-sm text-muted-foreground">
                         Run tests to check your solution
                       </p>
                     </div>
@@ -1227,15 +1227,15 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
                             <XCircle className="w-8 h-8 text-yellow-600" />
                           )}
                           <div>
-                            <div className="font-medium text-gray-900">
+                            <div className="font-medium text-foreground">
                               Latest Result: {testRunHistory[0].tests_passed}/{testRunHistory[0].tests_total} tests passed
                             </div>
-                            <div className="text-sm text-gray-600">
+                            <div className="text-sm text-muted-foreground">
                               Points: {testRunHistory[0].points_earned}/{testRunHistory[0].total_points}
                             </div>
                           </div>
                         </div>
-                        <div className="text-right text-sm text-gray-500">
+                        <div className="text-right text-sm text-muted-foreground">
                           <Clock className="w-4 h-4 inline mr-1" />
                           {new Date(testRunHistory[0].created_at).toLocaleString()}
                         </div>
@@ -1244,24 +1244,24 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
                   )}
 
                   {/* Run Tests Area */}
-                  <div className="border border-gray-200 rounded-lg p-4 bg-gray-50">
+                  <div className="border border-border rounded-lg p-4 bg-muted">
                     {!container ? (
                       <div className="text-center py-6">
                         <PlayCircle className="w-10 h-10 text-purple-400 mx-auto mb-2" />
-                        <p className="text-sm text-gray-600 mb-1">
+                        <p className="text-sm text-muted-foreground mb-1">
                           No machine running
                         </p>
-                        <p className="text-xs text-gray-500">
+                        <p className="text-xs text-muted-foreground">
                           Click "Run Tests" to automatically start a machine and run your tests
                         </p>
                       </div>
                     ) : (
                       <div className="text-center py-6">
                         <PlayCircle className="w-10 h-10 text-purple-400 mx-auto mb-2" />
-                        <p className="text-sm text-gray-600 mb-1">
+                        <p className="text-sm text-muted-foreground mb-1">
                           Ready to run tests
                         </p>
-                        <p className="text-xs text-gray-500">
+                        <p className="text-xs text-muted-foreground">
                           Click "Run Tests" to check your solution against {(ideData.autograder?.tests || []).filter(t => t.type !== "manualGrading").length} test case(s)
                         </p>
                       </div>
@@ -1270,22 +1270,22 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
 
                   {/* Test Run History */}
                   {testRunHistory.length > 0 && (
-                    <div className="border border-gray-200 rounded-lg overflow-hidden">
-                      <div className="bg-gray-100 px-4 py-2 border-b border-gray-200 flex items-center gap-2">
-                        <History className="w-4 h-4 text-gray-600" />
-                        <span className="text-sm font-medium text-gray-700">Test Run History</span>
+                    <div className="border border-border rounded-lg overflow-hidden">
+                      <div className="bg-muted px-4 py-2 border-b border-border flex items-center gap-2">
+                        <History className="w-4 h-4 text-muted-foreground" />
+                        <span className="text-sm font-medium text-foreground">Test Run History</span>
                       </div>
-                      <div className="divide-y divide-gray-100">
+                      <div className="divide-y divide-border">
                         {isLoadingHistory ? (
                           <div className="p-4 text-center">
-                            <Loader2 className="w-5 h-5 animate-spin mx-auto text-gray-400" />
+                            <Loader2 className="w-5 h-5 animate-spin mx-auto text-muted-foreground" />
                           </div>
                         ) : (
                           testRunHistory.map((run, index) => (
                             <div
                               key={run.id}
-                              className={`p-3 flex items-center justify-between hover:bg-gray-50 cursor-pointer ${
-                                index === 0 ? "bg-purple-50" : ""
+                              className={`p-3 flex items-center justify-between hover:bg-accent cursor-pointer ${
+                                index === 0 ? "bg-primary/10" : ""
                               }`}
                               onClick={() => {
                                 setTestResults(run.results || []);
@@ -1304,12 +1304,12 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
                                   <span className="text-sm font-medium">
                                     {run.tests_passed}/{run.tests_total} passed
                                   </span>
-                                  <span className="text-sm text-gray-500 ml-2">
+                                  <span className="text-sm text-muted-foreground ml-2">
                                     ({run.points_earned}/{run.total_points} pts)
                                   </span>
                                 </div>
                               </div>
-                              <div className="text-xs text-gray-500">
+                              <div className="text-xs text-muted-foreground">
                                 {new Date(run.created_at).toLocaleString()}
                               </div>
                             </div>
@@ -1332,7 +1332,7 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
 
           {/* Footer with score display (for grading view) */}
           {hasScore && (
-            <div className="mt-4 pt-3 border-t border-gray-200 text-xs text-gray-500 select-none">
+            <div className="mt-4 pt-3 border-t border-border text-xs text-muted-foreground select-none">
               <div className="flex justify-end items-center">
                 <span
                   className={`px-3 py-1 rounded-md font-bold text-white ${

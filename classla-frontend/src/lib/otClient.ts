@@ -351,6 +351,16 @@ export class OTDocumentClient {
   }
 
   /**
+   * Reset client state and request a resync from the server.
+   * Used when the server rejects an operation — prevents being stuck in awaitingConfirm.
+   */
+  resetAndResync(): void {
+    this.state = { type: "synchronized" };
+    this.onSaveStatusChanged?.("error");
+    this.onResyncNeeded?.();
+  }
+
+  /**
    * Received a remote operation from the server.
    * If transform/apply fails, requests a full resync rather than leaving a corrupted state.
    */
@@ -498,8 +508,27 @@ class OTProvider {
       console.error("[OT] Connection error:", error.message);
     });
 
-    this.socket.on("error", (error: { message: string }) => {
+    this.socket.on("error", (error: { message: string; documentId?: string }) => {
       console.error("[OT] Error:", error);
+
+      // If the error is for a specific document and we're waiting for an ack,
+      // the server rejected our operation. Reset the client state and resync
+      // to avoid being permanently stuck in awaitingConfirm.
+      if (error.documentId) {
+        const doc = this.documents.get(error.documentId);
+        if (doc && doc.state.type !== "synchronized") {
+          console.warn(`[OT] Operation failed for ${error.documentId} (state: ${doc.state.type}), requesting resync`);
+          doc.resetAndResync();
+        }
+      } else {
+        // Generic error without documentId — check all docs for stuck states
+        for (const [docId, doc] of this.documents.entries()) {
+          if (doc.state.type !== "synchronized") {
+            console.warn(`[OT] Generic error received, resync stuck document: ${docId}`);
+            doc.resetAndResync();
+          }
+        }
+      }
     });
 
     // Initial document state from server

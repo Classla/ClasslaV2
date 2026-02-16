@@ -1,11 +1,14 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { useTheme } from "../../../hooks/useTheme";
 import Editor from "@monaco-editor/react";
-import { Terminal as TerminalIcon, ChevronRight, ChevronLeft, RefreshCw, Monitor, Play, Loader2, Files, Power, ExternalLink, PanelLeft, History, Clock } from "lucide-react";
+import { Terminal as TerminalIcon, ChevronRight, ChevronLeft, RefreshCw, Monitor, Play, Loader2, Files, Power, ExternalLink, PanelLeft, History, Clock, Settings } from "lucide-react";
 import type { FileVersion } from "../../../hooks/useFileHistory";
 import FileExplorer, { FileNode, getFileIcon } from "./FileExplorer";
 import { apiClient } from "../../../lib/api";
 import { useToast } from "../../../hooks/use-toast";
 import { Button } from "../../ui/button";
+import { Checkbox } from "../../ui/checkbox";
+import { Label } from "../../ui/label";
 import { otProvider, OTDocumentClient } from "../../../lib/otClient";
 import { MonacoOTBinding, CursorData } from "../../../lib/monacoOTBinding";
 import * as monaco from "monaco-editor";
@@ -97,13 +100,17 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
   onSelectedFileChange,
 }) => {
   const { toast } = useToast();
+  const { isDark } = useTheme();
   const [files, setFiles] = useState<FileNode[]>([]);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [openTabs, setOpenTabs] = useState<string[]>([]); // Track open tabs
   const [fileContent, setFileContent] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [loadingFiles, setLoadingFiles] = useState<Set<string>>(new Set()); // Track which files are loading
-  const [activePanel, setActivePanel] = useState<"files" | null>(null);
+  const [activePanel, setActivePanel] = useState<"files" | "settings" | null>(null);
+  const [showHiddenFiles, setShowHiddenFiles] = useState<boolean>(() => {
+    return localStorage.getItem('ide-show-hidden-files') === 'true';
+  });
   const [saveStatus, setSaveStatus] = useState<Record<string, "saving" | "saved" | "error">>({}); // Track save status per file
   const editorRef = useRef<any>(null);
   const editorReadyRef = useRef<boolean>(false); // Track if editor is mounted and ready
@@ -116,6 +123,7 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
   const disconnectionDetectedRef = useRef<boolean>(false); // Track if disconnection was already detected
   const saveStatusTimeoutRef = useRef<Record<string, NodeJS.Timeout>>({}); // Track debounced save status updates per file
   const instanceIdRef = useRef(`ide_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`); // Unique ID per MonacoIDE instance for local cursor dispatch
+  const pendingRenamePathsRef = useRef<Set<string>>(new Set()); // Track paths that were just renamed — suppress content overwrite on reconnect
   // Min and max constraints for side panel
   const SIDE_PANEL_MIN = 150;
   const SIDE_PANEL_MAX = 500;
@@ -153,6 +161,32 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
   const [isResizingTerminal, setIsResizingTerminal] = useState(false);
   const [isResizingVnc, setIsResizingVnc] = useState(false);
   
+  // Persist showHiddenFiles to localStorage
+  useEffect(() => {
+    localStorage.setItem('ide-show-hidden-files', String(showHiddenFiles));
+  }, [showHiddenFiles]);
+
+  // Filter hidden files (dot-files/folders and .class files) from file tree
+  const filterHiddenFiles = useCallback((nodes: FileNode[]): FileNode[] => {
+    return nodes
+      .filter((node) => {
+        const name = node.name;
+        if (name.startsWith('.')) return false;
+        if (node.type === 'file' && name.endsWith('.class')) return false;
+        return true;
+      })
+      .map((node) => {
+        if (node.children) {
+          return { ...node, children: filterHiddenFiles(node.children) };
+        }
+        return node;
+      });
+  }, []);
+
+  const displayFiles = useMemo(() => {
+    return showHiddenFiles ? files : filterHiddenFiles(files);
+  }, [files, showHiddenFiles, filterHiddenFiles]);
+
   // Terminal URL readiness probe - ensures Traefik route is propagated before rendering iframe
   const [terminalUrlReady, setTerminalUrlReady] = useState(false);
   const terminalProbeRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -418,7 +452,7 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
   }, [vncSize]);
   
   // Toggle panel - if clicking the same panel, close it
-  const togglePanel = useCallback((panel: "files") => {
+  const togglePanel = useCallback((panel: "files" | "settings") => {
     setActivePanel((prev) => (prev === panel ? null : panel));
   }, []);
 
@@ -441,6 +475,10 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
   const availableFiles = useMemo(() => {
     return getAllFilePaths(files);
   }, [files, getAllFilePaths]);
+
+  const runnableFiles = useMemo(() => {
+    return availableFiles.filter((f) => f.endsWith(".java") || f.endsWith(".py"));
+  }, [availableFiles]);
 
   // Detect language from file extension
   const detectLanguage = useCallback((filePath: string): string => {
@@ -907,7 +945,7 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
         return;
       }
 
-      // Get content from OT document (if available)
+      // Get content from OT document (if available) BEFORE any cleanup
       let content = "";
       const doc = otProvider.getDocument(bucketId, oldPath);
       if (doc) {
@@ -915,6 +953,13 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
       } else if (fileContent[oldPath] !== undefined) {
         content = fileContent[oldPath];
       }
+
+      // Clean up old OT binding + unsubscribe BEFORE the rename
+      if (otBindingsRef.current[oldPath]) {
+        otBindingsRef.current[oldPath].destroy();
+        delete otBindingsRef.current[oldPath];
+      }
+      otProvider.unsubscribeDocument(bucketId, oldPath);
 
       // Optimistic UI update - update file tree
       const renameInTree = (nodes: FileNode[]): FileNode[] => {
@@ -942,48 +987,16 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
         selectedFileRef.current = newPath;
       }
 
-      // Update file content state
+      // Update file content state with the saved content
       setFileContent((prev) => {
         const next = { ...prev };
-        if (next[oldPath] !== undefined) {
-          next[newPath] = next[oldPath];
-          delete next[oldPath];
-        }
+        delete next[oldPath];
+        next[newPath] = content;
         return next;
       });
 
-      // Clean up old OT binding + unsubscribe
-      if (otBindingsRef.current[oldPath]) {
-        otBindingsRef.current[oldPath].destroy();
-        delete otBindingsRef.current[oldPath];
-      }
-      otProvider.unsubscribeDocument(bucketId, oldPath);
-
-      // Subscribe to new path
-      otProvider.subscribeToDocument(bucketId, newPath);
-      setFileContent((prev) => ({ ...prev, [newPath]: content }));
-
-      // Broadcast file-tree-change events (delete old + create new)
-      const socket = otProvider.socketInstance;
-      if (otProvider.connected && socket) {
-        try {
-          socket.emit("file-tree-change", {
-            bucketId,
-            filePath: oldPath,
-            action: "delete",
-          });
-          socket.emit("file-tree-change", {
-            bucketId,
-            filePath: newPath,
-            action: "create",
-          });
-        } catch (error) {
-          console.error("Failed to broadcast file rename:", error);
-        }
-      }
-
       // Rename file server-side (S3 CopyObject + DeleteObject)
-      // This preserves binary file content that the frontend can't access
+      // The backend force-saves OT content to S3 first, then copies
       try {
         await apiClient.renameS3File(bucketId, oldPath, newPath);
       } catch (error: any) {
@@ -994,7 +1007,20 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
           variant: "destructive",
         });
         loadFileTree();
+        return;
       }
+
+      // Mark path as recently renamed — setupOTBinding will skip overwriting Monaco
+      // since force-save before rename ensures S3 content matches the editor
+      pendingRenamePathsRef.current.add(newPath);
+      setTimeout(() => pendingRenamePathsRef.current.delete(newPath), 10000);
+
+      // Subscribe to new OT path AFTER the S3 rename succeeds
+      // so the server loads the correct content from S3
+      otProvider.subscribeToDocument(bucketId, newPath);
+      // Set the content we captured to ensure editor has the right content
+      // even before the OT document fully loads from S3
+      setFileContent((prev) => ({ ...prev, [newPath]: content }));
 
       // Mark new file as recently created to prevent disappearing during S3 save
       recentlyCreatedFilesRef.current.add(newPath);
@@ -1003,6 +1029,7 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
       }, 15000);
 
       // Reload file tree after delay to catch any missed updates
+      // (server also broadcasts file-tree-change events)
       setTimeout(() => {
         loadFileTree();
       }, 3000);
@@ -1051,14 +1078,27 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
       delete (otBindingsRef.current as any)[`__pending_${filePath}`];
     }
 
-    // Set initial content if model is empty but OT has content
+    // Reconcile editor content with OT document content
     const modelContent = model.getValue();
-    if (doc.content && modelContent !== doc.content) {
-      model.pushEditOperations(
-        [],
-        [{ range: model.getFullModelRange(), text: doc.content }],
-        () => null
-      );
+    const isRecentRename = pendingRenamePathsRef.current.has(filePath);
+    pendingRenamePathsRef.current.delete(filePath);
+
+    if (modelContent !== doc.content) {
+      if (isRecentRename) {
+        // After rename: force-save ensured S3 (and thus OT) has our content.
+        // Content should match in most cases. If it doesn't (rare timing issue),
+        // accept the server's content — it's better than sending a replace-all
+        // operation that risks OT state corruption.
+        console.log(`[OT] Rename content mismatch for ${filePath} (editor: ${modelContent.length}, server: ${doc.content.length}). Accepting server content.`);
+      }
+      if (doc.content) {
+        // OT is source of truth — overwrite editor
+        model.pushEditOperations(
+          [],
+          [{ range: model.getFullModelRange(), text: doc.content }],
+          () => null
+        );
+      }
     }
 
     // Create binding
@@ -1103,6 +1143,11 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
 
     console.log(`[MonacoIDE] OT binding created for ${filePath} (rev=${doc.revision})`);
   }, [bucketId, currentUser]);
+
+  // Update Monaco editor theme when dark mode changes
+  useEffect(() => {
+    monaco.editor.setTheme(isDark ? "vs-dark" : "vs");
+  }, [isDark]);
 
   // Set up binding when file changes or editor becomes ready
   useEffect(() => {
@@ -1261,10 +1306,14 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
           type: "file",
         };
 
+        let fileAlreadyExists = false;
         setFiles((prev) => {
-          // Check if file already exists
+          // Check if file already exists (e.g. from rename's optimistic update)
           const exists = getAllFilePaths(prev).includes(filePath);
-          if (exists) return prev;
+          if (exists) {
+            fileAlreadyExists = true;
+            return prev;
+          }
 
           // Add file to appropriate location in tree
           const parts = filePath.split("/");
@@ -1297,8 +1346,10 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
           }
         });
 
-        // Subscribe to OT document for the new file (don't switch editor)
-        if (bucketId) {
+        // Only subscribe to OT if this is a genuinely new file (not from a rename)
+        // Rename already handles its own OT subscription — double-subscribing
+        // causes the editor content to be overwritten with stale S3 content
+        if (bucketId && !fileAlreadyExists) {
           try {
             otProvider.subscribeToDocument(bucketId, filePath);
             const doc = otProvider.getDocument(bucketId, filePath);
@@ -1538,7 +1589,7 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
 
   return (
     <div 
-      className="flex flex-col h-full bg-white border border-gray-200 rounded-lg overflow-hidden"
+      className="flex flex-col h-full bg-card border border-border rounded-lg overflow-hidden"
       onKeyDown={(e) => {
         // Only stop propagation if the event is not targeting the terminal iframe
         const target = e.target as HTMLElement;
@@ -1566,7 +1617,7 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
       }}
     >
       {/* Toolbar */}
-      <div className="flex items-center justify-between p-2 border-b border-gray-200 bg-gray-50">
+      <div className="flex items-center justify-between p-2 border-b border-border bg-muted">
         {/* Left side - Stop Machine button */}
         <div className="flex items-center gap-2">
           {containerId && containerWebServerUrl && (
@@ -1649,15 +1700,15 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
                   <SelectValue placeholder="Select file to run" />
                 </SelectTrigger>
                 <SelectContent>
-                  {availableFiles.length > 0 ? (
-                    availableFiles.map((filePath) => (
+                  {runnableFiles.length > 0 ? (
+                    runnableFiles.map((filePath) => (
                       <SelectItem key={filePath} value={filePath}>
                         {filePath}
                       </SelectItem>
                     ))
                   ) : (
                     <SelectItem value={runFilename} disabled>
-                      No files available
+                      No runnable files (.java, .py)
                     </SelectItem>
                   )}
                 </SelectContent>
@@ -1688,7 +1739,7 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
                     variant="ghost"
                     size="sm"
                     onClick={onOpenSidePanel}
-                    className="text-purple-600 hover:text-purple-700 hover:bg-purple-50 w-8 h-8 p-0"
+                    className="text-primary hover:text-primary hover:bg-primary/10 w-8 h-8 p-0"
                     title="Open in Side Panel"
                   >
                     <PanelLeft className="w-4 h-4" />
@@ -1712,15 +1763,24 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
       {/* Main Content Area */}
       <div className="flex flex-1 overflow-hidden">
         {/* Left Sidebar with Toggle Icons */}
-        <div className="w-12 border-r border-gray-200 bg-gray-50 flex flex-col items-center py-2 gap-2 flex-shrink-0">
+        <div className="w-12 border-r border-border bg-muted flex flex-col items-center py-2 gap-2 flex-shrink-0">
           <button
             onClick={() => togglePanel("files")}
-            className={`w-10 h-10 flex items-center justify-center rounded hover:bg-gray-200 transition-colors ${
-              activePanel === "files" ? "bg-purple-100 text-purple-600" : "text-gray-600"
+            className={`w-10 h-10 flex items-center justify-center rounded hover:bg-accent transition-colors ${
+              activePanel === "files" ? "bg-primary/20 text-primary" : "text-muted-foreground"
             }`}
             title="Toggle file explorer"
           >
             <Files className="w-5 h-5" />
+          </button>
+          <button
+            onClick={() => togglePanel("settings")}
+            className={`w-10 h-10 flex items-center justify-center rounded hover:bg-accent transition-colors ${
+              activePanel === "settings" ? "bg-primary/20 text-primary" : "text-muted-foreground"
+            }`}
+            title="Toggle settings"
+          >
+            <Settings className="w-5 h-5" />
           </button>
         </div>
 
@@ -1730,7 +1790,7 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
           {activePanel && (
             <>
               <div 
-                className="h-full border-r border-gray-200 overflow-hidden flex-shrink-0"
+                className="h-full border-r border-border overflow-hidden flex-shrink-0"
                 style={{ 
                   width: `${Math.max(SIDE_PANEL_MIN, Math.min(SIDE_PANEL_MAX, sidePanelSize))}px`,
                   minWidth: `${SIDE_PANEL_MIN}px`,
@@ -1740,7 +1800,7 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
               >
                 {activePanel === "files" && (
                   <FileExplorer
-                    files={files}
+                    files={displayFiles}
                     onFileSelect={handleFileSelect}
                     selectedPath={selectedFile || undefined}
                     onCreateFile={handleCreateFile}
@@ -1748,11 +1808,30 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
                     onRenameFile={handleRenameFile}
                   />
                 )}
+                {activePanel === "settings" && (
+                  <div className="h-full flex flex-col bg-background">
+                    <div className="px-3 py-2 border-b border-border text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                      Settings
+                    </div>
+                    <div className="p-3 flex flex-col gap-3">
+                      <div className="flex items-center gap-2">
+                        <Checkbox
+                          id="show-hidden-files"
+                          checked={showHiddenFiles}
+                          onCheckedChange={(checked) => setShowHiddenFiles(checked === true)}
+                        />
+                        <Label htmlFor="show-hidden-files" className="text-sm text-foreground cursor-pointer">
+                          Show hidden files
+                        </Label>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
               {/* Resize Handle for Side Panel */}
               <div
                 onMouseDown={handleSidePanelResizeStart}
-                className="w-1 bg-gray-300 hover:bg-purple-500 cursor-col-resize flex-shrink-0 transition-colors"
+                className="w-1 bg-border hover:bg-purple-500 cursor-col-resize flex-shrink-0 transition-colors"
                 style={{ cursor: isResizingSidePanel ? 'col-resize' : 'col-resize' }}
               />
             </>
@@ -1764,7 +1843,7 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
             <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
                   {/* File Tabs */}
                   {openTabs.length > 0 && (
-                    <div className="flex items-center gap-1 border-b border-gray-200 bg-gray-50 overflow-x-auto flex-shrink-0">
+                    <div className="flex items-center gap-1 border-b border-border bg-muted overflow-x-auto flex-shrink-0">
                       {openTabs.map((filePath) => {
                         const fileName = filePath.split("/").pop() || filePath;
                         const isActive = selectedFile === filePath;
@@ -1779,15 +1858,15 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
                             }}
                             className={`flex items-center gap-2 px-3 py-2 cursor-pointer border-b-2 transition-colors ${
                               isActive
-                                ? "bg-white border-purple-500 text-purple-600"
-                                : "border-transparent text-gray-600 hover:bg-gray-100"
+                                ? "bg-background border-purple-500 dark:border-purple-700 text-foreground dark:text-white"
+                                : "border-transparent text-muted-foreground dark:text-gray-400 hover:bg-accent"
                             }`}
                           >
                             {getFileIcon(fileName)}
                             <span className="text-sm whitespace-nowrap">{fileName}</span>
                             {fileStatus === "saving" && (
                               <span title="Saving...">
-                                <Loader2 className="w-3 h-3 animate-spin text-gray-400" />
+                                <Loader2 className="w-3 h-3 animate-spin text-muted-foreground" />
                               </span>
                             )}
                             {fileStatus === "saved" && (
@@ -1798,7 +1877,7 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
                             )}
                             <button
                               onClick={(e) => handleCloseTab(filePath, e)}
-                              className="ml-1 hover:bg-gray-200 rounded p-0.5 transition-colors"
+                              className="ml-1 hover:bg-accent rounded p-0.5 transition-colors"
                               title="Close tab"
                             >
                               <span className="text-xs">×</span>
@@ -1812,7 +1891,7 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
                   {/* History Bar (grading view only) */}
                   {onHistoryToggle && (
                     <div className={`flex items-center gap-2 px-3 py-1.5 border-b flex-shrink-0 ${
-                      historyMode ? "bg-amber-50 border-amber-200" : "bg-gray-50 border-gray-200"
+                      historyMode ? "bg-amber-50 border-amber-200" : "bg-muted border-border"
                     }`}>
                       <button
                         onClick={onHistoryToggle}
@@ -1820,7 +1899,7 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
                         className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium transition-colors ${
                           historyMode
                             ? "bg-amber-200 text-amber-800 hover:bg-amber-300"
-                            : "bg-gray-200 text-gray-700 hover:bg-gray-300"
+                            : "bg-accent text-foreground hover:bg-accent"
                         } disabled:opacity-50 disabled:cursor-not-allowed`}
                       >
                         <History className="w-3.5 h-3.5" />
@@ -1877,12 +1956,12 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
 
                   {loading ? (
                     <div className="flex-1 flex items-center justify-center">
-                      <div className="text-gray-500">Loading files...</div>
+                      <div className="text-muted-foreground">Loading files...</div>
                     </div>
                   ) : selectedFile ? (
                     isBinaryFile(selectedFile) ? (
                       <div className="flex-1 flex items-center justify-center">
-                        <div className="text-sm text-gray-500">
+                        <div className="text-sm text-muted-foreground">
                           Binary file — cannot be displayed in editor
                         </div>
                       </div>
@@ -1890,7 +1969,7 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
                       <div className="flex-1 flex items-center justify-center">
                         <div className="flex flex-col items-center gap-2">
                           <Loader2 className="w-6 h-6 animate-spin text-purple-500" />
-                          <div className="text-sm text-gray-500">Loading file...</div>
+                          <div className="text-sm text-muted-foreground">Loading file...</div>
                         </div>
                       </div>
                     ) : (
@@ -1935,7 +2014,7 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
                           }, 100);
                         }
                       }}
-                      theme="vs"
+                      theme={isDark ? "vs-dark" : "vs"}
                       options={{
                         minimap: { enabled: true },
                         fontSize: 14,
@@ -1964,7 +2043,7 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
                       />
                     )
                   ) : (
-                    <div className="flex-1 flex items-center justify-center text-gray-500">
+                    <div className="flex-1 flex items-center justify-center text-muted-foreground">
                       Select a file to edit
                     </div>
                   )}
@@ -1973,20 +2052,20 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
             {/* Resize Handle for Terminal */}
             <div
               onMouseDown={handleTerminalResizeStart}
-              className="h-1 bg-gray-300 hover:bg-purple-500 cursor-row-resize flex-shrink-0 transition-colors"
+              className="h-1 bg-border hover:bg-purple-500 cursor-row-resize flex-shrink-0 transition-colors"
               style={{ cursor: isResizingTerminal ? 'row-resize' : 'row-resize' }}
             />
             
             {/* Terminal and VNC Panel - Always shown */}
             <div 
-              className="flex flex-col border-t border-gray-200 flex-shrink-0" 
+              className="flex flex-col border-t border-border flex-shrink-0" 
               style={{ height: `${terminalSize}px` }}
             >
               {/* Single Header for Terminal/Desktop Panel */}
-              <div className="flex items-center justify-between px-2 py-1 bg-gray-100 border-b border-gray-200 flex-shrink-0">
+              <div className="flex items-center justify-between px-2 py-1 bg-muted border-b border-border flex-shrink-0">
                 <div className="flex items-center gap-2">
-                  <TerminalIcon className="w-3.5 h-3.5 text-gray-600" />
-                  <span className="text-xs font-medium text-gray-700">
+                  <TerminalIcon className="w-3.5 h-3.5 text-muted-foreground" />
+                  <span className="text-xs font-medium text-foreground">
                     {showDesktop ? "Terminal & Desktop" : "Terminal"}
                   </span>
                 </div>
@@ -2058,9 +2137,9 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
                       />
                     </div>
                   ) : (
-                    <div className="flex-1 flex items-center justify-center bg-gray-50">
-                      <div className="text-center text-gray-500">
-                        <TerminalIcon className="w-8 h-8 mx-auto mb-2 text-gray-400" />
+                    <div className="flex-1 flex items-center justify-center bg-muted">
+                      <div className="text-center text-muted-foreground">
+                        <TerminalIcon className="w-8 h-8 mx-auto mb-2 text-muted-foreground" />
                         <p className="text-sm">
                           {containerId && containerTerminalUrl
                             ? 'Connecting to terminal...'
@@ -2074,7 +2153,7 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
                 {/* VNC Resize Handle for Side Panel Mode (vertical) */}
                 {showDesktop && hasVnc && (
                   <div
-                    className="h-1 w-full bg-gray-300 hover:bg-purple-500 cursor-row-resize flex-shrink-0 transition-colors"
+                    className="h-1 w-full bg-border hover:bg-purple-500 cursor-row-resize flex-shrink-0 transition-colors"
                   />
                 )}
                 
@@ -2176,9 +2255,9 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
                         />
                       </div>
                     ) : (
-                      <div className="flex-1 flex items-center justify-center bg-gray-50">
-                        <div className="text-center text-gray-500">
-                          <TerminalIcon className="w-8 h-8 mx-auto mb-2 text-gray-400" />
+                      <div className="flex-1 flex items-center justify-center bg-muted">
+                        <div className="text-center text-muted-foreground">
+                          <TerminalIcon className="w-8 h-8 mx-auto mb-2 text-muted-foreground" />
                           <p className="text-sm">
                             {containerId && containerTerminalUrl
                               ? 'Connecting to terminal...'
@@ -2201,7 +2280,7 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
                       }}
                     >
                       {/* Visible handle */}
-                      <div className="absolute inset-y-0 left-0 w-1 bg-gray-300 hover:bg-purple-500 transition-colors" />
+                      <div className="absolute inset-y-0 left-0 w-1 bg-border hover:bg-purple-500 transition-colors" />
                       {/* Invisible wider hit area */}
                       <div 
                         className="absolute inset-y-0 -left-2 -right-2" 

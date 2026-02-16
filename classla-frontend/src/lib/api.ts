@@ -281,6 +281,16 @@ export const apiClient = {
   getCurrentUserEnrollment: (courseId: string) =>
     api.get(`/course/${courseId}/my-enrollment`),
 
+  // AI Memory endpoints
+  getCourseMemories: (courseId: string) =>
+    api.get(`/course/${courseId}/ai-memories`),
+  createCourseMemory: (courseId: string, content: string) =>
+    api.post(`/course/${courseId}/ai-memories`, { content }),
+  updateCourseMemory: (courseId: string, memoryId: string, content: string) =>
+    api.put(`/course/${courseId}/ai-memories/${memoryId}`, { content }),
+  deleteCourseMemory: (courseId: string, memoryId: string) =>
+    api.delete(`/course/${courseId}/ai-memories/${memoryId}`),
+
   // Section endpoints
   getCourseSections: (courseId: string) =>
     api.get(`/sections/by-course/${courseId}`),
@@ -317,7 +327,12 @@ export const apiClient = {
       order_index?: number;
     }
   ) => api.put(`/folder/${id}`, data),
-  deleteFolder: (id: string) => api.delete(`/folder/${id}`),
+  deleteFolder: (id: string, options?: { transferTo?: string | null; deleteChildren?: boolean }) =>
+    api.delete(`/folder/${id}`, { data: options }),
+  getFolderContentsCount: (id: string) =>
+    api.get<{ folder_id: string; child_folders_count: number; child_assignments_count: number }>(
+      `/folder/${id}/contents-count`
+    ),
   moveFolder: (id: string, newPath: string[]) =>
     api.put(`/folder/${id}/move`, { newPath }),
   reorderItems: (
@@ -465,8 +480,6 @@ export const apiClient = {
     api.put(`/rubric/${id}`, data),
 
   // AI endpoints (uses separate axios instance with no timeout)
-  generateAIContent: (prompt: string, assignmentId: string) =>
-    aiApi.post("/ai/generate", { prompt, assignmentId }),
   generateModelSolution: (assignmentId: string, ideBlockId: string) =>
     aiApi.post("/ai/generate-model-solution", { assignmentId, ideBlockId }),
   generateUnitTests: (assignmentId: string, ideBlockId: string) =>
@@ -538,6 +551,12 @@ export const apiClient = {
     api.post(`/s3buckets/${bucketId}/files/rename`, { oldPath, newPath }),
   createS3File: (bucketId: string, filePath: string, content?: string) =>
     api.post(`/s3buckets/${bucketId}/files`, { path: filePath, content: content || "" }),
+
+  // Image block operations
+  getImageUploadUrl: (data: { assignmentId: string; filename: string; contentType: string }) =>
+    api.post('/s3buckets/image-upload-url', data),
+  getImageUrl: (assignmentId: string, s3Key: string) =>
+    api.get('/s3buckets/image-url', { params: { assignmentId, s3Key } }),
 
   // S3 version history operations (for grading edit history slider)
   getS3FileVersions: (bucketId: string, filePath: string) =>

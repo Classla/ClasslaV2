@@ -75,14 +75,14 @@ const SignInPage = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-purple-50 to-indigo-100 flex items-center justify-center p-4">
+    <div className="min-h-screen bg-gradient-to-br from-muted to-background dark:from-gray-900 dark:to-gray-800 flex items-center justify-center p-4">
       <div className="w-full max-w-md">
         {/* Logo and Brand */}
         <div className="text-center mb-8">
           <div className="flex justify-center mb-4">
             <Logo size="lg" />
           </div>
-          <h1 className="text-3xl font-bold text-gray-900">Welcome back</h1>
+          <h1 className="text-3xl font-bold text-foreground">Welcome back</h1>
         </div>
 
         <Card className="shadow-xl border-0">
@@ -105,13 +105,13 @@ const SignInPage = () => {
               <div className="space-y-2">
                 <label
                   htmlFor="identifier"
-                  className="text-sm font-medium text-gray-700"
+                  className="text-sm font-medium text-foreground"
                 >
                   Email or Username
                 </label>
                 <div className="relative">
                   {/* @ts-expect-error - react-icons type issue */}
-                  <MdEmail className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
+                  <MdEmail className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground" />
                   <Input
                     type="text"
                     id="identifier"
@@ -128,13 +128,13 @@ const SignInPage = () => {
               <div className="space-y-2">
                 <label
                   htmlFor="password"
-                  className="text-sm font-medium text-gray-700"
+                  className="text-sm font-medium text-foreground"
                 >
                   Password
                 </label>
                 <div className="relative">
                   {/* @ts-expect-error - react-icons type issue */}
-                  <MdLock className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
+                  <MdLock className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground" />
                   <Input
                     type={showPassword ? "text" : "password"}
                     id="password"
@@ -148,7 +148,7 @@ const SignInPage = () => {
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                    className="absolute right-3 top-1/2 transform -translate-y-1/2 text-muted-foreground hover:text-foreground"
                   >
                     {/* @ts-expect-error - react-icons type issue */}
                     {showPassword ? <FaEyeSlash /> : <FaEye />}
@@ -174,10 +174,10 @@ const SignInPage = () => {
 
             <div className="relative">
               <div className="absolute inset-0 flex items-center">
-                <span className="w-full border-t border-gray-300" />
+                <span className="w-full border-t border-border" />
               </div>
               <div className="relative flex justify-center text-xs uppercase">
-                <span className="bg-white px-2 text-gray-500">
+                <span className="bg-card px-2 text-muted-foreground">
                   Or continue with
                 </span>
               </div>
@@ -191,7 +191,7 @@ const SignInPage = () => {
             >
               {googleLoading ? (
                 <div className="flex items-center">
-                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-600 mr-2"></div>
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-muted-foreground mr-2"></div>
                   Signing In...
                 </div>
               ) : (
@@ -204,7 +204,7 @@ const SignInPage = () => {
             </Button>
 
             <div className="text-center pt-4">
-              <p className="text-sm text-gray-600">
+              <p className="text-sm text-muted-foreground">
                 Don't have an account?{" "}
                 <Link
                   to="/signup"
@@ -218,7 +218,7 @@ const SignInPage = () => {
         </Card>
 
         <div className="text-center mt-8">
-          <p className="text-xs text-gray-500">
+          <p className="text-xs text-muted-foreground">
             By signing in, you agree to our Terms of Service and Privacy Policy
           </p>
         </div>

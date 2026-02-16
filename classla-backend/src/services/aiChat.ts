@@ -291,10 +291,31 @@ const TOOLS: Tool[] = [
   },
 ];
 
+const SAVE_MEMORY_TOOL: Tool = {
+  name: "save_memory",
+  description:
+    'Save important context to course memory that persists across all chat sessions in this course. You MUST call this tool whenever the instructor expresses a persistent preference, rule, or standard — look for phrases like "remember", "always", "never", "from now on", "going forward", "make sure to", "don\'t ever", "I prefer", "I want", "use X instead of Y", or any statement that implies a lasting rule or preference. Each memory should be a concise, self-contained statement (max 500 chars). When in doubt about whether to save, save it.',
+  input_schema: {
+    type: "object" as const,
+    properties: {
+      content: {
+        type: "string",
+        description:
+          "A concise, self-contained statement capturing the preference or rule (max 500 characters). Write it as a directive, e.g. 'Always use Python type hints' not 'The instructor said to use type hints'.",
+      },
+    },
+    required: ["content"],
+  },
+};
+
+const DEFAULT_MAX_CHARS = 5000;
+const MAX_ENTRY_CHARS = 500;
+
 // Build the system prompt
 function buildSystemPrompt(
   assignmentName: string,
-  courseName: string
+  courseName: string,
+  memories?: string[]
 ): string {
   return `You are Classla AI, an assistant helping instructors build educational assignments. You can create, edit, delete, and reorder assignment blocks, and read/write code files in IDE blocks.
 
@@ -541,6 +562,27 @@ language options: "python", "java"
   }
 }
 
+### Image Block
+{
+  "type": "imageBlock",
+  "attrs": {
+    "imageData": {
+      "id": "uuid",
+      "s3Key": "",
+      "assignmentId": "",
+      "alt": "Description of the image",
+      "width": 0,
+      "alignment": "center",
+      "caption": "Optional caption text",
+      "originalFilename": "",
+      "mimeType": ""
+    }
+  }
+}
+NOTE: You CANNOT upload image files. When creating an image block, set s3Key and assignmentId to empty strings — the instructor must upload the image themselves via the editor UI. You CAN edit an existing image block to update its alt text, caption, alignment, and width. When editing, preserve the existing s3Key, assignmentId, originalFilename, and mimeType values.
+alignment options: "left", "center", "right"
+width: pixel width (0 = auto/natural size)
+
 RULES:
 1. Generate unique UUIDs for all id fields (format: xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx)
 2. Questions/prompts should be HTML strings wrapped in <p> tags
@@ -548,7 +590,17 @@ RULES:
 4. For IDE blocks, always use write_ide_files after creating to add template/solution files
 5. For IDE blocks, s3_bucket_id and last_container_id should always be null in the block JSON — use write_ide_files to manage files
 6. For IDE autograder tests, use get_autograder_tests to read current tests and set_autograder_tests to update them — do NOT try to edit autograder tests via edit_block
-7. Be conversational — explain what you're doing and ask clarifying questions when needed`;
+7. Be conversational — explain what you're doing and ask clarifying questions when needed
+8. MEMORY: When the instructor says anything that implies a lasting preference or rule (e.g. "remember...", "always...", "never...", "from now on...", "I prefer...", "make sure to...", "don't ever..."), you MUST call save_memory to persist it. When in doubt, save it.${
+    memories && memories.length > 0
+      ? `
+
+COURSE MEMORIES (persisted context from previous sessions):
+${memories.map((m) => `- ${m}`).join("\n")}
+
+These memories apply to ALL assignments in this course. Follow them unless the instructor explicitly overrides one. You can save new memories with the save_memory tool.`
+      : ""
+  }`;
 }
 
 // Get a summary of a block for the get_assignment_state tool
@@ -604,6 +656,14 @@ function summarizeBlock(block: any, index: number): string {
     case "embedBlock":
       summary += `: ${block.attrs?.embedData?.embedType || "unknown"} - "${block.attrs?.embedData?.title || ""}"`;
       break;
+    case "imageBlock": {
+      const imgData = block.attrs?.imageData;
+      const hasImage = !!imgData?.s3Key;
+      const alt = imgData?.alt || "";
+      const caption = imgData?.caption || "";
+      summary += `: ${hasImage ? "uploaded" : "empty"}, align: ${imgData?.alignment || "center"}${alt ? `, alt: "${alt.substring(0, 40)}"` : ""}${caption ? `, caption: "${caption.substring(0, 40)}"` : ""}`;
+      break;
+    }
     case "bulletList":
     case "orderedList": {
       const itemCount = block.content?.length || 0;
@@ -1118,6 +1178,56 @@ async function handleSetAutograderTests(
   return `Set ${tests.length} autograder test(s) on IDE block ${blockIndex} (total: ${totalPoints} points).`;
 }
 
+// Save a memory entry from the AI
+async function handleSaveMemory(
+  courseId: string,
+  userId: string,
+  content: string,
+  memoryEnabled: boolean,
+  maxChars: number
+): Promise<string> {
+  if (!memoryEnabled) {
+    return "Memory saving is disabled for this course. The instructor can enable it in Course Settings > AI Memory.";
+  }
+
+  if (!content || typeof content !== "string" || content.trim().length === 0) {
+    return "Error: Memory content cannot be empty.";
+  }
+
+  if (content.length > MAX_ENTRY_CHARS) {
+    return `Error: Memory entry must be ${MAX_ENTRY_CHARS} characters or fewer. Current length: ${content.length}.`;
+  }
+
+  // Check total usage
+  const { data: existingMemories } = await supabase
+    .from("ai_chat_memories")
+    .select("content")
+    .eq("course_id", courseId);
+
+  const currentUsage = (existingMemories || []).reduce(
+    (sum: number, m: any) => sum + (m.content?.length || 0),
+    0
+  );
+
+  if (currentUsage + content.trim().length > maxChars) {
+    return `Memory is full (${currentUsage}/${maxChars} characters used). Ask the instructor to free up space in Course Settings > AI Memory.`;
+  }
+
+  const { error } = await supabase.from("ai_chat_memories").insert({
+    course_id: courseId,
+    content: content.trim(),
+    created_by: userId,
+    source: "ai",
+  });
+
+  if (error) {
+    logger.error("Failed to save AI memory", { error: error.message, courseId });
+    return "Error: Failed to save memory. Please try again.";
+  }
+
+  return `Memory saved: "${content.trim()}"`;
+}
+
 // Execute a single tool call
 async function executeTool(
   toolName: string,
@@ -1125,7 +1235,9 @@ async function executeTool(
   assignmentId: string,
   userId: string,
   courseId: string,
-  socket: AuthenticatedSocket
+  socket: AuthenticatedSocket,
+  memoryEnabled?: boolean,
+  memoryMaxChars?: number
 ): Promise<string> {
   switch (toolName) {
     case "get_assignment_state":
@@ -1196,6 +1308,15 @@ async function executeTool(
       return formatSearchResultsForPrompt(results);
     }
 
+    case "save_memory":
+      return handleSaveMemory(
+        courseId,
+        userId,
+        toolInput.content,
+        memoryEnabled ?? true,
+        memoryMaxChars ?? DEFAULT_MAX_CHARS
+      );
+
     default:
       throw new Error(`Unknown tool: ${toolName}`);
   }
@@ -1253,6 +1374,25 @@ export async function handleChatMessage(params: {
     const courseName = (assignment as any).courses?.name || "Unknown Course";
     const courseId = assignment.course_id;
 
+    // Fetch course settings and memories
+    const { data: courseData } = await supabase
+      .from("courses")
+      .select("settings")
+      .eq("id", courseId)
+      .single();
+
+    const courseSettings = courseData?.settings || {};
+    const memoryEnabled = courseSettings.ai_memory_enabled !== false; // default true
+    const memoryMaxChars = courseSettings.ai_memory_max_chars ?? DEFAULT_MAX_CHARS;
+
+    const { data: memoriesData } = await supabase
+      .from("ai_chat_memories")
+      .select("content")
+      .eq("course_id", courseId)
+      .order("created_at", { ascending: true });
+
+    const memories = (memoriesData || []).map((m: any) => m.content);
+
     // Fetch user email for Discord notification
     const { data: userData } = await supabase
       .from("users")
@@ -1301,7 +1441,8 @@ export async function handleChatMessage(params: {
       { role: "user" as const, content: userContent },
     ];
 
-    const systemPrompt = buildSystemPrompt(assignment.name, courseName);
+    const systemPrompt = buildSystemPrompt(assignment.name, courseName, memories);
+    const tools = memoryEnabled ? [...TOOLS, SAVE_MEMORY_TOOL] : TOOLS;
     const client = getBedrockClient();
 
     // Agentic loop with streaming
@@ -1315,7 +1456,7 @@ export async function handleChatMessage(params: {
         model: MODEL_ID,
         max_tokens: 8192,
         system: systemPrompt,
-        tools: TOOLS,
+        tools,
         messages: currentMessages,
       });
 
@@ -1368,7 +1509,9 @@ export async function handleChatMessage(params: {
             assignmentId,
             userId,
             courseId,
-            socket
+            socket,
+            memoryEnabled,
+            memoryMaxChars
           );
         } catch (err: any) {
           toolResult = `Error: ${err.message}`;

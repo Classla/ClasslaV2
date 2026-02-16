@@ -2,10 +2,13 @@ import { Outlet, Link, useLocation } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import Logo from "./Logo";
 import { Button } from "./ui/button";
+import { Sun, Moon } from "lucide-react";
+import { useTheme } from "../hooks/useTheme";
 
 const Layout = () => {
   const { signOut } = useAuth();
   const location = useLocation();
+  const { isDark, toggle } = useTheme();
 
   // Check if we're on a course page
   const isCoursePage = location.pathname.startsWith("/course/");
@@ -15,9 +18,9 @@ const Layout = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-background">
       {!isCoursePage && (
-        <header className="bg-purple-600 shadow-sm">
+        <header className="bg-purple-600 dark:bg-purple-900 shadow-sm">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="flex justify-between items-center h-16">
               <div className="flex items-center space-x-4">
@@ -48,6 +51,13 @@ const Layout = () => {
                 >
                   Settings
                 </Link>
+                <button
+                  onClick={toggle}
+                  className="text-purple-100 hover:text-white transition-colors duration-200 p-2"
+                  aria-label="Toggle dark mode"
+                >
+                  {isDark ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
+                </button>
                 <Button
                   onClick={handleSignOut}
                   variant="ghost"

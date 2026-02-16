@@ -45,9 +45,9 @@ const EmbedViewer: React.FC<EmbedViewerProps> = memo(({ node }) => {
       draggable={false}
       contentEditable={false}
     >
-      <div className="embed-viewer border border-gray-200 rounded-lg p-4 bg-white">
+      <div className="embed-viewer border border-border rounded-lg p-4 bg-card">
         {embedData.title && (
-          <h3 className="text-sm font-medium text-gray-900 mb-2">
+          <h3 className="text-sm font-medium text-foreground mb-2">
             {embedData.title}
           </h3>
         )}
@@ -67,7 +67,7 @@ const EmbedViewer: React.FC<EmbedViewerProps> = memo(({ node }) => {
             />
           </div>
         ) : (
-          <div className="p-4 text-center text-gray-500">
+          <div className="p-4 text-center text-muted-foreground">
             No embed URL provided
           </div>
         )}

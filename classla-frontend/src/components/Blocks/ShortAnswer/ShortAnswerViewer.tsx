@@ -94,7 +94,7 @@ const ShortAnswerViewer: React.FC<ShortAnswerViewerProps> = memo(
         contentEditable={false}
       >
         <div
-          className={`short-answer-viewer border border-gray-200 rounded-lg p-3 bg-white shadow-sm transition-all duration-300 select-none ${
+          className={`short-answer-viewer border border-border rounded-lg p-3 bg-card shadow-sm transition-all duration-300 select-none ${
             answer.trim() ? "border-blue-300 shadow-md" : ""
           }`}
           role="group"
@@ -119,10 +119,10 @@ const ShortAnswerViewer: React.FC<ShortAnswerViewerProps> = memo(
                 )}
               </div>
               <div className="select-none">
-                <div className="text-sm font-medium text-gray-900">
+                <div className="text-sm font-medium text-foreground">
                   Short Answer Question
                 </div>
-                <div className="text-xs text-gray-500">
+                <div className="text-xs text-muted-foreground">
                   Type your answer
                 </div>
               </div>
@@ -130,11 +130,11 @@ const ShortAnswerViewer: React.FC<ShortAnswerViewerProps> = memo(
           </div>
 
           <div className="mb-3">
-            <div className="text-sm font-medium text-gray-700 mb-1 block select-none">
+            <div className="text-sm font-medium text-foreground mb-1 block select-none">
               Prompt
             </div>
             <div
-              className="text-base font-medium text-gray-900 leading-relaxed select-text"
+              className="text-base font-medium text-foreground leading-relaxed select-text"
               dangerouslySetInnerHTML={{
                 __html: shortAnswerData.prompt || "Prompt not available",
               }}
@@ -150,7 +150,7 @@ const ShortAnswerViewer: React.FC<ShortAnswerViewerProps> = memo(
               className={`w-full p-3 border rounded-md resize-y min-h-[120px] ${
                 isReadOnly
                   ? "opacity-50 cursor-not-allowed"
-                  : "border-gray-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
+                  : "border-border focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
               } ${!wordCountValid ? "border-yellow-500" : ""}`}
             />
             {!wordCountValid && (
@@ -163,7 +163,7 @@ const ShortAnswerViewer: React.FC<ShortAnswerViewerProps> = memo(
           </div>
 
 
-          <div className="mt-4 pt-3 border-t border-gray-200 text-xs text-gray-500 select-none">
+          <div className="mt-4 pt-3 border-t border-border text-xs text-muted-foreground select-none">
             <div className="flex justify-between items-center">
               <span>
                 {answer.trim()

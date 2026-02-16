@@ -162,7 +162,7 @@ const StatsOverview: React.FC<{
       <Card>
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
           <CardTitle className="text-sm font-medium">Avg Uptime</CardTitle>
-          <Server className="h-4 w-4 text-gray-600" />
+          <Server className="h-4 w-4 text-muted-foreground" />
         </CardHeader>
         <CardContent>
           <div className="text-2xl font-bold">
@@ -181,12 +181,12 @@ const StatusBadge: React.FC<{ status: string }> = ({ status }) => {
     running: "bg-green-100 text-green-800",
     starting: "bg-yellow-100 text-yellow-800",
     stopping: "bg-orange-100 text-orange-800",
-    stopped: "bg-gray-100 text-gray-800",
+    stopped: "bg-muted text-foreground",
     failed: "bg-red-100 text-red-800",
   };
 
   return (
-    <Badge className={variants[status] || "bg-gray-100 text-gray-800"}>
+    <Badge className={variants[status] || "bg-muted text-foreground"}>
       {status}
     </Badge>
   );
@@ -282,7 +282,7 @@ const IDEDashboard: React.FC = () => {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-600"></div>
-        <span className="ml-3 text-gray-600">Loading IDE dashboard...</span>
+        <span className="ml-3 text-muted-foreground">Loading IDE dashboard...</span>
       </div>
     );
   }
@@ -294,10 +294,10 @@ const IDEDashboard: React.FC = () => {
       {/* Header */}
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">
+          <h1 className="text-3xl font-bold text-foreground">
             IDE Container Management
           </h1>
-          <p className="text-gray-600 mt-1">
+          <p className="text-muted-foreground mt-1">
             Monitor and manage IDE containers across the cluster
           </p>
         </div>
@@ -305,7 +305,7 @@ const IDEDashboard: React.FC = () => {
           variant="outline"
           onClick={handleRefresh}
           disabled={refreshing}
-          className="border-purple-600 text-purple-600 hover:bg-purple-50"
+          className="border-purple-600 text-primary hover:bg-primary/10"
         >
           <RefreshCw
             className={`w-4 h-4 mr-2 ${refreshing ? "animate-spin" : ""}`}
@@ -379,7 +379,7 @@ const IDEDashboard: React.FC = () => {
         </CardHeader>
         <CardContent>
           {containers.length === 0 ? (
-            <div className="text-center py-8 text-gray-500">
+            <div className="text-center py-8 text-muted-foreground">
               <Server className="w-12 h-12 mx-auto mb-4 opacity-50" />
               <p>No running containers found</p>
             </div>
@@ -410,7 +410,7 @@ const IDEDashboard: React.FC = () => {
                           {container.s3Bucket.substring(0, 20)}...
                         </span>
                       ) : (
-                        <span className="text-gray-400">Pre-warmed</span>
+                        <span className="text-muted-foreground">Pre-warmed</span>
                       )}
                     </TableCell>
                     <TableCell>{getUptime(container)}</TableCell>
@@ -451,7 +451,7 @@ const IDEDashboard: React.FC = () => {
             <AlertDialogTitle>Stop Container?</AlertDialogTitle>
             <AlertDialogDescription>
               Are you sure you want to stop container{" "}
-              <code className="bg-gray-100 px-1 rounded">
+              <code className="bg-muted px-1 rounded">
                 {containerToKill?.substring(0, 12)}...
               </code>
               ? This action cannot be undone and any unsaved work may be lost.
