@@ -26,6 +26,15 @@ resource "aws_launch_template" "main" {
     name = aws_iam_instance_profile.ec2.name
   }
 
+  block_device_mappings {
+    device_name = "/dev/xvda"
+    ebs {
+      volume_size           = 20
+      volume_type           = "gp3"
+      delete_on_termination = true
+    }
+  }
+
   user_data = base64encode(templatefile("${path.module}/user_data.sh", {
     aws_region                    = var.aws_region
     ecr_repository_url           = var.ecr_repository_url
@@ -37,6 +46,7 @@ resource "aws_launch_template" "main" {
     secrets_manager_app          = var.secrets_manager_app_secret
     frontend_url                 = var.frontend_url
     log_group_name               = aws_cloudwatch_log_group.main.name
+    asg_name                     = "${local.name_prefix}-asg"
   }))
 
   tag_specifications {

@@ -13,10 +13,10 @@ import cors from "cors";
 import helmet from "helmet";
 import { supabase } from "./middleware/auth";
 import { errorHandler, notFoundHandler } from "./middleware/errorHandler";
+import { responseInterceptor } from "./middleware/responseInterceptor";
 import { sessionMiddleware, waitForRedisConnection } from "./config/session";
 import { logger } from "./utils/logger";
 import { initializeWebSocket } from "./services/websocket";
-import { setupAIWebSocket } from "./routes/ai";
 import { setupAIChatWebSocket } from "./routes/aiChat";
 
 // Validate required environment variables
@@ -105,6 +105,9 @@ app.use((req, res, next) => {
   next();
 });
 
+// Response interceptor - catches ALL 5xx responses and sends Discord alerts
+app.use(responseInterceptor);
+
 // Health check endpoint
 app.get("/health", async (req, res) => {
   try {
@@ -114,14 +117,22 @@ app.get("/health", async (req, res) => {
       .select("count")
       .limit(1);
 
-    res.json({
-      status: "OK",
-      timestamp: new Date().toISOString(),
-      database: error ? "disconnected" : "connected",
-    });
+    if (error) {
+      res.status(503).json({
+        status: "DEGRADED",
+        timestamp: new Date().toISOString(),
+        database: "disconnected",
+      });
+    } else {
+      res.json({
+        status: "OK",
+        timestamp: new Date().toISOString(),
+        database: "connected",
+      });
+    }
   } catch (error) {
-    res.json({
-      status: "OK",
+    res.status(503).json({
+      status: "ERROR",
       timestamp: new Date().toISOString(),
       database: "error",
     });
@@ -150,6 +161,7 @@ import organizationRoutes from "./routes/organizations";
 import courseTemplateRoutes from "./routes/courseTemplates";
 import managedStudentsRoutes from "./routes/managedStudents";
 import adminIdeRoutes from "./routes/adminIde";
+import aiMemoriesRoutes from "./routes/aiMemories";
 
 // Auth routes (mounted at root for WorkOS callback compatibility)
 app.use("/", authRoutes);
@@ -176,6 +188,7 @@ app.use("/api", organizationRoutes);
 app.use("/api", courseTemplateRoutes);
 app.use("/api", managedStudentsRoutes);
 app.use("/api/admin/ide", adminIdeRoutes);
+app.use("/api", aiMemoriesRoutes);
 
 // Error handling - must be after all routes
 app.use(errorHandler);
@@ -184,8 +197,7 @@ app.use(notFoundHandler);
 // Initialize WebSocket server (must be after session middleware is set up)
 const io = initializeWebSocket(server, sessionMiddleware);
 
-// Set up AI WebSocket namespaces
-setupAIWebSocket(io);
+// Set up AI Chat WebSocket namespace
 setupAIChatWebSocket(io);
 
 // Set up OT WebSocket namespace

@@ -19,6 +19,7 @@ SECRETS_MANAGER_WORKOS="${secrets_manager_workos}"
 SECRETS_MANAGER_APP="${secrets_manager_app}"
 FRONTEND_URL="${frontend_url}"
 LOG_GROUP_NAME="${log_group_name}"
+ASG_NAME="${asg_name}"
 
 # Update system
 yum update -y
@@ -246,6 +247,9 @@ cat > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json <<EOF
   },
   "metrics": {
     "namespace": "ClasslaBackend",
+    "append_dimensions": {
+      "AutoScalingGroupName": "$ASG_NAME"
+    },
     "metrics_collected": {
       "cpu": {
         "measurement": [

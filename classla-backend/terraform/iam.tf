@@ -122,6 +122,30 @@ resource "aws_iam_role_policy" "ec2_cloudwatch_logs" {
   })
 }
 
+# Policy for CloudWatch Agent custom metrics
+resource "aws_iam_role_policy" "ec2_cloudwatch_metrics" {
+  name = "${local.name_prefix}-ec2-cloudwatch-metrics-policy"
+  role = aws_iam_role.ec2.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "cloudwatch:PutMetricData"
+        ]
+        Resource = "*"
+        Condition = {
+          StringEquals = {
+            "cloudwatch:namespace" = "ClasslaBackend"
+          }
+        }
+      }
+    ]
+  })
+}
+
 # Policy for SSM access (for debugging)
 resource "aws_iam_role_policy_attachment" "ec2_ssm" {
   role       = aws_iam_role.ec2.name

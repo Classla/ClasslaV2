@@ -3,6 +3,22 @@ import { logger } from "../utils/logger";
 // Discord webhook URLs (hardcoded since repo is private)
 const DISCORD_WEBHOOK_ASSIGNMENT_QUERIES = "https://canary.discord.com/api/webhooks/1446175972742402118/nO9PISS47jtlpjG_XDzXd1i4flVGUO0PtwjGGLaHdyB391Hf3uvlTGtLxMmDvGQDS8i7";
 const DISCORD_WEBHOOK_AI_PARSING_ERRORS = "https://canary.discord.com/api/webhooks/1446176370739908698/7v70Hcw4-2H6xrKdMc5NxwXRCYgPUm4UEIujIO-qcyFOVECADXnRtTVE5XI94TOiVcsI";
+const DISCORD_WEBHOOK_BACKEND_ALERTS = "https://canary.discord.com/api/webhooks/1472775586974798028/6qyXgx-QHTROhkLR0_f-vI3AyILl79iQ3wsa_TUxAWInztiOW-od9O-LHnp-RjfZ_7fq";
+
+// Rate limiting for 5xx error notifications
+const ERROR_COOLDOWN_MS = 60_000; // 60 seconds
+const ERROR_MAP_MAX_SIZE = 1000;
+const ERROR_MAP_PRUNE_AGE_MS = 5 * 60_000; // 5 minutes
+const recentErrors = new Map<string, number>();
+
+function pruneRecentErrors() {
+  const now = Date.now();
+  for (const [key, timestamp] of recentErrors) {
+    if (now - timestamp > ERROR_MAP_PRUNE_AGE_MS) {
+      recentErrors.delete(key);
+    }
+  }
+}
 
 /**
  * Send a Discord webhook notification
@@ -227,11 +243,75 @@ export async function notifyRequestError(data: {
         },
         {
           name: "Error",
-          value: data.error.length > 1000 
+          value: data.error.length > 1000
             ? data.error.substring(0, 1000) + "... (truncated)"
             : data.error,
           inline: false,
         },
+      ],
+      timestamp: new Date().toISOString(),
+    }],
+  });
+}
+
+/**
+ * Send notification for a 5xx response caught by the response interceptor.
+ * Rate-limited: deduplicates by METHOD+path+status with a 60s cooldown.
+ */
+export async function notify5xxError(data: {
+  statusCode: number;
+  method: string;
+  path: string;
+  requestId?: string;
+  userEmail?: string;
+}): Promise<void> {
+  const errorKey = `${data.method} ${data.path} ${data.statusCode}`;
+  const now = Date.now();
+
+  // Rate limit check
+  const lastSent = recentErrors.get(errorKey);
+  if (lastSent && now - lastSent < ERROR_COOLDOWN_MS) {
+    return;
+  }
+
+  recentErrors.set(errorKey, now);
+
+  // Prune if map is getting large
+  if (recentErrors.size > ERROR_MAP_MAX_SIZE) {
+    pruneRecentErrors();
+  }
+
+  await sendDiscordWebhook(DISCORD_WEBHOOK_BACKEND_ALERTS, {
+    embeds: [{
+      title: `5xx Error: ${data.statusCode}`,
+      description: `\`${data.method} ${data.path}\` returned **${data.statusCode}**`,
+      color: 0xe74c3c, // Red
+      fields: [
+        {
+          name: "Status Code",
+          value: String(data.statusCode),
+          inline: true,
+        },
+        {
+          name: "Method",
+          value: data.method,
+          inline: true,
+        },
+        {
+          name: "Path",
+          value: data.path,
+          inline: true,
+        },
+        ...(data.requestId ? [{
+          name: "Request ID",
+          value: data.requestId,
+          inline: true,
+        }] : []),
+        ...(data.userEmail ? [{
+          name: "User",
+          value: data.userEmail,
+          inline: true,
+        }] : []),
       ],
       timestamp: new Date().toISOString(),
     }],

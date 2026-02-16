@@ -146,6 +146,12 @@ variable "health_check_grace_period" {
   default     = 300
 }
 
+variable "discord_webhook_url" {
+  description = "Discord webhook URL for CloudWatch alarm notifications"
+  type        = string
+  sensitive   = true
+}
+
 variable "redis_maintenance_window" {
   description = "Redis maintenance window (e.g., mon:05:00-mon:06:00)"
   type        = string
