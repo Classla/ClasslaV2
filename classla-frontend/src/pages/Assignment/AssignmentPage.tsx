@@ -105,6 +105,7 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
   const [rubricSchema, setRubricSchema] = useState<RubricSchema | null>(null);
   const [selectedGradingSubmissionId, setSelectedGradingSubmissionId] = useState<string | undefined>(undefined);
   const [studentGrader, setStudentGrader] = useState<Grader | null>(null);
+  const [isLateSubmission, setIsLateSubmission] = useState(false);
 
   // Student Preview Mode state - persists to localStorage
   const [isPreviewMode, setIsPreviewMode] = useState<boolean>(() => {
@@ -294,6 +295,7 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
               setSelectedSubmissionId(latestSubmission.id);
               setSubmissionStatus(latestSubmission.status);
               setSubmissionTimestamp(latestSubmission.timestamp);
+              setIsLateSubmission(latestSubmission.is_late === true);
 
               // Fetch grader data if submission is submitted or graded
               if (latestSubmission.status === "submitted" || latestSubmission.status === "graded") {
@@ -314,6 +316,7 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
               setSubmissionTimestamp(null);
               setAllSubmissions([]);
               setStudentGrader(null);
+              setIsLateSubmission(false);
             }
           } catch (submissionError) {
             console.log("No submission found yet:", submissionError);
@@ -430,8 +433,9 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
     }
   };
 
-  const formatDueDate = (date: Date) => {
-    return date.toLocaleDateString("en-US", {
+  const formatDueDate = (date: Date | string) => {
+    const d = typeof date === "string" ? new Date(date) : date;
+    return d.toLocaleDateString("en-US", {
       weekday: "short",
       month: "short",
       day: "numeric",
@@ -601,8 +605,9 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
                         {userDueDate && (
                           <div className="flex items-center space-x-2">
                             <Calendar className="w-4 h-4" />
-                            <span className="text-sm">
-                              Due: {formatDueDate(userDueDate)}
+                            <span className={`text-sm ${new Date(userDueDate) < new Date() ? "text-red-300 font-semibold" : ""}`}>
+                              {new Date(userDueDate) < new Date() ? "Past Due: " : "Due: "}
+                              {formatDueDate(userDueDate)}
                             </span>
                           </div>
                         )}
@@ -747,6 +752,8 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
                         selectedSubmissionId={selectedSubmissionId}
                         grader={studentGrader}
                         totalPossiblePoints={totalPoints}
+                        userDueDate={userDueDate}
+                        isLateSubmission={isLateSubmission}
                         locked={
                           submissionStatus === "submitted" ||
                           submissionStatus === "graded"
@@ -760,6 +767,7 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
                             setSubmissionId(id);
                             setSubmissionStatus(selected.status);
                             setSubmissionTimestamp(selected.timestamp);
+                            setIsLateSubmission(selected.is_late === true);
                             // Fetch grader for this submission
                             if (selected.status === "submitted" || selected.status === "graded") {
                               apiClient.getGradersBySubmission(id)

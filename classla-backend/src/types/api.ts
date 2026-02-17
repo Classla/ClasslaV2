@@ -99,6 +99,7 @@ export interface CreateAssignmentRequest {
   content: string;
   publish_times?: Record<string, string>;
   due_dates_map?: Record<string, Date>;
+  due_date_config?: { courseDueDate?: string; sectionDueDates?: Record<string, string> };
   module_path?: string[];
   is_lockdown?: boolean;
   lockdown_time_map?: Record<string, number>;
@@ -110,6 +111,7 @@ export interface UpdateAssignmentRequest {
   content?: string;
   publish_times?: Record<string, string>;
   due_dates_map?: Record<string, Date>;
+  due_date_config?: { courseDueDate?: string; sectionDueDates?: Record<string, string> };
   module_path?: string[];
   is_lockdown?: boolean;
   lockdown_time_map?: Record<string, number>;
@@ -128,6 +130,7 @@ export interface StudentAssignmentResponse {
   content: string; // Filtered content without autograder data
   publish_times: Record<string, string>;
   due_dates_map: Record<string, Date>;
+  due_date_config: { courseDueDate?: string; sectionDueDates?: Record<string, string> };
   module_path: string[];
   is_lockdown: boolean;
   lockdown_time_map: Record<string, number>;

@@ -356,6 +356,7 @@ export const apiClient = {
     content?: string;
     publish_times?: Record<string, string>;
     due_dates_map?: Record<string, string>;
+    due_date_config?: { courseDueDate?: string; sectionDueDates?: Record<string, string> };
     module_path?: string[];
     is_lockdown?: boolean;
     lockdown_time_map?: Record<string, number>;
@@ -369,6 +370,7 @@ export const apiClient = {
       content?: string;
       publish_times?: Record<string, string>;
       due_dates_map?: Record<string, string>;
+      due_date_config?: { courseDueDate?: string; sectionDueDates?: Record<string, string> };
       module_path?: string[];
       is_lockdown?: boolean;
       lockdown_time_map?: Record<string, number>;

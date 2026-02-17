@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useCallback } from "react";
 import { io, Socket } from "socket.io-client";
 import { apiClient } from "../lib/api";
 import { Assignment, Folder } from "../types";
@@ -13,6 +13,7 @@ const getBaseURL = () => {
 export function useModuleTree(courseId: string, isInstructor: boolean) {
   const queryClient = useQueryClient();
   const socketRef = useRef<Socket | null>(null);
+  const dragLockRef = useRef(false);
 
   const assignmentsQuery = useQuery<Assignment[]>({
     queryKey: ["courseAssignments", courseId],
@@ -32,10 +33,21 @@ export function useModuleTree(courseId: string, isInstructor: boolean) {
     enabled: !!courseId && isInstructor,
   });
 
-  const invalidateTree = () => {
+  const invalidateTree = useCallback(() => {
+    if (dragLockRef.current) return; // Suppress during drag to protect optimistic state
     queryClient.invalidateQueries({ queryKey: ["courseAssignments", courseId] });
     queryClient.invalidateQueries({ queryKey: ["courseFolders", courseId] });
-  };
+  }, [queryClient, courseId]);
+
+  // Lock/unlock to prevent WebSocket invalidations from overwriting optimistic updates during drag
+  const lockForDrag = useCallback(() => {
+    dragLockRef.current = true;
+  }, []);
+
+  const unlockAfterDrag = useCallback(() => {
+    dragLockRef.current = false;
+    invalidateTree(); // Refetch to confirm server state
+  }, [invalidateTree]);
 
   // WebSocket connection for real-time updates
   useEffect(() => {
@@ -61,7 +73,7 @@ export function useModuleTree(courseId: string, isInstructor: boolean) {
       socket.disconnect();
       socketRef.current = null;
     };
-  }, [courseId]);
+  }, [courseId, invalidateTree]);
 
   // Mutations
   const createAssignment = useMutation({
@@ -121,6 +133,8 @@ export function useModuleTree(courseId: string, isInstructor: boolean) {
     folders: foldersQuery.data || [],
     isLoading: assignmentsQuery.isLoading || (isInstructor && foldersQuery.isLoading),
     invalidateTree,
+    lockForDrag,
+    unlockAfterDrag,
     mutations: {
       createAssignment,
       updateAssignment,

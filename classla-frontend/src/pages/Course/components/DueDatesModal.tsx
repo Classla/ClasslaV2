@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { apiClient } from "../../../lib/api";
 import { useToast } from "../../../hooks/use-toast";
 import { Button } from "../../../components/ui/button";
@@ -13,7 +13,7 @@ import {
 } from "../../../components/ui/dialog";
 import { ScrollArea } from "../../../components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../../components/ui/tabs";
-import { Calendar, Clock, Users, User, X } from "lucide-react";
+import { Calendar, Users, User, X, Pencil } from "lucide-react";
 import { Assignment, Section, CourseEnrollment } from "../../../types";
 
 interface DueDatesModalProps {
@@ -61,12 +61,14 @@ const DueDatesModal: React.FC<DueDatesModalProps> = ({
   const [studentDueDates, setStudentDueDates] = useState<
     Record<string, string>
   >({});
-  const [overrides, setOverrides] = useState<DueDateOverride[]>([]);
+  // Track which students have the override input expanded
+  const [expandedOverrides, setExpandedOverrides] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     if (isOpen) {
       fetchSectionsAndEnrollments();
       initializeDueDates();
+      setExpandedOverrides(new Set());
     }
   }, [isOpen, assignment]);
 
@@ -134,93 +136,40 @@ const DueDatesModal: React.FC<DueDatesModalProps> = ({
   const initializeDueDates = () => {
     // Initialize from assignment.due_dates_map
     const dueDatesMap = assignment.due_dates_map || {};
+    const config = assignment.due_date_config || {};
 
-    // Find course-wide due date (if all students have the same date)
-    const allDates = Object.values(dueDatesMap);
-    const uniqueDates = [...new Set(allDates)];
+    // Restore course-wide and section dates from saved config
+    setCourseDueDate(config.courseDueDate ? formatDateForInput(config.courseDueDate) : "");
+    setSectionDueDates(
+      config.sectionDueDates
+        ? Object.fromEntries(
+            Object.entries(config.sectionDueDates).map(([id, date]) => [id, formatDateForInput(date)])
+          )
+        : {}
+    );
 
-    if (uniqueDates.length === 1 && allDates.length > 0) {
-      setCourseDueDate(formatDateForInput(uniqueDates[0]));
-    }
-
-    // Initialize student due dates
+    // Initialize individual student due dates from the stored map
     const studentDates: Record<string, string> = {};
     Object.entries(dueDatesMap).forEach(([userId, date]) => {
       studentDates[userId] = formatDateForInput(date);
     });
     setStudentDueDates(studentDates);
-
-    // Build overrides list for display
-    buildOverridesList(dueDatesMap);
-  };
-
-  const buildOverridesList = (dueDatesMap: Record<string, Date | string>) => {
-    const overridesList: DueDateOverride[] = [];
-
-    // Add course-wide due date if exists
-    const allDates = Object.values(dueDatesMap);
-    const uniqueDates = [...new Set(allDates.map((d) => d.toString()))];
-
-    if (uniqueDates.length === 1 && allDates.length > 0) {
-      overridesList.push({
-        id: "course",
-        name: "Entire Course",
-        type: "course",
-        dueDate: formatDateForInput(uniqueDates[0]),
-      });
-    }
-
-    // Add section overrides (if all students in a section have the same date)
-    sections.forEach((section) => {
-      const sectionStudentIds = section.enrollments.map((e) => e.user.id);
-      const sectionDates = sectionStudentIds
-        .map((id) => dueDatesMap[id])
-        .filter(Boolean)
-        .map((d) => d.toString());
-
-      const uniqueSectionDates = [...new Set(sectionDates)];
-      if (
-        uniqueSectionDates.length === 1 &&
-        sectionDates.length === sectionStudentIds.length
-      ) {
-        overridesList.push({
-          id: `section-${section.id}`,
-          name: section.name,
-          type: "section",
-          dueDate: formatDateForInput(uniqueSectionDates[0]),
-          sectionId: section.id,
-        });
-      }
-    });
-
-    // Add individual student overrides
-    Object.entries(dueDatesMap).forEach(([userId, date]) => {
-      // Find the user
-      let userName = userId;
-      sections.forEach((section) => {
-        const enrollment = section.enrollments.find(
-          (e) => e.user.id === userId
-        );
-        if (enrollment) {
-          userName = getStudentDisplayName(enrollment);
-        }
-      });
-
-      overridesList.push({
-        id: `student-${userId}`,
-        name: userName,
-        type: "student",
-        dueDate: formatDateForInput(date),
-        userId,
-      });
-    });
-
-    setOverrides(overridesList);
   };
 
   const formatDateForInput = (date: Date | string): string => {
     const d = new Date(date);
     return d.toISOString().slice(0, 16); // Format: YYYY-MM-DDTHH:MM
+  };
+
+  const formatDateTimeDisplay = (date: string): string => {
+    if (!date) return "";
+    return new Date(date).toLocaleString(undefined, {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    });
   };
 
   const getStudentDisplayName = (enrollment: EnrollmentWithUser) => {
@@ -231,37 +180,140 @@ const DueDatesModal: React.FC<DueDatesModalProps> = ({
     return email;
   };
 
-  const setCourseDueDateHandler = (date: string) => {
-    setCourseDueDate(date);
+  // Compute overrides list from current state (replaces buildOverridesList)
+  const overrides = useMemo(() => {
+    const overridesList: DueDateOverride[] = [];
 
-    // Apply to all students
-    const newStudentDates: Record<string, string> = {};
+    // Course-wide due date
+    if (courseDueDate) {
+      overridesList.push({
+        id: "course",
+        name: "Entire Course",
+        type: "course",
+        dueDate: courseDueDate,
+      });
+    }
+
+    // Section overrides
+    Object.entries(sectionDueDates).forEach(([sectionId, date]) => {
+      if (date) {
+        const section = sections.find((s) => s.id === sectionId);
+        overridesList.push({
+          id: `section-${sectionId}`,
+          name: section?.name || sectionId,
+          type: "section",
+          dueDate: date,
+          sectionId,
+        });
+      }
+    });
+
+    // Individual student overrides (only those who differ from inherited)
+    Object.entries(studentDueDates).forEach(([userId, date]) => {
+      if (!date) return;
+
+      // Find student's section
+      const studentSection = sections.find((s) =>
+        s.enrollments.some((e) => e.user.id === userId)
+      );
+      const inheritedDate =
+        (studentSection && sectionDueDates[studentSection.id]) || courseDueDate;
+
+      // Only show as override if different from inherited
+      if (date !== inheritedDate) {
+        let userName = userId;
+        sections.forEach((section) => {
+          const enrollment = section.enrollments.find(
+            (e) => e.user.id === userId
+          );
+          if (enrollment) {
+            userName = getStudentDisplayName(enrollment);
+          }
+        });
+
+        overridesList.push({
+          id: `student-${userId}`,
+          name: userName,
+          type: "student",
+          dueDate: date,
+          userId,
+        });
+      }
+    });
+
+    return overridesList;
+  }, [courseDueDate, sectionDueDates, studentDueDates, sections]);
+
+  const setCourseDueDateHandler = (newDate: string) => {
+    const oldCourse = courseDueDate;
+    setCourseDueDate(newDate);
+
+    // Only update students who were inheriting from course (not from a section override)
+    const newStudentDates = { ...studentDueDates };
     sections.forEach((section) => {
+      // Skip sections with their own override - their students inherit from section
+      if (sectionDueDates[section.id]) return;
+
       section.enrollments.forEach((enrollment) => {
-        newStudentDates[enrollment.user.id] = date;
+        const uid = enrollment.user.id;
+        const current = newStudentDates[uid] || "";
+        // Only update if student was inheriting from course (date matches old course date)
+        if (current === oldCourse) {
+          if (newDate) {
+            newStudentDates[uid] = newDate;
+          } else {
+            delete newStudentDates[uid];
+          }
+        }
       });
     });
     setStudentDueDates(newStudentDates);
-    setSectionDueDates({});
   };
 
-  const setSectionDueDateHandler = (sectionId: string, date: string) => {
-    const newSectionDates = { ...sectionDueDates, [sectionId]: date };
+  const setSectionDueDateHandler = (sectionId: string, newDate: string) => {
+    const oldSectionDate = sectionDueDates[sectionId] || "";
+    // What students in this section were previously inheriting
+    const oldInherited = oldSectionDate || courseDueDate;
+
+    const newSectionDates = { ...sectionDueDates };
+    if (newDate) {
+      newSectionDates[sectionId] = newDate;
+    } else {
+      delete newSectionDates[sectionId];
+    }
     setSectionDueDates(newSectionDates);
 
-    // Apply to all students in this section
+    // Only update students who were inheriting (date matched old inherited value)
     const section = sections.find((s) => s.id === sectionId);
     if (section) {
       const newStudentDates = { ...studentDueDates };
       section.enrollments.forEach((enrollment) => {
-        newStudentDates[enrollment.user.id] = date;
+        const uid = enrollment.user.id;
+        const current = newStudentDates[uid] || "";
+        if (current === oldInherited) {
+          if (newDate) {
+            newStudentDates[uid] = newDate;
+          } else {
+            // Section cleared - fall back to course date
+            if (courseDueDate) {
+              newStudentDates[uid] = courseDueDate;
+            } else {
+              delete newStudentDates[uid];
+            }
+          }
+        }
       });
       setStudentDueDates(newStudentDates);
     }
   };
 
   const setStudentDueDateHandler = (userId: string, date: string) => {
-    const newStudentDates = { ...studentDueDates, [userId]: date };
+    const newStudentDates = { ...studentDueDates };
+    if (date) {
+      newStudentDates[userId] = date;
+    } else {
+      delete newStudentDates[userId];
+    }
     setStudentDueDates(newStudentDates);
   };
 
@@ -270,26 +322,57 @@ const DueDatesModal: React.FC<DueDatesModalProps> = ({
     if (!override) return;
 
     if (override.type === "course") {
+      const oldCourse = courseDueDate;
       setCourseDueDate("");
-      setStudentDueDates({});
-      setSectionDueDates({});
+
+      // Only clear students who were inheriting from course
+      const newStudentDates = { ...studentDueDates };
+      sections.forEach((section) => {
+        if (sectionDueDates[section.id]) return; // Skip sections with overrides
+        section.enrollments.forEach((enrollment) => {
+          if ((newStudentDates[enrollment.user.id] || "") === oldCourse) {
+            delete newStudentDates[enrollment.user.id];
+          }
+        });
+      });
+      setStudentDueDates(newStudentDates);
     } else if (override.type === "section" && override.sectionId) {
+      const oldSectionDate = sectionDueDates[override.sectionId] || "";
+
       const newSectionDates = { ...sectionDueDates };
       delete newSectionDates[override.sectionId];
       setSectionDueDates(newSectionDates);
 
-      // Remove from students in this section
+      // Fall inheriting students back to course date
       const section = sections.find((s) => s.id === override.sectionId);
       if (section) {
         const newStudentDates = { ...studentDueDates };
         section.enrollments.forEach((enrollment) => {
-          delete newStudentDates[enrollment.user.id];
+          if ((newStudentDates[enrollment.user.id] || "") === oldSectionDate) {
+            if (courseDueDate) {
+              newStudentDates[enrollment.user.id] = courseDueDate;
+            } else {
+              delete newStudentDates[enrollment.user.id];
+            }
+          }
         });
         setStudentDueDates(newStudentDates);
       }
     } else if (override.type === "student" && override.userId) {
+      // Reset student to inherited value
+      const uid = override.userId;
+      const studentSection = sections.find((s) =>
+        s.enrollments.some((e) => e.user.id === uid)
+      );
+      const inheritedDate =
+        (studentSection && sectionDueDates[studentSection.id]) || courseDueDate;
+
       const newStudentDates = { ...studentDueDates };
-      delete newStudentDates[override.userId];
+      if (inheritedDate) {
+        newStudentDates[uid] = inheritedDate;
+      } else {
+        delete newStudentDates[uid];
+      }
       setStudentDueDates(newStudentDates);
     }
   };
@@ -308,10 +391,26 @@ const DueDatesModal: React.FC<DueDatesModalProps> = ({
         }
       });
 
+      // Build due_date_config to remember course-wide and section-level values
+      const dueDateConfig: { courseDueDate?: string; sectionDueDates?: Record<string, string> } = {};
+      if (courseDueDate) {
+        dueDateConfig.courseDueDate = new Date(courseDueDate).toISOString();
+      }
+      const savedSectionDates: Record<string, string> = {};
+      Object.entries(sectionDueDates).forEach(([sectionId, date]) => {
+        if (date) {
+          savedSectionDates[sectionId] = new Date(date).toISOString();
+        }
+      });
+      if (Object.keys(savedSectionDates).length > 0) {
+        dueDateConfig.sectionDueDates = savedSectionDates;
+      }
+
       const updatedAssignment = await apiClient.updateAssignment(
         assignment.id,
         {
           due_dates_map: dueDatesMap,
+          due_date_config: dueDateConfig,
         }
       );
 
@@ -365,6 +464,7 @@ const DueDatesModal: React.FC<DueDatesModalProps> = ({
                   value={courseDueDate}
                   onChange={(e) => setCourseDueDateHandler(e.target.value)}
                   className="max-w-xs"
+                  disabled={loading}
                 />
                 {courseDueDate && (
                   <Button
@@ -423,41 +523,113 @@ const DueDatesModal: React.FC<DueDatesModalProps> = ({
               <ScrollArea className="h-64">
                 <div className="space-y-2">
                   {sections.map((section) =>
-                    section.enrollments.map((enrollment) => (
-                      <div
-                        key={enrollment.id}
-                        className="flex items-center space-x-2"
-                      >
-                        <Label className="w-48 text-sm truncate">
-                          {getStudentDisplayName(enrollment)}
-                          <span className="text-xs text-muted-foreground ml-1">
-                            ({section.name})
-                          </span>
-                        </Label>
-                        <Input
-                          type="datetime-local"
-                          value={studentDueDates[enrollment.user.id] || ""}
-                          onChange={(e) =>
-                            setStudentDueDateHandler(
-                              enrollment.user.id,
-                              e.target.value
-                            )
-                          }
-                          className="max-w-xs"
-                        />
-                        {studentDueDates[enrollment.user.id] && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() =>
-                              setStudentDueDateHandler(enrollment.user.id, "")
-                            }
-                          >
-                            <X className="w-4 h-4" />
-                          </Button>
-                        )}
-                      </div>
-                    ))
+                    section.enrollments.map((enrollment) => {
+                      const userId = enrollment.user.id;
+                      const studentDate = studentDueDates[userId] || "";
+                      const sectionDate = sectionDueDates[section.id] || "";
+                      const inheritedDate = sectionDate || courseDueDate;
+                      const inheritSource = sectionDate
+                        ? `Section ${section.name}`
+                        : "Course";
+                      const isInheriting =
+                        !!inheritedDate &&
+                        (!studentDate || studentDate === inheritedDate);
+                      const isOverrideExpanded = expandedOverrides.has(userId);
+
+                      return (
+                        <div
+                          key={enrollment.id}
+                          className="flex items-center space-x-2"
+                        >
+                          <Label className="w-48 text-sm truncate flex-shrink-0">
+                            {getStudentDisplayName(enrollment)}
+                            <span className="text-xs text-muted-foreground ml-1">
+                              ({section.name})
+                            </span>
+                          </Label>
+
+                          {isInheriting && !isOverrideExpanded ? (
+                            <div className="flex items-center space-x-2 flex-1 min-w-0">
+                              <span className="text-sm text-muted-foreground italic truncate">
+                                Inheriting from {inheritSource}
+                              </span>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="flex-shrink-0 text-muted-foreground hover:text-foreground"
+                                onClick={() =>
+                                  setExpandedOverrides((prev) => {
+                                    const next = new Set(prev);
+                                    next.add(userId);
+                                    return next;
+                                  })
+                                }
+                              >
+                                <Pencil className="w-3 h-3 mr-1" />
+                                Override
+                              </Button>
+                            </div>
+                          ) : (
+                            <div className="flex items-center space-x-2 flex-1 min-w-0">
+                              <Input
+                                type="datetime-local"
+                                value={studentDate}
+                                onChange={(e) =>
+                                  setStudentDueDateHandler(
+                                    userId,
+                                    e.target.value
+                                  )
+                                }
+                                className="max-w-xs"
+                              />
+                              {studentDate && studentDate !== inheritedDate && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="flex-shrink-0"
+                                  onClick={() => {
+                                    // Reset to inherited value
+                                    if (inheritedDate) {
+                                      setStudentDueDateHandler(
+                                        userId,
+                                        inheritedDate
+                                      );
+                                    } else {
+                                      setStudentDueDateHandler(userId, "");
+                                    }
+                                    setExpandedOverrides((prev) => {
+                                      const next = new Set(prev);
+                                      next.delete(userId);
+                                      return next;
+                                    });
+                                  }}
+                                >
+                                  <X className="w-4 h-4" />
+                                </Button>
+                              )}
+                              {isOverrideExpanded &&
+                                (!studentDate ||
+                                  studentDate === inheritedDate) && (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="flex-shrink-0 text-muted-foreground"
+                                    onClick={() =>
+                                      setExpandedOverrides((prev) => {
+                                        const next = new Set(prev);
+                                        next.delete(userId);
+                                        return next;
+                                      })
+                                    }
+                                  >
+                                    Cancel
+                                  </Button>
+                                )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })
                   )}
                 </div>
               </ScrollArea>
@@ -503,7 +675,7 @@ const DueDatesModal: React.FC<DueDatesModalProps> = ({
                         <div className="flex items-center space-x-1 text-sm">
                           <Calendar className="w-4 h-4" />
                           <span>
-                            {new Date(override.dueDate).toLocaleString()}
+                            {formatDateTimeDisplay(override.dueDate)}
                           </span>
                         </div>
                         <Button

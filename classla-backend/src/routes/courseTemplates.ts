@@ -83,6 +83,7 @@ async function cloneAssignmentsAndFolders(
           content: assignment.content || "",
           publish_times: {}, // Don't copy publish_times (no students in new course/template)
           due_dates_map: {}, // Don't copy due dates
+          due_date_config: {}, // Don't copy due date config
           module_path: assignment.module_path || [],
           is_lockdown: assignment.is_lockdown || false,
           lockdown_time_map: {}, // Don't copy lockdown times

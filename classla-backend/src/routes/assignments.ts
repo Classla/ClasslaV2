@@ -579,6 +579,7 @@ router.post(
         content,
         publish_times,
         due_dates_map,
+        due_date_config,
         module_path,
         is_lockdown,
         lockdown_time_map,
@@ -718,6 +719,7 @@ router.post(
         content: content || "",
         publish_times: publish_times || {},
         due_dates_map: due_dates_map || {},
+        due_date_config: due_date_config || {},
         module_path: module_path || [],
         is_lockdown: is_lockdown || false,
         lockdown_time_map: lockdown_time_map || {},
@@ -777,6 +779,7 @@ router.put(
         content,
         publish_times,
         due_dates_map,
+        due_date_config,
         module_path,
         is_lockdown,
         lockdown_time_map,
@@ -884,6 +887,7 @@ router.put(
       if (content !== undefined) updateData.content = content;
       if (publish_times !== undefined) updateData.publish_times = publish_times;
       if (due_dates_map !== undefined) updateData.due_dates_map = due_dates_map;
+      if (due_date_config !== undefined) updateData.due_date_config = due_date_config;
       if (module_path !== undefined) updateData.module_path = module_path;
       if (is_lockdown !== undefined) updateData.is_lockdown = is_lockdown;
       if (lockdown_time_map !== undefined)
@@ -1587,6 +1591,7 @@ router.post(
         content: existingAssignment.content || "",
         publish_times: {}, // Don't copy publish_times
         due_dates_map: {}, // Don't copy due dates
+        due_date_config: {}, // Don't copy due date config
         module_path: existingAssignment.module_path || [],
         is_lockdown: existingAssignment.is_lockdown || false,
         lockdown_time_map: {}, // Don't copy lockdown times
@@ -1769,6 +1774,7 @@ router.post(
         content: existingAssignment.content || "",
         publish_times: {}, // Don't copy publish_times
         due_dates_map: {}, // Don't copy due dates
+        due_date_config: {}, // Don't copy due date config
         module_path: existingAssignment.module_path || [],
         is_lockdown: existingAssignment.is_lockdown || false,
         lockdown_time_map: {}, // Don't copy lockdown times

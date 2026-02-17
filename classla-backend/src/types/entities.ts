@@ -59,6 +59,7 @@ export interface Assignment {
   content: string; // tiptap editor content, stores all blocks, questions, and autograder data.
   publish_times: Record<string, string>; // user_id to ISO date string. Past = immediately visible, Future = scheduled
   due_dates_map: Record<string, Date>; // user_id to Date
+  due_date_config: { courseDueDate?: string; sectionDueDates?: Record<string, string> }; // UI config for course-wide and section-level dates
   module_path: string[]; // e.g., ["unit 1", "module 1"] for "unit 1/module 1"
   is_lockdown: boolean;
   lockdown_time_map: Record<string, number>; // user_id to number in seconds
@@ -78,6 +79,7 @@ export interface Submission {
   grader_id?: string;
   grade?: number;
   status: SubmissionStatus;
+  is_late?: boolean;
 }
 
 /**

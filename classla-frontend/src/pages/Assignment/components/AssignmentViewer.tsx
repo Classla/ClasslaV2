@@ -75,6 +75,8 @@ interface AssignmentViewerProps {
   grader?: any; // Grader object with block_scores for displaying scores on blocks
   totalPossiblePoints?: number; // Total possible points for the assignment
   previewMode?: boolean; // If true, this is a teacher preview - disable all submissions
+  userDueDate?: Date | string | null; // The student's due date for this assignment
+  isLateSubmission?: boolean; // Whether the current submission was marked late
 }
 
 // Answer state management for all block types
@@ -112,6 +114,8 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
   grader,
   totalPossiblePoints,
   previewMode = false,
+  userDueDate,
+  isLateSubmission = false,
 }) => {
   const { toast } = useToast();
   const [answerState, setAnswerState] = useState<AnswerState>({});
@@ -157,6 +161,16 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
   const showResponsesAfterSubmission =
     assignment.settings?.showResponsesAfterSubmission ?? false;
   const allowResubmissions = assignment.settings?.allowResubmissions ?? false;
+  const allowLateSubmissions =
+    assignment.settings?.allowLateSubmissions ?? false;
+
+  // Due date enforcement
+  const isPastDue = useMemo(() => {
+    if (!userDueDate) return false;
+    return new Date(userDueDate) < new Date();
+  }, [userDueDate]);
+
+  const isSubmissionBlocked = isPastDue && !allowLateSubmissions;
 
   // Viewer is read-only when:
   // 1. Explicitly locked (viewing submitted work or instructor viewing student work)
@@ -1158,6 +1172,17 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
       return;
     }
 
+    // Block submission if past due and late submissions not allowed
+    if (isSubmissionBlocked) {
+      toast({
+        title: "Submissions Closed",
+        description:
+          "The due date has passed and late submissions are not allowed.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     if (!submissionId) {
       toast({
         title: "No submission to submit",
@@ -1300,6 +1325,7 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
     isReadOnly,
     previewMode,
     answerState,
+    isSubmissionBlocked,
   ]);
 
   return (
@@ -1629,17 +1655,43 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
           <div className="max-w-4xl mx-auto px-6 py-4 flex items-center justify-between">
             <div className="flex items-center gap-4">
               {submissionStatus === "submitted" && (
-                <div className="text-sm font-medium text-blue-600">
-                  ✓ Submitted
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium text-blue-600">
+                    ✓ Submitted
+                  </span>
+                  {isLateSubmission && (
+                    <span className="text-xs font-semibold bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 px-2 py-0.5 rounded-full">
+                      Late
+                    </span>
+                  )}
                 </div>
               )}
               {submissionStatus === "graded" && (
-                <div className="text-sm font-medium text-purple-600">
-                  ✓ Graded
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium text-purple-600">
+                    ✓ Graded
+                  </span>
+                  {isLateSubmission && (
+                    <span className="text-xs font-semibold bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 px-2 py-0.5 rounded-full">
+                      Late
+                    </span>
+                  )}
                 </div>
               )}
-              {submissionStatus === "in-progress" && (
+              {submissionStatus === "in-progress" && !isSubmissionBlocked && (
                 <div className="text-sm text-muted-foreground">In Progress</div>
+              )}
+              {isSubmissionBlocked && (
+                <div className="flex items-center gap-2 text-sm text-red-600 dark:text-red-400 font-medium">
+                  <Clock className="w-4 h-4" />
+                  <span>Submissions Closed</span>
+                </div>
+              )}
+              {isPastDue && allowLateSubmissions && submissionStatus === "in-progress" && (
+                <div className="flex items-center gap-2 text-sm text-amber-600 dark:text-amber-400">
+                  <AlertTriangle className="w-4 h-4" />
+                  <span>Past Due - Will be marked as late</span>
+                </div>
               )}
               {autogradingFailed && submissionStatus === "submitted" && (
                 <div className="flex items-center gap-2 text-sm text-amber-600">
@@ -1673,7 +1725,7 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
               {allowResubmissions && (submissionStatus === "submitted" || submissionStatus === "graded") && (
                 <Button
                   onClick={handleResubmit}
-                  disabled={isSubmitting}
+                  disabled={isSubmitting || isSubmissionBlocked}
                   variant="outline"
                   size="lg"
                   className="border-purple-600 text-purple-600 hover:bg-primary/10"
@@ -1698,7 +1750,8 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
                   submissionStatus === "submitted" ||
                   submissionStatus === "graded" ||
                   !submissionId ||
-                  previewMode
+                  previewMode ||
+                  isSubmissionBlocked
                 }
                 className="bg-purple-600 hover:bg-purple-700 dark:bg-purple-800 dark:hover:bg-purple-900 text-white disabled:opacity-50 disabled:cursor-not-allowed"
                 size="lg"
@@ -1707,6 +1760,11 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
                   <>
                     <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
                     Submitting...
+                  </>
+                ) : isSubmissionBlocked ? (
+                  <>
+                    <Clock className="w-4 h-4 mr-2" />
+                    Submissions Closed
                   </>
                 ) : submissionStatus === "submitted" ? (
                   <>

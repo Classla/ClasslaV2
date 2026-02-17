@@ -84,7 +84,7 @@ const ModuleTree: React.FC<ModuleTreeProps> = ({ courseId, course, userRole, isI
   const effectiveIsInstructor = isInstructor ?? false;
 
   // Use React Query hook for data fetching + WebSocket real-time updates
-  const { assignments, folders, isLoading, invalidateTree, mutations } = useModuleTree(
+  const { assignments, folders, isLoading, invalidateTree, lockForDrag, unlockAfterDrag, mutations } = useModuleTree(
     courseId,
     effectiveIsInstructor
   );
@@ -550,12 +550,18 @@ const ModuleTree: React.FC<ModuleTreeProps> = ({ courseId, course, userRole, isI
     invalidateTree();
   };
 
-  // Handle drag and drop reordering — optimistic updates with correct index mapping
+  // Handle drag and drop reordering — optimistic updates
+  // Uses the standard react-arborist pattern: remove dragged items, splice at index.
+  // This avoids any ambiguity about whether the index is pre or post-removal.
   const handleMove = async ({ dragIds, parentId, index }: any) => {
     if (!effectiveIsInstructor) return;
 
+    // Filter out synthetic and implicit nodes — only real items can be moved
     const realDragIds = dragIds.filter(
-      (id: string) => !id.startsWith("empty-") && id !== "create-node"
+      (id: string) =>
+        !id.startsWith("empty-") &&
+        id !== "create-node" &&
+        !id.startsWith("implicit-")
     );
     if (realDragIds.length === 0) return;
 
@@ -571,10 +577,8 @@ const ModuleTree: React.FC<ModuleTreeProps> = ({ courseId, course, userRole, isI
       }
     }
 
-    // --- Map react-arborist index to data model position ---
-    // react-arborist's index includes synthetic nodes (empty-*, create-node).
-    // We find the "insert before" real item by looking at the tree's children
-    // AFTER the dragged items are removed.
+    // --- Build new order using react-arborist's splice convention ---
+    // react-arborist's `index` is designed for: remove dragged items, splice at index.
     const getTreeChildren = (targetId: string | null | undefined): TreeNodeData[] => {
       if (!targetId) return treeData;
       const search = (nodes: TreeNodeData[]): TreeNodeData[] | null => {
@@ -591,72 +595,63 @@ const ModuleTree: React.FC<ModuleTreeProps> = ({ courseId, course, userRole, isI
     };
 
     const treeChildren = getTreeChildren(parentId || null);
-    const afterRemoval = treeChildren.filter((c) => !realDragIds.includes(c.id));
+    const withoutDragged = treeChildren.filter((c) => !realDragIds.includes(c.id));
 
-    // Find the first non-synthetic item at or after the drop index — this is what we insert BEFORE
-    let insertBeforeId: string | null = null;
-    for (let i = index; i < afterRemoval.length; i++) {
-      const child = afterRemoval[i];
-      if (!child.id.startsWith("empty-") && child.id !== "create-node") {
-        insertBeforeId = child.id;
-        break;
-      }
-    }
-
-    // --- Build siblings from the data model (sorted by order_index) ---
-    const targetPathKey = newParentPath.join("/");
-    type SibItem = { id: string; type: "folder" | "assignment"; order_index: number };
-    const siblings: SibItem[] = [];
-
-    for (const a of assignments) {
-      if ((a.module_path || []).join("/") === targetPathKey) {
-        siblings.push({ id: a.id, type: "assignment", order_index: a.order_index || 0 });
-      }
-    }
-    for (const f of folders) {
-      if (f.path.slice(0, -1).join("/") === targetPathKey) {
-        siblings.push({ id: f.id, type: "folder", order_index: f.order_index || 0 });
-      }
-    }
-    siblings.sort((a, b) => a.order_index - b.order_index);
-
-    // Build dragged items list
-    const dragged: SibItem[] = realDragIds.map((dragId: string) => {
+    // For cross-folder moves, dragged items won't be in treeChildren
+    const draggedNodes: TreeNodeData[] = realDragIds.map((dragId: string) => {
+      const existing = treeChildren.find((c) => c.id === dragId);
+      if (existing) return existing;
+      // Cross-folder: look up from source data
       if (dragId.startsWith("assignment-")) {
-        return { id: dragId.replace("assignment-", ""), type: "assignment" as const, order_index: 0 };
+        const a = assignments.find((x) => x.id === dragId.replace("assignment-", ""));
+        if (a) return { id: dragId, name: a.name, type: "assignment" as const, path: newParentPath, order_index: 0, assignment: a };
+      } else if (dragId.startsWith("folder-")) {
+        const f = folders.find((x) => x.id === dragId.replace("folder-", ""));
+        if (f) return { id: dragId, name: f.name, type: "folder" as const, path: [...newParentPath, f.name], order_index: 0, folder: f };
       }
-      return { id: dragId.replace("folder-", ""), type: "folder" as const, order_index: 0 };
+      return null;
+    }).filter(Boolean) as TreeNodeData[];
+
+    // react-arborist's index is PRE-REMOVAL (computed against the original children
+    // array before the dragged item is removed). When dragging DOWN within the same
+    // parent, the dragged item was above the target, so removing it shifts everything
+    // below by -1. We must subtract the count of dragged items that were originally
+    // above the drop index to get the correct post-removal splice position.
+    // For cross-parent or upward drags, no adjustment is needed.
+    const dragOriginalIndices = realDragIds
+      .map((id: string) => treeChildren.findIndex((c) => c.id === id))
+      .filter((i: number) => i !== -1); // -1 = cross-parent (not in target children)
+    const itemsRemovedAbove = dragOriginalIndices.filter((i: number) => i < index).length;
+    const adjustedIndex = Math.min(index - itemsRemovedAbove, withoutDragged.length);
+
+    const newOrder = [
+      ...withoutDragged.slice(0, adjustedIndex),
+      ...draggedNodes,
+      ...withoutDragged.slice(adjustedIndex),
+    ];
+
+    // Filter to real items only (no empty-*, create-node, implicit-*)
+    const realItems = newOrder.filter(
+      (c) =>
+        !c.id.startsWith("empty-") &&
+        c.id !== "create-node" &&
+        !c.id.startsWith("implicit-")
+    );
+
+    // Build reorder payload with sequential indices
+    const reorderPayload = realItems.map((node, i) => {
+      const type: "folder" | "assignment" = node.id.startsWith("folder-") ? "folder" : "assignment";
+      const rawId = node.id.replace(/^(folder-|assignment-)/, "");
+      return { id: rawId, type, order_index: i };
     });
 
-    // Add dragged items to siblings if not already there (cross-folder move)
-    for (const d of dragged) {
-      if (!siblings.find((s) => s.id === d.id && s.type === d.type)) {
-        siblings.push(d);
+    // Build dragged items info for path updates
+    const dragged: Array<{ id: string; type: "folder" | "assignment" }> = realDragIds.map((dragId: string) => {
+      if (dragId.startsWith("assignment-")) {
+        return { id: dragId.replace("assignment-", ""), type: "assignment" as const };
       }
-    }
-
-    // Remove dragged items, compute insertion position, splice
-    const dragKeys = new Set(dragged.map((d) => `${d.type}:${d.id}`));
-    const remaining = siblings.filter((s) => !dragKeys.has(`${s.type}:${s.id}`));
-
-    let insertPos: number;
-    if (insertBeforeId) {
-      const beforeType = insertBeforeId.startsWith("folder-") ? "folder" : "assignment";
-      const beforeRawId = insertBeforeId.replace(/^(folder-|assignment-|implicit-)/, "");
-      insertPos = remaining.findIndex((s) => s.id === beforeRawId && s.type === beforeType);
-      if (insertPos === -1) insertPos = remaining.length;
-    } else {
-      insertPos = remaining.length;
-    }
-
-    remaining.splice(insertPos, 0, ...dragged);
-
-    // Assign sequential order_index values
-    const reorderPayload = remaining.map((item, i) => ({
-      id: item.id,
-      type: item.type,
-      order_index: i,
-    }));
+      return { id: dragId.replace("folder-", ""), type: "folder" as const };
+    });
 
     // --- Optimistic update: apply changes to React Query cache immediately ---
     const prevAssignments = assignments;
@@ -686,9 +681,10 @@ const ModuleTree: React.FC<ModuleTreeProps> = ({ courseId, course, userRole, isI
       return f;
     });
 
-    // Cancel in-flight queries so WebSocket-triggered refetches don't overwrite optimistic state
-    queryClient.cancelQueries({ queryKey: ["courseAssignments", courseId] });
-    queryClient.cancelQueries({ queryKey: ["courseFolders", courseId] });
+    // Lock WebSocket invalidations, cancel in-flight queries, apply optimistic state
+    lockForDrag();
+    await queryClient.cancelQueries({ queryKey: ["courseAssignments", courseId] });
+    await queryClient.cancelQueries({ queryKey: ["courseFolders", courseId] });
     queryClient.setQueryData(["courseAssignments", courseId], newAssignments);
     queryClient.setQueryData(["courseFolders", courseId], newFolders);
 
@@ -696,16 +692,14 @@ const ModuleTree: React.FC<ModuleTreeProps> = ({ courseId, course, userRole, isI
     try {
       // 1. Path updates for items that moved to a different folder
       const pathUpdates: Promise<any>[] = [];
-      for (const dragId of realDragIds) {
-        if (dragId.startsWith("assignment-")) {
-          const id = dragId.replace("assignment-", "");
-          const a = prevAssignments.find((x) => x.id === id);
+      for (const d of dragged) {
+        if (d.type === "assignment") {
+          const a = prevAssignments.find((x) => x.id === d.id);
           if (a && JSON.stringify(a.module_path) !== JSON.stringify(newParentPath)) {
-            pathUpdates.push(apiClient.updateAssignment(id, { module_path: newParentPath }));
+            pathUpdates.push(apiClient.updateAssignment(d.id, { module_path: newParentPath }));
           }
-        } else if (dragId.startsWith("folder-")) {
-          const id = dragId.replace("folder-", "");
-          const f = prevFolders.find((x) => x.id === id);
+        } else {
+          const f = prevFolders.find((x) => x.id === d.id);
           if (f) {
             const newPath = [...newParentPath, f.name];
             if (JSON.stringify(f.path) !== JSON.stringify(newPath)) {
@@ -723,7 +717,6 @@ const ModuleTree: React.FC<ModuleTreeProps> = ({ courseId, course, userRole, isI
       if (reorderPayload.length > 0) {
         await apiClient.reorderItems(courseId, reorderPayload);
       }
-      // Success — WebSocket events will trigger a fresh refetch to confirm server state
     } catch (error: any) {
       // Revert optimistic update
       queryClient.setQueryData(["courseAssignments", courseId], prevAssignments);
@@ -733,6 +726,9 @@ const ModuleTree: React.FC<ModuleTreeProps> = ({ courseId, course, userRole, isI
         description: error.message || "Failed to move items",
         variant: "destructive",
       });
+    } finally {
+      // Unlock and refetch to confirm server state
+      unlockAfterDrag();
     }
   };
 
@@ -750,7 +746,9 @@ const ModuleTree: React.FC<ModuleTreeProps> = ({ courseId, course, userRole, isI
     const folder = nodeData.folder;
     const isEmptyIndicator = nodeData.id.startsWith("empty-");
     const isCreateNode = nodeData.id === "create-node";
+    const isImplicitFolder = nodeData.id.startsWith("implicit-");
     const isSynthetic = isEmptyIndicator || isCreateNode;
+    const isNonDraggable = isSynthetic || isImplicitFolder;
     const [contextMenu, setContextMenu] = useState<{
       x: number;
       y: number;
@@ -759,8 +757,8 @@ const ModuleTree: React.FC<ModuleTreeProps> = ({ courseId, course, userRole, isI
 
     const isActive = assignment?.id === currentAssignmentId;
 
-    // Don't pass dragHandle to synthetic nodes (Bug 9)
-    const effectiveDragHandle = isSynthetic ? undefined : dragHandle;
+    // Don't pass dragHandle to synthetic/implicit nodes
+    const effectiveDragHandle = isNonDraggable ? undefined : dragHandle;
 
     const nodeContent = (
       <div
@@ -1109,7 +1107,7 @@ const ModuleTree: React.FC<ModuleTreeProps> = ({ courseId, course, userRole, isI
             onMove={handleMove}
             disableDrag={(node: any) => {
               const id = node.data?.id || "";
-              return id.startsWith("empty-") || id === "create-node";
+              return id.startsWith("empty-") || id === "create-node" || id.startsWith("implicit-");
             }}
             disableDrop={(args: any) => {
               const id = args.parentNode?.data?.id || "";

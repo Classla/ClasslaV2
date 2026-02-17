@@ -914,12 +914,39 @@ router.post(
       // Get assignment settings and content
       const { data: assignment } = await supabase
         .from("assignments")
-        .select("settings, content")
+        .select("settings, content, due_dates_map")
         .eq("id", existingSubmission.assignment_id)
         .single();
 
       const allowResubmissions =
         assignment?.settings?.allowResubmissions ?? false;
+      const allowLateSubmissions =
+        assignment?.settings?.allowLateSubmissions ?? false;
+
+      // Check due date enforcement (admins bypass)
+      let isLateSubmission = false;
+      if (!isAdmin && assignment?.due_dates_map) {
+        const userDueDate = assignment.due_dates_map[userId];
+        if (userDueDate) {
+          const now = new Date();
+          const dueDate = new Date(userDueDate);
+          if (now > dueDate) {
+            if (!allowLateSubmissions) {
+              res.status(400).json({
+                error: {
+                  code: "PAST_DUE_DATE",
+                  message:
+                    "The due date for this assignment has passed and late submissions are not allowed",
+                  timestamp: new Date().toISOString(),
+                  path: req.path,
+                },
+              });
+              return;
+            }
+            isLateSubmission = true;
+          }
+        }
+      }
 
       // Check if already submitted or graded
       if (existingSubmission.status === SubmissionStatus.SUBMITTED) {
@@ -957,6 +984,7 @@ router.post(
         .update({
           status: SubmissionStatus.SUBMITTED,
           timestamp: new Date(),
+          is_late: isLateSubmission,
         })
         .eq("id", id)
         .select()
