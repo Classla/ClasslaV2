@@ -181,6 +181,12 @@ const { isDark, toggle } = useTheme();
 
 ---
 
+## Git Commits
+
+- Do NOT add a `Co-Authored-By` line to commit messages.
+
+---
+
 ## Updating This File
 
 **When to update**:

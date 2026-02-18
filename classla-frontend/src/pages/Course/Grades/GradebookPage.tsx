@@ -77,9 +77,12 @@ const GradebookPage: React.FC<GradebookPageProps> = ({
   // Filter students by selected section and sort by last name, first name (memoized)
   const filteredStudents = useMemo(() => {
     if (!gradebookData) return [];
-    const students = selectedSectionId
-      ? gradebookData.students.filter((s) => s.sectionId === selectedSectionId)
-      : gradebookData.students;
+    let students = gradebookData.students;
+    if (selectedSectionId === "no-section") {
+      students = students.filter((s) => !s.sectionId);
+    } else if (selectedSectionId) {
+      students = students.filter((s) => s.sectionId === selectedSectionId);
+    }
     return [...students].sort((a, b) => {
       const lastCmp = (a.lastName || "").localeCompare(b.lastName || "");
       if (lastCmp !== 0) return lastCmp;
@@ -240,6 +243,9 @@ const GradebookPage: React.FC<GradebookPageProps> = ({
                       {section.name}
                     </SelectItem>
                   ))}
+                  {gradebookData?.students.some((s) => !s.sectionId) && (
+                    <SelectItem value="no-section">No section</SelectItem>
+                  )}
                 </SelectContent>
               </Select>
             </div>
@@ -266,7 +272,9 @@ const GradebookPage: React.FC<GradebookPageProps> = ({
             </svg>
           </div>
           <p className="text-foreground font-semibold text-lg mb-2">
-            {selectedSectionId
+            {selectedSectionId === "no-section"
+              ? "No students without a section"
+              : selectedSectionId
               ? "No students found in the selected section"
               : "No students enrolled yet"}
           </p>
