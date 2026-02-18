@@ -326,6 +326,15 @@ export class StateManager {
   }
 
   /**
+   * Delete a container record from the database entirely.
+   * Use this for stale records where the Docker service no longer exists.
+   */
+  deleteContainer(id: string): void {
+    const stmt = this.db.prepare(`DELETE FROM containers WHERE id = ?`);
+    stmt.run(id);
+  }
+
+  /**
    * Find a running container by its S3 bucket name.
    * Returns the container if one is actively running with this bucket, null otherwise.
    */

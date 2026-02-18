@@ -71,6 +71,7 @@ export class ContainerCleanupService {
 
   /**
    * Clean up stopped containers by removing their Docker services
+   * and deleting stale records from the database
    */
   private async cleanupStoppedContainers(): Promise<void> {
     if (!this.isRunning) {
@@ -78,6 +79,18 @@ export class ContainerCleanupService {
     }
 
     try {
+      // First, archive old records (stopped > 24h) to prevent unbounded growth
+      try {
+        const archived = this.stateManager.archiveOldContainers();
+        if (archived > 0) {
+          console.log(
+            `[ContainerCleanup] Archived ${archived} old container record(s)`
+          );
+        }
+      } catch (archiveError) {
+        console.error("[ContainerCleanup] Error archiving old containers:", archiveError);
+      }
+
       // Get all containers marked as stopped
       const stoppedContainers = this.stateManager.listContainers({
         status: "stopped",
@@ -92,26 +105,27 @@ export class ContainerCleanupService {
       );
 
       let cleanedCount = 0;
+      let deletedCount = 0;
       let errorCount = 0;
 
       for (const container of stoppedContainers) {
         try {
           // Try to stop/remove the Docker service
           await this.containerService.stopContainer(container.id);
+          // Docker service was still running, now removed - delete the DB record
+          this.stateManager.deleteContainer(container.id);
           cleanedCount++;
-          console.log(
-            `[ContainerCleanup] Successfully removed Docker service for stopped container ${container.id}`
-          );
+          deletedCount++;
         } catch (error) {
-          // If service doesn't exist (404), that's fine - it's already cleaned up
+          // If service doesn't exist (404), delete the stale DB record
           if (
             error &&
             typeof error === "object" &&
             "statusCode" in error &&
             error.statusCode === 404
           ) {
-            // Service already removed, nothing to do
-            cleanedCount++;
+            this.stateManager.deleteContainer(container.id);
+            deletedCount++;
           } else {
             errorCount++;
             console.error(
@@ -122,9 +136,9 @@ export class ContainerCleanupService {
         }
       }
 
-      if (cleanedCount > 0 || errorCount > 0) {
+      if (cleanedCount > 0 || deletedCount > 0 || errorCount > 0) {
         console.log(
-          `[ContainerCleanup] Cleanup complete: ${cleanedCount} cleaned, ${errorCount} errors`
+          `[ContainerCleanup] Cleanup complete: ${cleanedCount} Docker services removed, ${deletedCount} DB records deleted, ${errorCount} errors`
         );
       }
     } catch (error) {
@@ -134,7 +148,7 @@ export class ContainerCleanupService {
 
   /**
    * Reconcile state manager with actual Docker services.
-   * Marks containers as "stopped" in the DB if their Docker service no longer exists.
+   * Deletes container records from the DB if their Docker service no longer exists.
    */
   private async reconcileWithDocker(): Promise<void> {
     try {
@@ -145,35 +159,36 @@ export class ContainerCleanupService {
       const startingContainers = this.stateManager.listContainers({
         status: "starting",
       });
-      const allActive = [...runningContainers, ...startingContainers];
+      const stoppedContainers = this.stateManager.listContainers({
+        status: "stopped",
+      });
+      const allContainers = [...runningContainers, ...startingContainers, ...stoppedContainers];
 
-      if (allActive.length === 0) {
+      if (allContainers.length === 0) {
         return;
       }
 
       console.log(
-        `[ContainerCleanup] Reconciling ${allActive.length} active container(s) in state manager with Docker...`
+        `[ContainerCleanup] Reconciling ${allContainers.length} container(s) in state manager with Docker (${runningContainers.length} running, ${startingContainers.length} starting, ${stoppedContainers.length} stopped)...`
       );
 
       let staleCount = 0;
-      for (const container of allActive) {
+      for (const container of allContainers) {
         const dockerContainer = await this.containerService.getContainer(container.id);
         if (!dockerContainer) {
-          console.warn(
-            `[ContainerCleanup] Container ${container.id} marked as "${container.status}" but Docker service doesn't exist. Marking as stopped.`
-          );
-          this.stateManager.updateContainerStatus(container.id, "stopped");
+          // Docker service doesn't exist - delete the stale DB record entirely
+          this.stateManager.deleteContainer(container.id);
           staleCount++;
         }
       }
 
       if (staleCount > 0) {
         console.log(
-          `[ContainerCleanup] Reconciliation complete: ${staleCount} stale container(s) marked as stopped`
+          `[ContainerCleanup] Reconciliation complete: ${staleCount} stale record(s) deleted from DB`
         );
       } else {
         console.log(
-          `[ContainerCleanup] Reconciliation complete: all ${allActive.length} container(s) verified in Docker`
+          `[ContainerCleanup] Reconciliation complete: all ${allContainers.length} container(s) verified in Docker`
         );
       }
     } catch (error) {
