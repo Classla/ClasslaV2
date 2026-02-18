@@ -474,6 +474,34 @@
   margin-bottom: -4px;
 }
 
+/* Block drag-to-reorder styles */
+.drop-indicator {
+  transition: top 0.1s ease-out;
+}
+
+.editor-container.is-dragging .ProseMirror > * {
+  cursor: grabbing;
+}
+
+.editor-container.is-dragging .ProseMirror {
+  user-select: none;
+}
+
+.drag-ghost {
+  position: fixed;
+  z-index: 10000;
+  padding: 6px 12px;
+  background: hsl(var(--card));
+  border: 1px solid hsl(var(--border));
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: hsl(var(--muted-foreground));
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  pointer-events: none;
+  white-space: nowrap;
+}
+
 /* AI Generating Block Styling */
 .generating-block-content {
   padding: 8px 12px;

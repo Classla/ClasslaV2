@@ -99,6 +99,8 @@ interface SlashCommandItem {
 interface BlockControlsProps {
   block: HTMLElement;
   onAddBlock: () => void;
+  onDragStart: (e: React.MouseEvent, block: HTMLElement) => void;
+  isDragging: boolean;
 }
 
 interface TableControlsProps {
@@ -115,7 +117,7 @@ interface TableContextMenuProps {
 
 // Memoize BlockControls to prevent unnecessary re-renders
 const BlockControls: React.FC<BlockControlsProps> = memo(
-  ({ block, onAddBlock }) => {
+  ({ block, onAddBlock, onDragStart, isDragging }) => {
     const [position, setPosition] = useState({ top: 0, left: 0 });
 
     useEffect(() => {
@@ -133,6 +135,8 @@ const BlockControls: React.FC<BlockControlsProps> = memo(
         }
       }
     }, [block]);
+
+    if (isDragging) return null;
 
     return (
       <div
@@ -160,6 +164,7 @@ const BlockControls: React.FC<BlockControlsProps> = memo(
           className="w-5 h-5 rounded flex items-center justify-center text-muted-foreground hover:text-foreground cursor-grab active:cursor-grabbing opacity-0 group-hover:opacity-100 transition-all focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
           title="Drag to move"
           aria-label="Drag to move block"
+          onMouseDown={(e) => onDragStart(e, block)}
         >
           <GripVertical className="w-4 h-4" />
         </button>
@@ -167,6 +172,19 @@ const BlockControls: React.FC<BlockControlsProps> = memo(
     );
   }
 );
+
+// Drop indicator for drag-to-reorder
+const DropIndicator: React.FC<{ top: number }> = memo(({ top }) => {
+  if (top < 0) return null;
+  return (
+    <div
+      className="drop-indicator absolute left-0 right-0 z-20 pointer-events-none"
+      style={{ top }}
+    >
+      <div className="h-0.5 bg-purple-500 rounded-full mx-2" />
+    </div>
+  );
+});
 
 // Table Controls Component
 const TableControls: React.FC<TableControlsProps> = memo(
@@ -502,6 +520,21 @@ const AssignmentEditor: React.FC<AssignmentEditorProps> = ({
   const blockHoverTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const mouseMoveThrottleRef = useRef<NodeJS.Timeout | null>(null);
   const lastMouseMoveTime = useRef<number>(0);
+
+  // Drag-to-reorder state and refs
+  const isDraggingRef = useRef(false);
+  const dragStartYRef = useRef(0);
+  const dragThresholdMetRef = useRef(false);
+  const draggedBlockRef = useRef<HTMLElement | null>(null);
+  const draggedBlockIndexRef = useRef(-1);
+  const dragScrollRAFRef = useRef<number>(0);
+  const dragScrollSpeedRef = useRef<number>(0);
+  const dragScrollContainerRef = useRef<HTMLElement | null>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const dragGhostRef = useRef<HTMLDivElement | null>(null);
+  const [isDraggingState, setIsDraggingState] = useState(false);
+  const [dropIndicatorTop, setDropIndicatorTop] = useState(-1);
+  const dropGapIndexRef = useRef(-1);
 
   // Memoize slash commands to prevent recreation on every render
   const slashCommands: SlashCommandItem[] = useMemo(
@@ -1264,6 +1297,13 @@ const AssignmentEditor: React.FC<AssignmentEditorProps> = ({
       if (mouseMoveThrottleRef.current) {
         clearTimeout(mouseMoveThrottleRef.current);
       }
+      if (dragScrollRAFRef.current) {
+        cancelAnimationFrame(dragScrollRAFRef.current);
+      }
+      if (dragGhostRef.current) {
+        dragGhostRef.current.remove();
+        dragGhostRef.current = null;
+      }
 
       // Destroy editor instance if it exists
       if (editorRef.current && !editorRef.current.isDestroyed) {
@@ -1275,6 +1315,287 @@ const AssignmentEditor: React.FC<AssignmentEditorProps> = ({
       }
     };
   }, []);
+
+  // --- Drag-to-reorder handlers ---
+
+  const getDraggedBlockIndex = useCallback((block: HTMLElement): number => {
+    const proseMirror = block.closest('.ProseMirror');
+    if (!proseMirror) return -1;
+    const children = Array.from(proseMirror.children);
+    return children.indexOf(block);
+  }, []);
+
+  const getBlockPositions = useCallback(() => {
+    const editorContainer = document.querySelector('.editor-container');
+    const proseMirror = editorContainer?.querySelector('.ProseMirror');
+    if (!proseMirror || !editorContainer) return [];
+
+    const containerRect = editorContainer.getBoundingClientRect();
+    const children = Array.from(proseMirror.children) as HTMLElement[];
+
+    return children.map(child => {
+      const rect = child.getBoundingClientRect();
+      return {
+        top: rect.top - containerRect.top,
+        bottom: rect.bottom - containerRect.top,
+      };
+    });
+  }, []);
+
+  const findScrollableAncestor = useCallback((element: HTMLElement | null): HTMLElement | null => {
+    let el = element?.parentElement;
+    while (el) {
+      if (el.scrollHeight > el.clientHeight) {
+        const style = window.getComputedStyle(el);
+        if (style.overflowY === 'auto' || style.overflowY === 'scroll') {
+          return el;
+        }
+      }
+      el = el.parentElement;
+    }
+    return null;
+  }, []);
+
+  const getBlockTypeName = useCallback((blockIndex: number): string => {
+    if (!editor) return 'Block';
+    try {
+      const node = editor.state.doc.child(blockIndex);
+      const typeMap: Record<string, string> = {
+        'paragraph': 'Paragraph',
+        'bulletList': 'Bullet List',
+        'orderedList': 'Numbered List',
+        'taskList': 'Task List',
+        'blockquote': 'Quote',
+        'codeBlock': 'Code Block',
+        'horizontalRule': 'Divider',
+        'table': 'Table',
+        'mcqBlock': 'Multiple Choice',
+        'mcq-block': 'Multiple Choice',
+        'ideBlock': 'IDE Block',
+        'ide-block': 'IDE Block',
+        'fillInTheBlankBlock': 'Fill in the Blank',
+        'shortAnswerBlock': 'Short Answer',
+        'parsonsProblemBlock': 'Parsons Problem',
+        'clickableAreaBlock': 'Code Selection',
+        'dragDropMatchingBlock': 'Drag & Drop',
+        'tabbedContentBlock': 'Tabbed Content',
+        'revealContentBlock': 'Reveal Content',
+        'pollBlock': 'Poll',
+        'embedBlock': 'Embed',
+        'imageBlock': 'Image',
+        'discussionBlock': 'Discussion',
+      };
+      if (node.type.name === 'heading') {
+        return `Heading ${node.attrs?.level || ''}`;
+      }
+      return typeMap[node.type.name] || node.type.name;
+    } catch {
+      return 'Block';
+    }
+  }, [editor]);
+
+  const executeDragMove = useCallback((fromIndex: number, toGapIndex: number) => {
+    if (!editor) return;
+
+    // No-op if dropping at same position
+    if (toGapIndex === fromIndex || toGapIndex === fromIndex + 1) return;
+
+    try {
+      const json = editor.getJSON();
+      if (!json.content || fromIndex < 0 || fromIndex >= json.content.length) return;
+
+      const reordered = [...json.content];
+      const [moved] = reordered.splice(fromIndex, 1);
+      const insertAt = toGapIndex > fromIndex ? toGapIndex - 1 : toGapIndex;
+      reordered.splice(insertAt, 0, moved);
+
+      editor.commands.setContent({ ...json, content: reordered });
+    } catch (err) {
+      console.error('[DragReorder] Failed to reorder:', err);
+    }
+  }, [editor]);
+
+  const handleDragStart = useCallback((e: React.MouseEvent, block: HTMLElement) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    isDraggingRef.current = true;
+    dragStartYRef.current = e.clientY;
+    dragThresholdMetRef.current = false;
+    draggedBlockRef.current = block;
+    draggedBlockIndexRef.current = getDraggedBlockIndex(block);
+    dropGapIndexRef.current = -1;
+
+    // Cache the scrollable ancestor for auto-scroll
+    dragScrollContainerRef.current = findScrollableAncestor(block) || scrollContainerRef.current;
+
+    // Pre-compute block type name for the ghost
+    const blockTypeName = getBlockTypeName(draggedBlockIndexRef.current);
+
+    const handleMove = (moveEvent: MouseEvent) => {
+      const deltaY = Math.abs(moveEvent.clientY - dragStartYRef.current);
+
+      if (!dragThresholdMetRef.current) {
+        if (deltaY < 5) return;
+        dragThresholdMetRef.current = true;
+        setIsDraggingState(true);
+
+        // Dim the dragged block
+        if (draggedBlockRef.current) {
+          draggedBlockRef.current.style.opacity = '0.4';
+          draggedBlockRef.current.style.transition = 'opacity 0.15s ease';
+        }
+
+        // Create ghost element
+        const ghost = document.createElement('div');
+        ghost.className = 'drag-ghost';
+        ghost.textContent = blockTypeName;
+        ghost.style.left = `${moveEvent.clientX + 14}px`;
+        ghost.style.top = `${moveEvent.clientY + 14}px`;
+        document.body.appendChild(ghost);
+        dragGhostRef.current = ghost;
+
+        document.body.style.userSelect = 'none';
+        document.body.style.cursor = 'grabbing';
+      }
+
+      // Position ghost
+      if (dragGhostRef.current) {
+        dragGhostRef.current.style.left = `${moveEvent.clientX + 14}px`;
+        dragGhostRef.current.style.top = `${moveEvent.clientY + 14}px`;
+      }
+
+      // Calculate closest gap between blocks
+      const positions = getBlockPositions();
+      if (positions.length === 0) return;
+
+      const editorContainer = document.querySelector('.editor-container');
+      if (!editorContainer) return;
+      const containerRect = editorContainer.getBoundingClientRect();
+      const mouseRelY = moveEvent.clientY - containerRect.top;
+
+      // Find the closest gap
+      let closestGap = 0;
+      let closestDist = Infinity;
+
+      for (let i = 0; i <= positions.length; i++) {
+        let gapY: number;
+        if (i === 0) {
+          gapY = positions[0].top;
+        } else if (i === positions.length) {
+          gapY = positions[positions.length - 1].bottom;
+        } else {
+          gapY = (positions[i - 1].bottom + positions[i].top) / 2;
+        }
+
+        const dist = Math.abs(mouseRelY - gapY);
+        if (dist < closestDist) {
+          closestDist = dist;
+          closestGap = i;
+        }
+      }
+
+      dropGapIndexRef.current = closestGap;
+
+      // Calculate indicator top position
+      let indicatorTop: number;
+      if (closestGap === 0) {
+        indicatorTop = positions[0].top - 1;
+      } else if (closestGap === positions.length) {
+        indicatorTop = positions[positions.length - 1].bottom + 1;
+      } else {
+        indicatorTop = (positions[closestGap - 1].bottom + positions[closestGap].top) / 2;
+      }
+
+      // Don't show indicator at same position (no-op drop)
+      const dragIdx = draggedBlockIndexRef.current;
+      if (closestGap === dragIdx || closestGap === dragIdx + 1) {
+        setDropIndicatorTop(-1);
+      } else {
+        setDropIndicatorTop(indicatorTop);
+      }
+
+      // Auto-scroll when near edges — update speed ref, start loop once
+      const scrollContainer = dragScrollContainerRef.current;
+      if (scrollContainer) {
+        const scrollRect = scrollContainer.getBoundingClientRect();
+        const edgeZone = 60;
+        const maxSpeed = 15;
+
+        if (moveEvent.clientY < scrollRect.top + edgeZone) {
+          const proximity = Math.min(1, 1 - (moveEvent.clientY - scrollRect.top) / edgeZone);
+          dragScrollSpeedRef.current = -Math.max(1, maxSpeed * proximity);
+        } else if (moveEvent.clientY > scrollRect.bottom - edgeZone) {
+          const proximity = Math.min(1, 1 - (scrollRect.bottom - moveEvent.clientY) / edgeZone);
+          dragScrollSpeedRef.current = Math.max(1, maxSpeed * proximity);
+        } else {
+          dragScrollSpeedRef.current = 0;
+        }
+
+        // Start scroll loop if needed (runs until speed is 0)
+        if (dragScrollSpeedRef.current !== 0 && !dragScrollRAFRef.current) {
+          const scrollLoop = () => {
+            const container = dragScrollContainerRef.current;
+            if (container && dragScrollSpeedRef.current !== 0) {
+              container.scrollTop += dragScrollSpeedRef.current;
+              dragScrollRAFRef.current = requestAnimationFrame(scrollLoop);
+            } else {
+              dragScrollRAFRef.current = 0;
+            }
+          };
+          dragScrollRAFRef.current = requestAnimationFrame(scrollLoop);
+        } else if (dragScrollSpeedRef.current === 0 && dragScrollRAFRef.current) {
+          cancelAnimationFrame(dragScrollRAFRef.current);
+          dragScrollRAFRef.current = 0;
+        }
+      }
+    };
+
+    const handleEnd = () => {
+      document.removeEventListener('mousemove', handleMove);
+      document.removeEventListener('mouseup', handleEnd);
+
+      // Cancel auto-scroll
+      dragScrollSpeedRef.current = 0;
+      if (dragScrollRAFRef.current) {
+        cancelAnimationFrame(dragScrollRAFRef.current);
+        dragScrollRAFRef.current = 0;
+      }
+
+      // Remove ghost
+      if (dragGhostRef.current) {
+        dragGhostRef.current.remove();
+        dragGhostRef.current = null;
+      }
+
+      // Restore styles
+      document.body.style.userSelect = '';
+      document.body.style.cursor = '';
+
+      if (draggedBlockRef.current) {
+        draggedBlockRef.current.style.opacity = '';
+        draggedBlockRef.current.style.transition = '';
+      }
+
+      // Execute move if threshold was met and we have a valid drop target
+      if (dragThresholdMetRef.current && dropGapIndexRef.current >= 0) {
+        executeDragMove(draggedBlockIndexRef.current, dropGapIndexRef.current);
+      }
+
+      // Reset state
+      isDraggingRef.current = false;
+      dragThresholdMetRef.current = false;
+      draggedBlockRef.current = null;
+      draggedBlockIndexRef.current = -1;
+      dropGapIndexRef.current = -1;
+      dragScrollContainerRef.current = null;
+      setIsDraggingState(false);
+      setDropIndicatorTop(-1);
+    };
+
+    document.addEventListener('mousemove', handleMove);
+    document.addEventListener('mouseup', handleEnd);
+  }, [getDraggedBlockIndex, getBlockTypeName, getBlockPositions, executeDragMove, findScrollableAncestor]);
 
   const handleSlashCommand = useCallback(
     (command: SlashCommandItem) => {
@@ -1358,12 +1679,12 @@ const AssignmentEditor: React.FC<AssignmentEditorProps> = ({
       )}
 
       {/* Editor Content */}
-      <div className="flex-1 overflow-auto">
+      <div className="flex-1 overflow-auto" ref={scrollContainerRef}>
         <div className="max-w-4xl mx-auto p-8 relative">
           <div
-            className="relative editor-container group"
+            className={`relative editor-container group${isDraggingState ? ' is-dragging' : ''}`}
             onMouseMove={(e) => {
-              if (!isReadOnly) {
+              if (!isReadOnly && !isDraggingRef.current) {
                 // Throttle mouse move events for better performance with many MCQ blocks
                 const now = Date.now();
                 if (now - lastMouseMoveTime.current < 16) return; // ~60fps throttling
@@ -1461,7 +1782,7 @@ const AssignmentEditor: React.FC<AssignmentEditorProps> = ({
             </div>
 
             {/* Block Controls - Plus and Drag Handle */}
-            {!isReadOnly && hoveredBlock && (
+            {!isReadOnly && hoveredBlock && !isDraggingState && (
               <BlockControls
                 block={hoveredBlock}
                 onAddBlock={() => {
@@ -1484,8 +1805,13 @@ const AssignmentEditor: React.FC<AssignmentEditorProps> = ({
                     editor.chain().focus().insertContent("/").run();
                   }, 10);
                 }}
+                onDragStart={handleDragStart}
+                isDragging={isDraggingState}
               />
             )}
+
+            {/* Drop indicator for drag-to-reorder */}
+            {isDraggingState && <DropIndicator top={dropIndicatorTop} />}
 
             {/* Table Controls */}
             {!isReadOnly && hoveredTable && (
