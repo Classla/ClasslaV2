@@ -902,8 +902,7 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
                     // The side panel has its own ephemeral state
                   }}
                   onToggleDesktop={() => {
-                    // Toggle desktop view - local to side panel
-                    // We'd need to manage this in local state if needed
+                    updatePanelState({ showDesktop: !activePanelState.showDesktop });
                   }}
                   onContainerKilled={() => {
                     // Container was killed — clear container state so user can restart

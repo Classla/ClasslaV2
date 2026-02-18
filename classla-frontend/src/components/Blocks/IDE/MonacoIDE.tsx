@@ -160,11 +160,26 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
   const [isResizingSidePanel, setIsResizingSidePanel] = useState(false);
   const [isResizingTerminal, setIsResizingTerminal] = useState(false);
   const [isResizingVnc, setIsResizingVnc] = useState(false);
-  
+
+  // Side-panel toggle states (persisted to localStorage)
+  const [showTerminal, setShowTerminal] = useState<boolean>(() => {
+    const saved = localStorage.getItem('ide-show-terminal');
+    return saved === null ? true : saved === 'true';
+  });
+  const [sidePanelVncHeight, setSidePanelVncHeight] = useState<number>(() => {
+    const saved = localStorage.getItem('ide-side-panel-vnc-height');
+    return saved ? parseInt(saved, 10) : 250;
+  });
+
   // Persist showHiddenFiles to localStorage
   useEffect(() => {
     localStorage.setItem('ide-show-hidden-files', String(showHiddenFiles));
   }, [showHiddenFiles]);
+
+  // Persist showTerminal to localStorage
+  useEffect(() => {
+    localStorage.setItem('ide-show-terminal', String(showTerminal));
+  }, [showTerminal]);
 
   // Filter hidden files (dot-files/folders and .class files) from file tree
   const filterHiddenFiles = useCallback((nodes: FileNode[]): FileNode[] => {
@@ -450,7 +465,50 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
     document.addEventListener('mousemove', handleMouseMove);
     document.addEventListener('mouseup', handleMouseUp);
   }, [vncSize]);
-  
+
+  // Handle side-panel VNC resize (vertical) - resizes from top of VNC panel
+  const handleSidePanelVncResizeStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+
+    if (!terminalSplitRef.current) return;
+
+    // Capture initial state at drag start to avoid feedback loops
+    const splitRect = terminalSplitRef.current.getBoundingClientRect();
+    const startY = e.clientY;
+    const initialHeight = sidePanelVncHeight;
+
+    // Disable pointer events on iframes so they don't swallow mousemove events
+    const iframes = terminalSplitRef.current.querySelectorAll('iframe');
+    iframes.forEach((iframe) => {
+      (iframe as HTMLIFrameElement).style.pointerEvents = 'none';
+    });
+
+    let currentHeight = initialHeight;
+
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      // Dragging up (negative deltaY) → VNC grows; dragging down → VNC shrinks
+      const deltaY = startY - moveEvent.clientY;
+      const newHeight = initialHeight + deltaY;
+      const minHeight = 150;
+      const maxHeight = splitRect.height - 100;
+      const clampedHeight = Math.max(minHeight, Math.min(maxHeight, newHeight));
+      currentHeight = clampedHeight;
+      setSidePanelVncHeight(clampedHeight);
+    };
+
+    const handleMouseUp = () => {
+      iframes.forEach((iframe) => {
+        (iframe as HTMLIFrameElement).style.pointerEvents = 'auto';
+      });
+      localStorage.setItem('ide-side-panel-vnc-height', currentHeight.toString());
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+  }, [sidePanelVncHeight]);
+
   // Toggle panel - if clicking the same panel, close it
   const togglePanel = useCallback((panel: "files" | "settings") => {
     setActivePanel((prev) => (prev === panel ? null : panel));
@@ -2071,16 +2129,32 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
                 <div className="flex items-center gap-2">
                   <TerminalIcon className="w-3.5 h-3.5 text-muted-foreground" />
                   <span className="text-xs font-medium text-foreground">
-                    {showDesktop ? "Terminal & Desktop" : "Terminal"}
+                    {layoutMode === 'side-panel'
+                      ? (showTerminal && showDesktop ? "Terminal & Desktop" : showTerminal ? "Terminal" : showDesktop ? "Desktop" : "Panels")
+                      : (showDesktop ? "Terminal & Desktop" : "Terminal")}
                   </span>
                 </div>
                 <div className="flex items-center gap-2">
-                  {onToggleDesktop && hasTerminal && (
+                  {/* Terminal toggle - side-panel mode only */}
+                  {layoutMode === 'side-panel' && (
                     <Button
-                      variant="outline"
+                      variant={showTerminal ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => setShowTerminal((v) => !v)}
+                      title={showTerminal ? "Hide Terminal" : "Show Terminal"}
+                      className="h-6 px-2 text-xs"
+                    >
+                      <TerminalIcon className="w-3 h-3 mr-1" />
+                      Terminal
+                    </Button>
+                  )}
+                  {/* Desktop toggle */}
+                  {onToggleDesktop && (layoutMode === 'side-panel' ? true : hasTerminal) && (
+                    <Button
+                      variant={showDesktop ? "default" : "outline"}
                       size="sm"
                       onClick={onToggleDesktop}
-                      title={showDesktop ? "Hide desktop" : "View desktop"}
+                      title={showDesktop ? "Hide Desktop" : "View Desktop"}
                       className="h-6 px-2 text-xs"
                     >
                       <Monitor className="w-3 h-3 mr-1" />
@@ -2094,121 +2168,125 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
               {layoutMode === 'side-panel' ? (
                 /* Side Panel Mode: Stack Terminal and VNC vertically */
                 <div ref={terminalSplitRef} className="flex-1 flex flex-col min-h-0 min-w-0 max-w-full overflow-hidden">
-                  {/* Terminal Panel (top half) */}
-                  <div 
-                    className="flex flex-col flex-1 min-w-0 overflow-hidden"
-                    data-terminal-container
-                  >
-                  {hasTerminal ? (
-                    <div 
-                      className="flex-1"
-                      style={{ position: 'relative', minHeight: 0 }}
+                  {/* Terminal Panel - shown when showTerminal is true */}
+                  {showTerminal && (
+                    <div
+                      className="flex flex-col min-w-0 overflow-hidden flex-1"
                       data-terminal-container
                     >
-                      <iframe
-                        // NOTE: Do NOT auto-focus terminal on ref, load, or mouseEnter!
-                        // This steals focus from Monaco editor and causes typing issues.
-                        // Only focus terminal when user explicitly clicks on it.
-                        src={containerTerminalUrl}
-                        className="w-full h-full border-0"
-                        title="Terminal"
-                        allow="clipboard-read; clipboard-write"
-                        style={{ pointerEvents: 'auto', outline: 'none' }}
-                        tabIndex={0}
-                        onMouseDown={(e) => {
-                          // Focus the iframe ONLY when explicitly clicked
-                          const iframe = e.currentTarget as HTMLIFrameElement;
-                          e.stopPropagation(); // Prevent parent handlers from interfering
-                          try {
-                            iframe.focus();
-                            iframe.contentWindow?.focus();
-                          } catch (err) {
-                            // Cross-origin restrictions may prevent this
-                            console.log("Could not focus terminal iframe on click:", err);
-                          }
-                        }}
-                        onError={() => {
-                          // Iframe failed to load - container is likely disconnected
-                          if (!disconnectionDetectedRef.current) {
-                            console.warn("[MonacoIDE] Terminal iframe failed to load, disconnecting...");
-                            disconnectionDetectedRef.current = true;
-                            if (containerHealthCheckRef.current) {
-                              clearInterval(containerHealthCheckRef.current);
-                              containerHealthCheckRef.current = null;
-                            }
-                            onContainerKilled?.();
-                          }
-                        }}
-                      />
+                      {hasTerminal ? (
+                        <div
+                          className="flex-1"
+                          style={{ position: 'relative', minHeight: 0 }}
+                          data-terminal-container
+                        >
+                          <iframe
+                            // NOTE: Do NOT auto-focus terminal on ref, load, or mouseEnter!
+                            // This steals focus from Monaco editor and causes typing issues.
+                            // Only focus terminal when user explicitly clicks on it.
+                            src={containerTerminalUrl}
+                            className="w-full h-full border-0"
+                            title="Terminal"
+                            allow="clipboard-read; clipboard-write"
+                            style={{ pointerEvents: 'auto', outline: 'none' }}
+                            tabIndex={0}
+                            onMouseDown={(e) => {
+                              const iframe = e.currentTarget as HTMLIFrameElement;
+                              e.stopPropagation();
+                              try {
+                                iframe.focus();
+                                iframe.contentWindow?.focus();
+                              } catch (err) {
+                                console.log("Could not focus terminal iframe on click:", err);
+                              }
+                            }}
+                            onError={() => {
+                              if (!disconnectionDetectedRef.current) {
+                                console.warn("[MonacoIDE] Terminal iframe failed to load, disconnecting...");
+                                disconnectionDetectedRef.current = true;
+                                if (containerHealthCheckRef.current) {
+                                  clearInterval(containerHealthCheckRef.current);
+                                  containerHealthCheckRef.current = null;
+                                }
+                                onContainerKilled?.();
+                              }
+                            }}
+                          />
+                        </div>
+                      ) : (
+                        <div className="flex-1 flex items-center justify-center bg-muted">
+                          <div className="text-center text-muted-foreground">
+                            <TerminalIcon className="w-8 h-8 mx-auto mb-2 text-muted-foreground" />
+                            <p className="text-sm">
+                              {containerId && containerTerminalUrl
+                                ? 'Connecting to terminal...'
+                                : 'Waiting for machine to start...'}
+                            </p>
+                          </div>
+                        </div>
+                      )}
                     </div>
-                  ) : (
-                    <div className="flex-1 flex items-center justify-center bg-muted">
-                      <div className="text-center text-muted-foreground">
-                        <TerminalIcon className="w-8 h-8 mx-auto mb-2 text-muted-foreground" />
-                        <p className="text-sm">
-                          {containerId && containerTerminalUrl
-                            ? 'Connecting to terminal...'
-                            : 'Waiting for machine to start...'}
-                        </p>
+                  )}
+
+                  {/* VNC Resize Handle (vertical) - only when both panels visible */}
+                  {showTerminal && showDesktop && hasVnc && (
+                    <div
+                      onMouseDown={handleSidePanelVncResizeStart}
+                      className="h-1 w-full bg-border hover:bg-purple-500 cursor-row-resize flex-shrink-0 transition-colors"
+                    />
+                  )}
+
+                  {/* VNC Panel - shown when showDesktop is true */}
+                  {showDesktop && hasVnc && (
+                    <div
+                      className={`flex flex-col overflow-hidden ${!showTerminal ? 'flex-1' : 'flex-shrink-0'}`}
+                      style={showTerminal ? { height: `${sidePanelVncHeight}px` } : undefined}
+                    >
+                      <div
+                        className="flex-1 overflow-hidden"
+                        style={{ position: 'relative', minHeight: 0 }}
+                      >
+                        <iframe
+                          src={(() => {
+                            if (!containerVncUrl) return '';
+                            const urlObj = new URL(containerVncUrl);
+                            const vncPath = urlObj.pathname.endsWith('/') ? urlObj.pathname.slice(0, -1) : urlObj.pathname;
+                            const websockifyPath = `${vncPath}/websockify`;
+                            return `${containerVncUrl}${containerVncUrl.endsWith('/') ? '' : '/'}vnc.html?autoconnect=true&password=vncpassword&resize=scale&path=${encodeURIComponent(websockifyPath)}`;
+                          })()}
+                          className="w-full h-full border-0"
+                          title="Desktop View"
+                          allow="clipboard-read; clipboard-write"
+                          style={{
+                            pointerEvents: 'auto',
+                            outline: 'none',
+                            maxWidth: '100%',
+                            overflow: 'hidden'
+                          }}
+                          tabIndex={0}
+                          onError={() => {
+                            if (!disconnectionDetectedRef.current) {
+                              console.warn("[MonacoIDE] VNC iframe failed to load, disconnecting...");
+                              disconnectionDetectedRef.current = true;
+                              if (containerHealthCheckRef.current) {
+                                clearInterval(containerHealthCheckRef.current);
+                                containerHealthCheckRef.current = null;
+                              }
+                              onContainerKilled?.();
+                            }
+                          }}
+                        />
                       </div>
                     </div>
                   )}
-                </div>
 
-                {/* VNC Resize Handle for Side Panel Mode (vertical) */}
-                {showDesktop && hasVnc && (
-                  <div
-                    className="h-1 w-full bg-border hover:bg-purple-500 cursor-row-resize flex-shrink-0 transition-colors"
-                  />
-                )}
-                
-                {/* VNC Panel (bottom half) - Shown when showDesktop is true */}
-                {showDesktop && hasVnc && (
-                  <div 
-                    className="flex flex-col overflow-hidden flex-1"
-                  >
-                    {/* VNC Content */}
-                    <div 
-                      className="flex-1 overflow-hidden"
-                      style={{ position: 'relative', minHeight: 0 }}
-                    >
-                      <iframe
-                        src={(() => {
-                          if (!containerVncUrl) return '';
-                          // Extract the path from the VNC URL (e.g., /vnc/px63ejgn from http://localhost/vnc/px63ejgn)
-                          const urlObj = new URL(containerVncUrl);
-                          const vncPath = urlObj.pathname.endsWith('/') ? urlObj.pathname.slice(0, -1) : urlObj.pathname;
-                          const websockifyPath = `${vncPath}/websockify`;
-                          // Construct the full VNC URL with path parameter
-                          return `${containerVncUrl}${containerVncUrl.endsWith('/') ? '' : '/'}vnc.html?autoconnect=true&password=vncpassword&resize=scale&path=${encodeURIComponent(websockifyPath)}`;
-                        })()}
-                        className="w-full h-full border-0"
-                        title="Desktop View"
-                        allow="clipboard-read; clipboard-write"
-                        style={{ 
-                          pointerEvents: 'auto', 
-                          outline: 'none',
-                          maxWidth: '100%',
-                          overflow: 'hidden'
-                        }}
-                        tabIndex={0}
-                        onError={() => {
-                          // VNC iframe failed to load - container is likely disconnected
-                          if (!disconnectionDetectedRef.current) {
-                            console.warn("[MonacoIDE] VNC iframe failed to load, disconnecting...");
-                            disconnectionDetectedRef.current = true;
-                            if (containerHealthCheckRef.current) {
-                              clearInterval(containerHealthCheckRef.current);
-                              containerHealthCheckRef.current = null;
-                            }
-                            onContainerKilled?.();
-                          }
-                        }}
-                      />
+                  {/* Placeholder when neither panel is visible */}
+                  {!showTerminal && (!showDesktop || !hasVnc) && (
+                    <div className="flex-1 flex items-center justify-center bg-muted">
+                      <p className="text-sm text-muted-foreground">No panels visible</p>
                     </div>
-                  </div>
-                )}
-              </div>
+                  )}
+                </div>
               ) : (
                 /* Normal Mode: Terminal on left, VNC on right */
                 <div ref={terminalSplitRef} className="flex-1 flex min-h-0 min-w-0 max-w-full overflow-hidden">
