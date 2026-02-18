@@ -9,6 +9,7 @@
  */
 
 import type * as monaco from "monaco-editor";
+import * as Sentry from "@sentry/react";
 import { TextOperation, OTDocumentClient } from "./otClient";
 
 // Inject remote cursor CSS once
@@ -137,6 +138,29 @@ export class MonacoOTBinding {
         op.retain(baseLength - cursor);
       }
 
+      // Safety net: if the computed baseLength doesn't match the OT document,
+      // the OT client and Monaco have diverged (e.g. due to EOL normalization).
+      // Force-sync doc.content to Monaco immediately, then rebuild as a full
+      // replacement so applyLocal() operates on a consistent base.
+      if (op.baseLength !== this.document.content.length) {
+        const divergenceMsg = `[OT] Content divergence detected: op.baseLength=${op.baseLength}, doc.content.length=${this.document.content.length}. Force-syncing and rebuilding as full replacement.`;
+        console.error(divergenceMsg);
+        Sentry.captureMessage(divergenceMsg, {
+          level: "error",
+          extra: {
+            opBaseLength: op.baseLength,
+            docContentLength: this.document.content.length,
+            documentId: this.document.documentId,
+          },
+        });
+        // Directly correct doc.content so no further ops see the stale value
+        const staleLength = this.document.content.length;
+        this.document.content = fullText;
+        op = new TextOperation();
+        if (staleLength > 0) op.delete(staleLength);
+        if (fullText.length > 0) op.insert(fullText);
+      }
+
       if (!op.isNoop()) {
         this.document.applyLocal(op);
         this.document.notifyLocalOperation(this.bindingId, op);
@@ -206,6 +230,17 @@ export class MonacoOTBinding {
 
         if (edits.length > 0) {
           model.pushEditOperations([], edits, () => null);
+        }
+
+        // Verify Monaco's model matches the OT content after applying remote op.
+        // If Monaco normalized \r\n from the remote op, force-sync to prevent drift.
+        if (model.getValue() !== content) {
+          console.warn("[OT] Post-apply divergence: forcing Monaco sync with OT content.");
+          model.pushEditOperations(
+            [],
+            [{ range: model.getFullModelRange(), text: content }],
+            () => null
+          );
         }
       } finally {
         this.isApplyingRemote = false;

@@ -9,6 +9,11 @@
 
 import { io, Socket } from "socket.io-client";
 
+// Normalize line endings to \n so the OT client always matches Monaco's model
+function normalizeContent(content: string): string {
+  return content.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+}
+
 // ============================================================================
 // TextOperation (client-side copy - same algorithms, no Node.js deps)
 // ============================================================================
@@ -251,7 +256,7 @@ export class OTDocumentClient {
 
   constructor(documentId: string, content: string, revision: number) {
     this.documentId = documentId;
-    this.content = content;
+    this.content = normalizeContent(content);
     this.revision = revision;
     this.state = { type: "synchronized" };
   }
@@ -535,7 +540,8 @@ class OTProvider {
     this.socket.on(
       "document-state",
       (data: { documentId: string; content: string; revision: number }) => {
-        const { documentId, content, revision } = data;
+        const { documentId, revision } = data;
+        const content = normalizeContent(data.content);
         let doc = this.documents.get(documentId);
 
         if (!doc) {

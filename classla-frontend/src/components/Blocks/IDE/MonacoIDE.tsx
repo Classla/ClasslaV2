@@ -1098,6 +1098,11 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
           [{ range: model.getFullModelRange(), text: doc.content }],
           () => null
         );
+        // Monaco may normalize \r\n → \n; read back to keep doc.content in sync
+        const normalized = model.getValue();
+        if (normalized !== doc.content) {
+          doc.content = normalized;
+        }
       }
     }
 
