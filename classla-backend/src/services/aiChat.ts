@@ -47,7 +47,7 @@ function getBedrockClient(): AnthropicBedrock {
   return bedrockClient;
 }
 
-const MODEL_ID = "us.anthropic.claude-sonnet-4-5-20250929-v1:0";
+const MODEL_ID = "us.anthropic.claude-sonnet-4-6";
 const MAX_TOOL_ITERATIONS = 15;
 
 // Tool definitions for Claude
