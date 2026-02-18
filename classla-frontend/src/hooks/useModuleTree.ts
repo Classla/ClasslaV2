@@ -10,7 +10,7 @@ const getBaseURL = () => {
   return apiUrl.replace(/\/api$/, "") || "http://localhost:3001";
 };
 
-export function useModuleTree(courseId: string, isInstructor: boolean) {
+export function useModuleTree(courseId: string) {
   const queryClient = useQueryClient();
   const socketRef = useRef<Socket | null>(null);
   const dragLockRef = useRef(false);
@@ -30,7 +30,7 @@ export function useModuleTree(courseId: string, isInstructor: boolean) {
       const response = await apiClient.getCourseFolders(courseId);
       return response.data;
     },
-    enabled: !!courseId && isInstructor,
+    enabled: !!courseId,
   });
 
   const invalidateTree = useCallback(() => {
@@ -131,7 +131,7 @@ export function useModuleTree(courseId: string, isInstructor: boolean) {
   return {
     assignments: assignmentsQuery.data || [],
     folders: foldersQuery.data || [],
-    isLoading: assignmentsQuery.isLoading || (isInstructor && foldersQuery.isLoading),
+    isLoading: assignmentsQuery.isLoading || foldersQuery.isLoading,
     invalidateTree,
     lockForDrag,
     unlockAfterDrag,

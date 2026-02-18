@@ -125,27 +125,8 @@ router.get(
         return;
       }
 
-      // For regular courses, check if user has instructor/TA role
-      if (!access.isTemplate) {
-        const userRole = await getUserCourseRole(userId, courseId);
-
-        // Only instructors, TAs, and admins can see folders
-        if (
-          userRole !== UserRole.INSTRUCTOR &&
-          userRole !== UserRole.TEACHING_ASSISTANT &&
-          !isAdmin
-        ) {
-          res.status(403).json({
-            error: {
-              code: "INSUFFICIENT_PERMISSIONS",
-              message: "Only instructors and TAs can access folder structure",
-              timestamp: new Date().toISOString(),
-              path: req.path,
-            },
-          });
-          return;
-        }
-      }
+      // canRead is sufficient — folders are structural/organizational data
+      // that all enrolled users need to see the correct tree ordering.
 
       // Get all folders for the course or template
       let query = supabase

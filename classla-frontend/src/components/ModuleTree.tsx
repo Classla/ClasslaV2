@@ -84,10 +84,7 @@ const ModuleTree: React.FC<ModuleTreeProps> = ({ courseId, course, userRole, isI
   const effectiveIsInstructor = isInstructor ?? false;
 
   // Use React Query hook for data fetching + WebSocket real-time updates
-  const { assignments, folders, isLoading, invalidateTree, lockForDrag, unlockAfterDrag, mutations } = useModuleTree(
-    courseId,
-    effectiveIsInstructor
-  );
+  const { assignments, folders, isLoading, invalidateTree, lockForDrag, unlockAfterDrag, mutations } = useModuleTree(courseId);
 
   const currentAssignmentId = useMemo(() => {
     const pathParts = location.pathname.split("/");
@@ -187,17 +184,27 @@ const ModuleTree: React.FC<ModuleTreeProps> = ({ courseId, course, userRole, isI
         }
       });
 
-      // Create implicit folder nodes for paths that don't have explicit folders
+      // Create implicit folder nodes for paths that don't have explicit folders.
+      // Derive order_index from the minimum order_index of child assignments
+      // so implicit folders appear in a sensible position rather than all at the top.
       Array.from(allPaths).forEach((pathKey) => {
         if (!pathToFolderMap.has(pathKey)) {
           const path = pathKey.split("/").filter(Boolean);
           if (path.length > 0) {
+            // Find the minimum order_index of assignments directly inside this folder
+            const childOrderIndices = assignments
+              .filter((a) => a.module_path.join("/") === pathKey)
+              .map((a) => a.order_index || 0);
+            const implicitOrder = childOrderIndices.length > 0
+              ? Math.min(...childOrderIndices)
+              : 0;
+
             pathToFolderMap.set(pathKey, {
               id: `implicit-${pathKey}`,
               name: path[path.length - 1],
               type: "folder",
               path: path,
-              order_index: 0,
+              order_index: implicitOrder,
               children: [],
             });
           }
