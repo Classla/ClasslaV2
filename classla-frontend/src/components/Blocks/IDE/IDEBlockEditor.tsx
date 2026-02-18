@@ -174,6 +174,13 @@ const IDEBlockEditor: React.FC<IDEBlockEditorProps> = memo(
     // Unique instance ID for cross-instance container state sync
     const instanceIdRef = useRef(`ide-editor-${Math.random().toString(36).slice(2, 8)}`);
 
+    // Epoch counter per tab — incremented on deletion to cancel in-flight startContainer calls
+    const startContainerEpochRef = useRef<Record<TabType, number>>({
+      template: 0,
+      modelSolution: 0,
+      autoGrading: 0,
+    });
+
     // pendingTestRunRef backed by module-level map so it survives remounts
     const pendingTestRunRef = useRef(persistedPendingTestRun.get(ideData.id) || false);
 
@@ -341,6 +348,7 @@ const IDEBlockEditor: React.FC<IDEBlockEditorProps> = memo(
         }
 
         setIsStarting((prev) => ({ ...prev, [tab]: true }));
+        const startEpoch = startContainerEpochRef.current[tab]; // capture before any await
 
         try {
           // Get or create S3 bucket
@@ -421,6 +429,7 @@ const IDEBlockEditor: React.FC<IDEBlockEditorProps> = memo(
             }
 
             // Update block data with bucket ID
+            if (startContainerEpochRef.current[tab] !== startEpoch) return;
             updateAttributes({
               ideData: {
                 ...ideData,
@@ -548,6 +557,7 @@ const IDEBlockEditor: React.FC<IDEBlockEditorProps> = memo(
             }
 
             // Update block data with bucket ID
+            if (startContainerEpochRef.current[tab] !== startEpoch) return;
             updateAttributes({
               ideData: {
                 ...ideData,
@@ -565,6 +575,7 @@ const IDEBlockEditor: React.FC<IDEBlockEditorProps> = memo(
           }
 
           // Start container
+          if (startContainerEpochRef.current[tab] !== startEpoch) return;
           const containerResponse = await apiClient.startIDEContainer({
             s3Bucket: bucketName,
             s3BucketId: bucketId || undefined, // Pass bucketId for file sync
@@ -578,6 +589,7 @@ const IDEBlockEditor: React.FC<IDEBlockEditorProps> = memo(
 
           // Update block data with both bucket ID and container ID in a single update
           // This ensures both are saved atomically and prevents validation from clearing the container
+          if (startContainerEpochRef.current[tab] !== startEpoch) return;
           updateAttributes({
             ideData: {
               ...ideData,
@@ -1087,6 +1099,10 @@ const IDEBlockEditor: React.FC<IDEBlockEditorProps> = memo(
       }
 
       try {
+        // Cancel any in-progress startContainer for modelSolution and reset UI immediately
+        startContainerEpochRef.current.modelSolution++;
+        setIsStarting((prev) => ({ ...prev, modelSolution: false }));
+
         // Soft delete the bucket
         await apiClient.softDeleteS3Bucket(bucketId);
 
