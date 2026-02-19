@@ -2110,8 +2110,13 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
                         editorRef.current = editor;
                         editorReadyRef.current = true;
 
-                        // Focus the editor to ensure keyboard input works
-                        editor.focus();
+                        // Focus the editor to ensure keyboard input works, but prevent
+                        // the browser from auto-scrolling the page to the editor on mount
+                        const editorDomNode = editor.getDomNode();
+                        if (editorDomNode) {
+                          const textarea = editorDomNode.querySelector<HTMLTextAreaElement>('textarea');
+                          textarea?.focus({ preventScroll: true });
+                        }
                         
                         // Trigger binding setup if we have a selected file
                         // This ensures binding is created even if useEffect ran before editor was ready

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useParams, useNavigate, useLocation, useSearchParams } from "react-router-dom";
 import { useAuth } from "../../contexts/AuthContext";
 import { apiClient } from "../../lib/api";
@@ -81,6 +82,7 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
 
   const [assignment, setAssignment] = useState<Assignment | null>(null);
   const [loading, setLoading] = useState(true);
+  const [isUnpublished, setIsUnpublished] = useState(false);
   const [previousAssignmentId, setPreviousAssignmentId] = useState<string | undefined>(undefined);
   const [isEditing, setIsEditing] = useState(false);
   const [editedName, setEditedName] = useState("");
@@ -119,6 +121,23 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
       return false;
     }
   });
+
+  // Subscribe to the shared assignments list cache to detect unpublishing.
+  // React Query deduplicates this with the module tree's query — no extra requests.
+  const courseId = course?.id;
+  const { data: courseAssignments } = useQuery({
+    queryKey: ["courseAssignments", courseId],
+    queryFn: () => apiClient.getCourseAssignments(courseId!).then((r) => r.data),
+    enabled: isStudent === true && !!courseId,
+  });
+
+  useEffect(() => {
+    if (isStudent !== true || !assignment || !courseAssignments) return;
+    const stillVisible = courseAssignments.some((a: any) => a.id === assignment.id);
+    if (!stillVisible) {
+      setIsUnpublished(true);
+    }
+  }, [courseAssignments, isStudent, assignment?.id]);
 
   // Wait for user role to be determined before making API calls
   const effectiveIsStudent = isStudent ?? false;
@@ -219,6 +238,7 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
       setLoading(true);
       setPreviousAssignmentId(assignmentId);
       setAssignment(null); // Clear previous assignment immediately
+      setIsUnpublished(false);
       // Clear stale submission state
       setSubmissionId(undefined);
       setSubmissionStatus(null);
@@ -514,6 +534,25 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
 
   if (loading) {
     return <AssignmentPageSkeleton isInstructor={effectiveIsInstructor} />;
+  }
+
+  if (isUnpublished) {
+    return (
+      <div className="text-center py-12">
+        <h3 className="text-lg font-medium text-foreground mb-2">
+          Assignment Unpublished
+        </h3>
+        <p className="text-muted-foreground mb-6">
+          This assignment has been unpublished by your instructor.
+        </p>
+        <Button
+          onClick={() => navigate(`/course/${courseSlug}/summary`)}
+          className="bg-purple-600 hover:bg-purple-700 dark:bg-purple-800 dark:hover:bg-purple-900 text-white"
+        >
+          Back to Course
+        </Button>
+      </div>
+    );
   }
 
   if (!assignment) {
