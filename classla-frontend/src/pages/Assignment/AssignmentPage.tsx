@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from "react";
-import { useParams, useNavigate, useLocation } from "react-router-dom";
+import { useParams, useNavigate, useLocation, useSearchParams } from "react-router-dom";
 import { useAuth } from "../../contexts/AuthContext";
 import { apiClient } from "../../lib/api";
 import { useToast } from "../../hooks/use-toast";
@@ -65,6 +65,9 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
   const { user } = useAuth();
   const { toast } = useToast();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const gradingParam = searchParams.get("grading");
+  const studentIdParam = searchParams.get("student");
   const { panelMode, activePanelState, closeSidePanel, updatePanelState } = useIDEPanel();
 
   const currentUser = useMemo(() => {
@@ -131,6 +134,13 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
 
   // Check if user has instructional privileges (can see sidebar)
   const hasInstructionalPrivileges = effectiveIsInstructor; // This already covers instructor, TA, and admin roles
+
+  // Open grader panel automatically when navigated from gradebook with ?grading=true
+  useEffect(() => {
+    if (hasInstructionalPrivileges && gradingParam === "true") {
+      setActiveSidebarPanel("grader");
+    }
+  }, [hasInstructionalPrivileges, gradingParam]);
 
   // Sync preview mode to localStorage when it changes
   useEffect(() => {
@@ -949,6 +959,7 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
                     onStudentSelect={setSelectedGradingStudent}
                     selectedStudent={selectedGradingStudent}
                     selectedSubmissionId={selectedGradingSubmissionId}
+                    initialStudentId={studentIdParam ?? undefined}
                   />
                 ) : activeSidebarPanel === "ai-chat" ? (
                   <AIChatPanel

@@ -9,6 +9,7 @@ import { useEnsureGrader } from "../../../../hooks/useEnsureGrader";
 import { Loader2 } from "lucide-react";
 import { apiClient } from "../../../../lib/api";
 import RubricGrading from "./rubric/RubricGrading";
+import { calculateAssignmentPoints } from "../../../../utils/assignmentPoints";
 
 interface GradingControlsProps {
   grader: Grader | null;
@@ -16,6 +17,7 @@ interface GradingControlsProps {
   studentId: string;
   courseId: string;
   submissionId?: string;
+  assignmentContent: string;
   onUpdate: (updates: Partial<Grader>) => void;
   onGraderCreated?: (grader: Grader) => void;
   autoSave?: boolean;
@@ -28,6 +30,7 @@ export const GradingControls: React.FC<GradingControlsProps> = React.memo(
     studentId,
     courseId,
     submissionId,
+    assignmentContent,
     onUpdate,
     onGraderCreated,
     autoSave = true,
@@ -153,6 +156,7 @@ export const GradingControls: React.FC<GradingControlsProps> = React.memo(
     );
 
     const finalGrade = calculateFinalGrade(scoreModifier);
+    const totalPossible = calculateAssignmentPoints(assignmentContent, rubricSchema);
 
     // Debounced auto-save (500ms)
     // Note: reviewed status is handled separately with immediate save, so we exclude it from debounced save
@@ -441,7 +445,7 @@ export const GradingControls: React.FC<GradingControlsProps> = React.memo(
               Final Grade
             </Label>
             <div className="flex h-10 w-full rounded-md border-2 border-primary/30 bg-primary/10 px-3 py-2 text-sm font-bold text-primary">
-              {finalGrade}
+              {finalGrade} / {totalPossible}
             </div>
           </div>
         </div>

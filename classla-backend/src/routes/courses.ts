@@ -1216,19 +1216,29 @@ router.get(
         throw assignmentsError;
       }
 
-      // Fetch all submissions for the course with grader data
+      // Fetch all submissions for the course
       const { data: submissions, error: submissionsError } = await supabase
         .from("submissions")
-        .select(
-          `
-          *,
-          graders(*)
-        `
-        )
+        .select("*")
         .eq("course_id", courseId);
 
       if (submissionsError) {
         throw submissionsError;
+      }
+
+      // Fetch all graders for those submissions via direct query (avoids nested join issues)
+      // Batch in chunks of 100 to avoid URL length limits on large courses
+      const submissionIds = (submissions || []).map((s: any) => s.id);
+      const BATCH_SIZE = 100;
+      const allGraders: any[] = [];
+      for (let i = 0; i < submissionIds.length; i += BATCH_SIZE) {
+        const batch = submissionIds.slice(i, i + BATCH_SIZE);
+        const { data: batchData, error: batchError } = await supabase
+          .from("graders")
+          .select("*")
+          .in("submission_id", batch);
+        if (batchError) throw batchError;
+        if (batchData) allGraders.push(...batchData);
       }
 
       // Format students data
@@ -1259,13 +1269,7 @@ router.get(
         })
       );
 
-      // Format graders data
-      const graders = (submissions || [])
-        .filter(
-          (submission: any) =>
-            submission.graders && submission.graders.length > 0
-        )
-        .map((submission: any) => submission.graders[0]);
+      const graders = allGraders;
 
       res.json({
         students,

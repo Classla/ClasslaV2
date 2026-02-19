@@ -1,5 +1,6 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
 import { useToast } from "../../../hooks/use-toast";
 import {
   useCourseGradebook,
@@ -15,6 +16,7 @@ import {
   SelectValue,
 } from "../../../components/ui/select";
 import { Course, Submission, Grader, Section, UserRole } from "../../../types";
+import { apiClient } from "../../../lib/api";
 import { hasTAPermission } from "../../../lib/taPermissions";
 import { useAuth } from "../../../contexts/AuthContext";
 
@@ -32,6 +34,7 @@ const GradebookPage: React.FC<GradebookPageProps> = ({
   const navigate = useNavigate();
   const { toast } = useToast();
   const { user } = useAuth();
+  const queryClient = useQueryClient();
 
   // Check if TA has canViewGrades permission
   const canViewGrades = isInstructor && (
@@ -120,6 +123,50 @@ const GradebookPage: React.FC<GradebookPageProps> = ({
     navigate(
       `/course/${course.slug}/assignment/${assignmentId}?grading=true&student=${studentId}`
     );
+  };
+
+  const handleMarkReviewed = useCallback(async (graderId: string) => {
+    const previousData = queryClient.getQueryData(["gradebook", course?.id]);
+    queryClient.setQueryData(["gradebook", course?.id], (old: any) => {
+      if (!old) return old;
+      return {
+        ...old,
+        graders: old.graders.map((g: Grader) =>
+          g.id === graderId ? { ...g, reviewed_at: new Date().toISOString() } : g
+        ),
+      };
+    });
+    try {
+      await apiClient.updateGrader(graderId, { reviewed_at: new Date() } as any);
+    } catch (err: any) {
+      queryClient.setQueryData(["gradebook", course?.id], previousData);
+      toast({ title: "Failed to mark as reviewed", description: err.message, variant: "destructive" });
+    }
+  }, [queryClient, course?.id, toast]);
+
+  const handleChangeGrade = useCallback(async (graderId: string, modifier: number) => {
+    const previousData = queryClient.getQueryData(["gradebook", course?.id]);
+    queryClient.setQueryData(["gradebook", course?.id], (old: any) => {
+      if (!old) return old;
+      return {
+        ...old,
+        graders: old.graders.map((g: Grader) =>
+          g.id === graderId ? { ...g, score_modifier: String(modifier) } : g
+        ),
+      };
+    });
+    try {
+      await apiClient.autoSaveGrader(graderId, { score_modifier: String(modifier) });
+    } catch (err: any) {
+      queryClient.setQueryData(["gradebook", course?.id], previousData);
+      toast({ title: "Failed to update grade", description: err.message, variant: "destructive" });
+    }
+  }, [queryClient, course?.id, toast]);
+
+  // Handle header click - navigate to assignment without opening grader
+  const handleHeaderClick = (assignmentId: string) => {
+    if (!course?.slug) return;
+    navigate(`/course/${course.slug}/assignment/${assignmentId}`);
   };
 
   // Loading state
@@ -291,6 +338,9 @@ const GradebookPage: React.FC<GradebookPageProps> = ({
           submissions={submissionsMap}
           graders={gradersMap}
           onCellClick={handleCellClick}
+          onHeaderClick={handleHeaderClick}
+          onMarkReviewed={handleMarkReviewed}
+          onChangeGrade={handleChangeGrade}
         />
       )}
     </div>

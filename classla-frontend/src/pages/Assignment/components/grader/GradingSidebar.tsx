@@ -37,6 +37,7 @@ interface GradingSidebarProps {
   onStudentSelect: (student: StudentSubmissionInfo | null) => void;
   selectedStudent: StudentSubmissionInfo | null;
   selectedSubmissionId?: string;
+  initialStudentId?: string;
 }
 
 const GradingSidebar: React.FC<GradingSidebarProps> = ({
@@ -45,6 +46,7 @@ const GradingSidebar: React.FC<GradingSidebarProps> = ({
   onStudentSelect,
   selectedStudent,
   selectedSubmissionId,
+  initialStudentId,
 }) => {
   const { toast } = useToast();
   const [searchQuery, setSearchQuery] = useState("");
@@ -170,6 +172,14 @@ const GradingSidebar: React.FC<GradingSidebarProps> = ({
       }
     }
   }, [students, selectedStudent, onStudentSelect]);
+
+  // Auto-select student when arriving via gradebook cell click
+  useEffect(() => {
+    if (initialStudentId && students.length > 0 && !selectedStudent) {
+      const student = students.find((s) => s.userId === initialStudentId);
+      if (student) onStudentSelect(student);
+    }
+  }, [initialStudentId, students, selectedStudent, onStudentSelect]);
 
   // Filter students
   const filteredStudents = useMemo(() => {
@@ -346,6 +356,7 @@ const GradingSidebar: React.FC<GradingSidebarProps> = ({
                 studentId={selectedStudent.userId}
                 courseId={courseId}
                 submissionId={activeSubmissionIdForControls}
+                assignmentContent={assignment.content}
                 onUpdate={handleGraderUpdate}
                 autoSave={true}
               />

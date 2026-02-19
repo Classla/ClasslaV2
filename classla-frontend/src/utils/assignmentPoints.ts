@@ -47,6 +47,7 @@ export function calculateAssignmentPoints(
   content: string,
   rubricSchema?: RubricSchema | null
 ): number {
+  if (!content) return rubricSchema ? calculateRubricPoints(rubricSchema) : 0;
   try {
     // Parse the assignment content JSON
     const parsedContent: ContentBlockNode = JSON.parse(content);
