@@ -290,6 +290,7 @@ export const StudentSubmissionView: React.FC<StudentSubmissionViewProps> = ({
             assignmentId={assignment.id}
             studentId={student.userId}
             courseId={courseId}
+            assignmentContent={assignment.content}
             onUpdate={handleGraderUpdate}
             onGraderCreated={setCurrentGrader}
             autoSave={false}
