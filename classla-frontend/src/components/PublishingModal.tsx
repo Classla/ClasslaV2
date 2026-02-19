@@ -322,17 +322,9 @@ const PublishingModal: React.FC<PublishingModalProps> = ({
     if (newSelected.has(studentId)) {
       newSelected.delete(studentId);
       newSelected.delete(effectiveCourseId);
-
-      const section = sections.find((s) => s.id === sectionId);
-      if (section) {
-        const sectionStudentIds = section.enrollments.map((e) => e.user.id);
-        const selectedStudentsInSection = sectionStudentIds.filter((id) =>
-          newSelected.has(id)
-        );
-        if (selectedStudentsInSection.length === 0) {
-          newSelected.delete(sectionId);
-        }
-      }
+      // Always remove section when any student is unchecked — section in selectedItems
+      // means "all students selected", so it must be removed when that's no longer true.
+      newSelected.delete(sectionId);
     } else {
       newSelected.add(studentId);
       const section = sections.find((s) => s.id === sectionId);
