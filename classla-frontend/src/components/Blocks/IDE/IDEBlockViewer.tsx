@@ -27,7 +27,7 @@ import { apiClient } from "../../../lib/api";
 import { useAuth } from "../../../contexts/AuthContext";
 import { useIDEPanel } from "../../../contexts/IDEPanelContext";
 import { useAssignmentContext } from "../../../contexts/AssignmentContext";
-import { otProvider } from "../../../lib/otClient";
+
 import { useFileHistory } from "../../../hooks/useFileHistory";
 
 // Deterministic color from user ID for cursor sharing
@@ -558,41 +558,6 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
       const filename = runFilename || "main.py";
       const language = detectLanguage(filename);
 
-      // Write the file directly to the container's filesystem before running
-      // This ensures the container executes the latest code, not stale filesystem content
-      if (studentBucketId && filename) {
-        try {
-          const doc = otProvider.getDocument(studentBucketId, filename);
-          if (doc) {
-            const content = doc.content;
-            if (content) {
-              console.log("[IDE] Writing file to container filesystem before run:", filename);
-              await fetch(`${IDE_API_BASE_URL}/web/${container.id}/write-file`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ path: filename, content }),
-              });
-              // Also save to S3 for persistence (fire-and-forget)
-              apiClient.saveS3File(studentBucketId, filename, content).catch(() => {});
-            }
-          }
-        } catch (e) {
-          console.warn("[IDE] Failed to write file to container before run:", e);
-          if (e instanceof TypeError) {
-            // Network error — container may be unreachable, check status
-            const isAlive = await checkContainerStatus(container.id);
-            if (!isAlive) {
-              toast({
-                title: "Container disconnected",
-                description: "Restarting container. Please click Run again in a moment.",
-              });
-              startContainer();
-              return;
-            }
-          }
-        }
-      }
-
       try {
         const response = await fetch(
           `${IDE_API_BASE_URL}/web/${container.id}/run`,
@@ -900,38 +865,6 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
       }
 
       setIsRunningTests(true);
-
-      // Write all open files directly to the container's filesystem before running tests
-      // This ensures tests run against the latest code, not stale filesystem content
-      if (studentBucketId && container) {
-        try {
-          const docs = otProvider.getDocumentsForBucket(studentBucketId);
-          const writePromises: Promise<any>[] = [];
-          const s3Promises: Promise<any>[] = [];
-          for (const [filePath, doc] of docs.entries()) {
-            const content = doc.content;
-            if (content) {
-              console.log("[IDE] Writing file to container before tests:", filePath);
-              writePromises.push(
-                fetch(`${IDE_API_BASE_URL}/web/${container.id}/write-file`, {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ path: filePath, content }),
-                })
-              );
-              // Also save to S3 for persistence (fire-and-forget)
-              s3Promises.push(apiClient.saveS3File(studentBucketId, filePath, content));
-            }
-          }
-          if (writePromises.length > 0) {
-            await Promise.allSettled(writePromises);
-          }
-          // S3 saves are fire-and-forget
-          Promise.allSettled(s3Promises).catch(() => {});
-        } catch (e) {
-          console.warn("[IDE] Failed to write files to container before tests:", e);
-        }
-      }
 
       try {
         toast({

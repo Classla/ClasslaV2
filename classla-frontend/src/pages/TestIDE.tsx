@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import MonacoIDE from "../components/Blocks/IDE/MonacoIDE";
 import { apiClient } from "../lib/api";
-import { otProvider } from "../lib/otClient";
+
 import { Button } from "../components/ui/button";
 import { Loader2, Trash2 } from "lucide-react";
 // Note: TestIDE doesn't require auth - it uses a test user ID
@@ -177,27 +177,6 @@ const TestIDE: React.FC = () => {
     if (!containerId || !runFilename) return;
 
     const ideBaseUrl = "http://localhost";
-
-    // Write all open OT documents to the container before running
-    if (bucketId) {
-      const docs = otProvider.getDocumentsForBucket(bucketId);
-      for (const [filePath, doc] of docs.entries()) {
-        if (doc.content) {
-          try {
-            console.log(`[TestIDE] Writing ${filePath} to container before run`);
-            await fetch(`${ideBaseUrl}/web/${containerId}/write-file`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ path: filePath, content: doc.content }),
-            });
-            // Also save to S3 (fire-and-forget)
-            apiClient.saveS3File(bucketId, filePath, doc.content).catch(() => {});
-          } catch (e) {
-            console.warn(`[TestIDE] Failed to write ${filePath} to container:`, e);
-          }
-        }
-      }
-    }
 
     try {
       const response = await fetch(`${ideBaseUrl}/web/${containerId}/run`, {

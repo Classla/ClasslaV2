@@ -1,8 +1,7 @@
 /**
  * OT Provider Service - Socket.IO /ot namespace for Operational Transformation
  *
- * Replaces the Yjs WebSocket provider. Uses server-authoritative OT where the
- * server is the single source of truth.
+ * Uses server-authoritative OT where the server is the single source of truth.
  */
 
 import { Server as SocketIOServer } from "socket.io";
@@ -11,6 +10,7 @@ import { logger } from "../utils/logger";
 import { supabase } from "../middleware/auth";
 import { OTServer } from "./ot/OTServer";
 import { TextOperation } from "./ot/TextOperation";
+import { S3Client, DeleteObjectCommand } from "@aws-sdk/client-s3";
 
 const otServer = new OTServer();
 
@@ -78,6 +78,13 @@ export function getDocumentContent(bucketId: string, filePath: string): string |
 }
 
 /**
+ * Get all in-memory document contents for a bucket (used by container flush)
+ */
+export function getDocumentContentsForBucket(bucketId: string): { path: string; content: string }[] {
+  return otServer.getDocumentContentsForBucket(bucketId);
+}
+
+/**
  * Force save all OT documents for a specific bucket to S3
  */
 export async function forceSaveDocumentsForBucket(bucketId: string): Promise<string[]> {
@@ -92,14 +99,66 @@ export function cleanupDocument(docId: string, skipSave: boolean = false): void 
 }
 
 /**
+ * Set bucket sync mode
+ */
+export function setBucketMode(bucketId: string, mode: 'A' | 'B'): void {
+  otServer.setBucketMode(bucketId, mode);
+}
+
+/**
+ * Get bucket sync mode
+ */
+export function getBucketMode(bucketId: string): 'A' | 'B' {
+  return otServer.getBucketMode(bucketId);
+}
+
+/**
+ * Delete a file from S3 (used when container reports a file deletion)
+ */
+async function deleteFileFromS3(bucketId: string, filePath: string): Promise<void> {
+  const { data: bucket, error } = await supabase
+    .from("s3_buckets")
+    .select("bucket_name, region")
+    .eq("id", bucketId)
+    .is("deleted_at", null)
+    .single();
+
+  if (error || !bucket) {
+    logger.warn(`[OT] Cannot delete from S3: bucket ${bucketId} not found`);
+    return;
+  }
+
+  const s3Client = new S3Client({
+    region: bucket.region || "us-east-1",
+    credentials:
+      process.env.IDE_MANAGER_ACCESS_KEY_ID && process.env.IDE_MANAGER_SECRET_ACCESS_KEY
+        ? {
+            accessKeyId: process.env.IDE_MANAGER_ACCESS_KEY_ID,
+            secretAccessKey: process.env.IDE_MANAGER_SECRET_ACCESS_KEY,
+          }
+        : undefined,
+  });
+
+  await s3Client.send(new DeleteObjectCommand({
+    Bucket: bucket.bucket_name,
+    Key: filePath,
+  }));
+
+  logger.info(`[OT] Deleted ${filePath} from S3 bucket ${bucket.bucket_name}`);
+}
+
+/**
  * Setup OT WebSocket namespace
  */
+// Track container sockets: bucketId → socketId
+const containerSockets: Map<string, string> = new Map();
+
 export function setupOTWebSocket(io: SocketIOServer): void {
   const otNamespace = io.of("/ot");
 
   logger.info("[OT] Setting up OT WebSocket namespace at /ot");
 
-  // Authentication middleware - copied from yjsProviderService.ts
+  // Authentication middleware
   otNamespace.use(async (socket: AuthenticatedSocket, next) => {
     try {
       const req = socket.request as any;
@@ -237,6 +296,33 @@ export function setupOTWebSocket(io: SocketIOServer): void {
     });
 
     /**
+     * Container registration — container connects and registers its bucketId.
+     * This activates Mode B (container filesystem = authority).
+     */
+    socket.on(
+      "container-register",
+      (data: { bucketId: string }) => {
+        const { bucketId } = data;
+        if (socket.userId !== "container") {
+          socket.emit("container-registered", { success: false, error: "Not a container" });
+          return;
+        }
+        if (!bucketId) {
+          socket.emit("container-registered", { success: false, error: "bucketId required" });
+          return;
+        }
+
+        containerSockets.set(bucketId, socket.id);
+        socket.join(`container:${bucketId}`);
+        socket.join(`bucket:${bucketId}`);
+        setBucketMode(bucketId, 'B');
+
+        logger.info(`[OT] Container registered for bucket ${bucketId}`, { socketId: socket.id });
+        socket.emit("container-registered", { success: true, bucketId });
+      }
+    );
+
+    /**
      * Subscribe to a document
      */
     socket.on(
@@ -347,13 +433,24 @@ export function setupOTWebSocket(io: SocketIOServer): void {
             revision: result.revision,
           });
 
-          // Broadcast to all other clients in the room
-          socket.to(documentId).emit("remote-operation", {
+          const operationPayload = {
             documentId,
             operation: result.operation.toJSON(),
             authorId: socket.userId || "unknown",
             revision: result.revision,
-          });
+          };
+
+          // Broadcast to all other clients in the document room
+          socket.to(documentId).emit("remote-operation", operationPayload);
+
+          // Also forward to registered container (separate room to avoid double-delivery)
+          const colonIdx = documentId.indexOf(":");
+          if (colonIdx > 0) {
+            const bucketId = documentId.substring(0, colonIdx);
+            if (containerSockets.has(bucketId) && socket.userId !== "container") {
+              otNamespace.to(`container:${bucketId}`).emit("remote-operation", operationPayload);
+            }
+          }
         } catch (error: any) {
           logger.error(`[OT] Failed to process operation for ${documentId}:`, {
             error: error.message,
@@ -390,6 +487,11 @@ export function setupOTWebSocket(io: SocketIOServer): void {
         const bucketRoom = `bucket:${bucketId}`;
         socket.to(bucketRoom).emit("file-tree-change", { bucketId, filePath, action });
 
+        // Also forward to container (if registered and sender is not the container)
+        if (containerSockets.has(bucketId) && socket.userId !== "container") {
+          otNamespace.to(`container:${bucketId}`).emit("file-tree-change", { bucketId, filePath, action });
+        }
+
         if (action === "delete") {
           const documentId = getDocumentId(bucketId, filePath);
           otServer.cleanupDocument(documentId, true);
@@ -398,6 +500,13 @@ export function setupOTWebSocket(io: SocketIOServer): void {
             logger.error(`[OT] Failed to permanently delete ${documentId}:`, e);
           });
           logger.info(`[OT] Cleaned up document for deleted file: ${documentId}`);
+
+          // If container initiated the delete, also remove from S3
+          if (socket.userId === "container") {
+            deleteFileFromS3(bucketId, filePath).catch((e) => {
+              logger.error(`[OT] Failed to delete ${filePath} from S3:`, e);
+            });
+          }
         }
       }
     );
@@ -430,6 +539,21 @@ export function setupOTWebSocket(io: SocketIOServer): void {
         userId: socket.userId,
         reason,
       });
+
+      // If this was a container socket, switch bucket back to Mode A and flush to S3
+      if (socket.userId === "container") {
+        for (const [bucketId, socketId] of containerSockets.entries()) {
+          if (socketId === socket.id) {
+            containerSockets.delete(bucketId);
+            setBucketMode(bucketId, 'A');
+            // Flush all documents for this bucket to S3 (Mode A needs current S3)
+            otServer.forceSaveDocumentsForBucket(bucketId).catch((e) => {
+              logger.error(`[OT] Failed to flush bucket ${bucketId} on container disconnect:`, e);
+            });
+            logger.info(`[OT] Container disconnected for bucket ${bucketId}, switched to Mode A`);
+          }
+        }
+      }
 
       // Schedule cleanup for documents with no clients
       for (const documentId of otServer.getDocumentIds()) {

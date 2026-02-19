@@ -28,17 +28,85 @@ export interface OTDocument {
   revision: number;
 }
 
+export type BucketMode = 'A' | 'B';
+
 export class OTServer {
   private documents: Map<string, OTDocument> = new Map();
   private persistence: OTPersistence;
   private saveTimeouts: Map<string, NodeJS.Timeout> = new Map();
   private cleanupTimeouts: Map<string, NodeJS.Timeout> = new Map();
   private operationQueues: Map<string, Promise<any>> = new Map();
+  private bucketModes: Map<string, BucketMode> = new Map();
+  private s3BackgroundTimers: Map<string, NodeJS.Timeout> = new Map();
   private static readonly SAVE_DEBOUNCE_MS = 1000;
   private static readonly CLEANUP_GRACE_PERIOD_MS = 30000;
+  private static readonly MODE_B_S3_INTERVAL_MS = 30000;
 
   constructor() {
     this.persistence = new OTPersistence();
+  }
+
+  /**
+   * Set the sync mode for a bucket.
+   * Mode A: OT server = source of truth, S3 = background persistence (1s debounce)
+   * Mode B: Container filesystem = authority, S3 = background only (30s interval)
+   */
+  setBucketMode(bucketId: string, mode: BucketMode): void {
+    const prev = this.bucketModes.get(bucketId) || 'A';
+    this.bucketModes.set(bucketId, mode);
+    logger.info(`[OTServer] Bucket ${bucketId} mode: ${prev} → ${mode}`);
+
+    if (mode === 'B') {
+      // Start background S3 persistence timer
+      this.startS3BackgroundTimer(bucketId);
+    } else {
+      // Stop background timer, flush to S3
+      this.stopS3BackgroundTimer(bucketId);
+    }
+  }
+
+  getBucketMode(bucketId: string): BucketMode {
+    return this.bucketModes.get(bucketId) || 'A';
+  }
+
+  private startS3BackgroundTimer(bucketId: string): void {
+    this.stopS3BackgroundTimer(bucketId);
+    const timer = setInterval(async () => {
+      try {
+        await this.saveAllDocumentsToS3ForBucket(bucketId);
+      } catch (e) {
+        logger.error(`[OTServer] Background S3 save failed for bucket ${bucketId}:`, e);
+      }
+    }, OTServer.MODE_B_S3_INTERVAL_MS);
+    this.s3BackgroundTimers.set(bucketId, timer);
+  }
+
+  private stopS3BackgroundTimer(bucketId: string): void {
+    const timer = this.s3BackgroundTimers.get(bucketId);
+    if (timer) {
+      clearInterval(timer);
+      this.s3BackgroundTimers.delete(bucketId);
+    }
+  }
+
+  /**
+   * Save all in-memory documents for a bucket to S3 only (no Postgres, used by background timer)
+   */
+  private async saveAllDocumentsToS3ForBucket(bucketId: string): Promise<void> {
+    const promises: Promise<void>[] = [];
+    for (const [, doc] of this.documents.entries()) {
+      if (doc.bucketId === bucketId) {
+        promises.push(
+          this.persistence.saveFileToS3(doc.bucketInfo, doc.filePath, doc.content).catch((e) => {
+            logger.error(`[OTServer] Background S3 save failed for ${doc.id}:`, e);
+          })
+        );
+      }
+    }
+    if (promises.length > 0) {
+      await Promise.all(promises);
+      logger.debug(`[OTServer] Background S3 save: ${promises.length} docs for bucket ${bucketId}`);
+    }
   }
 
   /**
@@ -94,28 +162,10 @@ export class OTServer {
     const dbDoc = await this.persistence.loadDocument(documentId);
 
     if (dbDoc) {
-      // Also check S3 content to see if container has updated the file directly
-      let s3Content: string | null = null;
-      try {
-        s3Content = await this.persistence.loadFileFromS3(bucketInfo, filePath);
-      } catch (e) {
-        logger.warn(`[OTServer] Failed to load S3 content for ${documentId}, using DB content`);
-      }
-
+      // Load from Postgres only — container no longer writes directly to S3,
+      // so S3 can't diverge from Postgres.
       let content = dbDoc.content;
       let revision = dbDoc.current_revision;
-
-      // If S3 content differs from DB, prefer S3 (container may have changed file directly)
-      if (s3Content !== null && s3Content !== dbDoc.content) {
-        logger.warn(
-          `[OTServer] S3 content differs from DB for ${documentId}, using S3 content`,
-          {
-            dbLen: dbDoc.content.length,
-            s3Len: s3Content.length,
-          }
-        );
-        content = s3Content;
-      }
 
       // Clear stale operations from previous sessions.
       // Operations are only needed for transforming concurrent edits within a session.
@@ -192,6 +242,10 @@ export class OTServer {
     bucketInfo: BucketInfo
   ): Promise<OTDocument> {
     const documentId = OTServer.getDocumentId(bucketId, filePath);
+    // Return in-memory document if already loaded (e.g., another tab is editing)
+    if (this.documents.has(documentId)) {
+      return this.documents.get(documentId)!;
+    }
     return this.loadOrCreateDocument(documentId, bucketId, filePath, bucketInfo);
   }
 
@@ -378,6 +432,8 @@ export class OTServer {
 
   /**
    * Debounced save: persist document content to Postgres + S3
+   * Mode A: save to both Postgres and S3 (1s debounce)
+   * Mode B: always save to Postgres, skip S3 (handled by background timer)
    */
   private debouncedSave(doc: OTDocument): void {
     if (this.saveTimeouts.has(doc.id)) {
@@ -387,7 +443,7 @@ export class OTServer {
     const timeout = setTimeout(async () => {
       this.saveTimeouts.delete(doc.id);
       try {
-        // Save to Postgres
+        // Always save to Postgres (OT operation log integrity)
         await this.persistence.saveDocument({
           id: doc.id,
           bucket_id: doc.bucketId,
@@ -396,10 +452,13 @@ export class OTServer {
           content: doc.content,
         });
 
-        // Save to S3
-        await this.persistence.saveFileToS3(doc.bucketInfo, doc.filePath, doc.content);
+        // Only save to S3 in Mode A; Mode B uses background timer
+        const mode = this.getBucketMode(doc.bucketId);
+        if (mode === 'A') {
+          await this.persistence.saveFileToS3(doc.bucketInfo, doc.filePath, doc.content);
+        }
 
-        logger.debug(`[OTServer] Saved document ${doc.id} (rev=${doc.revision})`);
+        logger.debug(`[OTServer] Saved document ${doc.id} (rev=${doc.revision}, mode=${mode})`);
       } catch (error: any) {
         logger.error(`[OTServer] Failed to save document ${doc.id}:`, error);
       }
@@ -441,6 +500,20 @@ export class OTServer {
     const documentId = OTServer.getDocumentId(bucketId, filePath);
     const doc = this.documents.get(documentId);
     return doc ? doc.content : null;
+  }
+
+  /**
+   * Get all in-memory document contents for a bucket.
+   * Returns array of {path, content} for text documents currently in memory.
+   */
+  getDocumentContentsForBucket(bucketId: string): { path: string; content: string }[] {
+    const results: { path: string; content: string }[] = [];
+    for (const [, doc] of this.documents.entries()) {
+      if (doc.bucketId === bucketId) {
+        results.push({ path: doc.filePath, content: doc.content });
+      }
+    }
+    return results;
   }
 
   /**

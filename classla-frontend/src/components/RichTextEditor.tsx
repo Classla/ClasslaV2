@@ -3,7 +3,7 @@ import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
 import Typography from "@tiptap/extension-typography";
-import { Bold, Italic, List, ListOrdered, Quote, Code } from "lucide-react";
+import { Bold, Italic, List, ListOrdered, Quote, Code, Braces } from "lucide-react";
 
 interface RichTextEditorProps {
   content: string;
@@ -61,7 +61,7 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
         },
         codeBlock: {
           HTMLAttributes: {
-            class: "bg-muted p-3 rounded font-mono text-sm",
+            class: "bg-[#1e1e1e] text-[#d4d4d4] p-3 rounded-md font-mono text-sm",
           },
         },
       }),
@@ -250,6 +250,14 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
             <Code className="w-4 h-4" />
           </ToolbarButton>
 
+          <ToolbarButton
+            onClick={() => editor.chain().focus().toggleCodeBlock().run()}
+            isActive={editor.isActive("codeBlock")}
+            title="Code Block"
+          >
+            <Braces className="w-4 h-4" />
+          </ToolbarButton>
+
           <div className="w-px h-6 bg-border mx-1" />
 
           <ToolbarButton
@@ -339,15 +347,17 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
               "Liberation Mono", Menlo, monospace;
           }
           .rich-text-content pre {
-            background-color: #f3f4f6;
-            padding: 0.25rem;
-            border-radius: 0.125rem;
-            margin: 0.125rem 0;
+            background-color: #1e1e1e;
+            color: #d4d4d4;
+            padding: 0.75rem;
+            border-radius: 0.375rem;
+            margin: 0.25rem 0;
             overflow-x: auto;
           }
           .rich-text-content pre code {
             background: none;
             padding: 0;
+            color: inherit;
           }
           .rich-text-content strong {
             font-weight: 600;

@@ -1494,6 +1494,154 @@ router.post(
 );
 
 /**
+ * POST /api/s3buckets/:bucketId/files/bulk-content
+ * Return all file contents for a bucket. Prefers OT in-memory content, falls back to S3.
+ * Used by the container during startup to get initial file state.
+ */
+router.post(
+  "/:bucketId/files/bulk-content",
+  asyncHandler(async (req: Request, res: Response) => {
+    const { bucketId } = req.params;
+    const serviceToken = req.headers["x-container-service-token"] as string;
+
+    const expectedToken = process.env.CONTAINER_SERVICE_TOKEN;
+    if (!expectedToken || serviceToken !== expectedToken) {
+      return res.status(401).json({ error: "Invalid or missing service token" });
+    }
+
+    const { data: bucket, error: fetchError } = await supabase
+      .from("s3_buckets")
+      .select("*")
+      .eq("id", bucketId)
+      .is("deleted_at", null)
+      .single();
+
+    if (fetchError || !bucket) {
+      return res.status(404).json({ error: "Bucket not found" });
+    }
+
+    try {
+      const bucketRegion = bucket.region || S3_DEFAULT_REGION;
+      const bucketS3Client = new S3Client({
+        region: bucketRegion,
+        credentials:
+          process.env.IDE_MANAGER_ACCESS_KEY_ID && process.env.IDE_MANAGER_SECRET_ACCESS_KEY
+            ? {
+                accessKeyId: process.env.IDE_MANAGER_ACCESS_KEY_ID,
+                secretAccessKey: process.env.IDE_MANAGER_SECRET_ACCESS_KEY,
+              }
+            : undefined,
+      });
+
+      // List all objects in bucket
+      const listCommand = new ListObjectsV2Command({ Bucket: bucket.bucket_name });
+      const listResponse = await bucketS3Client.send(listCommand);
+
+      const BINARY_EXTENSIONS = new Set([
+        'class', 'jar', 'war', 'o', 'obj', 'exe', 'dll', 'so', 'dylib',
+        'png', 'jpg', 'jpeg', 'gif', 'bmp', 'ico', 'webp', 'pdf',
+        'zip', 'tar', 'gz', 'bz2', '7z', 'rar', 'wasm', 'bin', 'dat',
+        'pyc', 'pyo', 'ttf', 'otf', 'woff', 'woff2',
+      ]);
+
+      const { getDocumentContent } = await import("../services/otProviderService");
+      const files: { path: string; content: string; encoding: string }[] = [];
+
+      if (listResponse.Contents) {
+        for (const object of listResponse.Contents) {
+          if (!object.Key ||
+              object.Key.startsWith(".yjs/") ||
+              object.Key === ".yjs" ||
+              object.Key.endsWith(".partial")) {
+            continue;
+          }
+
+          const ext = object.Key.split('.').pop()?.toLowerCase() || '';
+          const isBinary = BINARY_EXTENSIONS.has(ext);
+
+          if (isBinary) {
+            // Read binary from S3, base64 encode
+            try {
+              const getCmd = new GetObjectCommand({ Bucket: bucket.bucket_name, Key: object.Key });
+              const getResp = await bucketS3Client.send(getCmd);
+              if (getResp.Body) {
+                const chunks: Buffer[] = [];
+                for await (const chunk of getResp.Body as any) {
+                  chunks.push(Buffer.from(chunk));
+                }
+                files.push({
+                  path: object.Key,
+                  content: Buffer.concat(chunks).toString('base64'),
+                  encoding: 'base64',
+                });
+              }
+            } catch (e: any) {
+              logger.warn(`[BulkContent] Failed to read binary ${object.Key}:`, e.message);
+            }
+          } else {
+            // Text file: prefer OT in-memory content, fall back to S3
+            const otContent = getDocumentContent(bucketId, object.Key);
+            if (otContent !== null) {
+              files.push({ path: object.Key, content: otContent, encoding: 'utf-8' });
+            } else {
+              try {
+                const getCmd = new GetObjectCommand({ Bucket: bucket.bucket_name, Key: object.Key });
+                const getResp = await bucketS3Client.send(getCmd);
+                if (getResp.Body) {
+                  const chunks: Buffer[] = [];
+                  for await (const chunk of getResp.Body as any) {
+                    chunks.push(Buffer.from(chunk));
+                  }
+                  files.push({
+                    path: object.Key,
+                    content: Buffer.concat(chunks).toString('utf-8'),
+                    encoding: 'utf-8',
+                  });
+                }
+              } catch (e: any) {
+                logger.warn(`[BulkContent] Failed to read ${object.Key}:`, e.message);
+              }
+            }
+          }
+        }
+      }
+
+      return res.json({ files });
+    } catch (error: any) {
+      logger.error("Failed to get bulk content:", error);
+      return res.status(500).json({
+        error: "Failed to get bulk content",
+        details: error.message,
+      });
+    }
+  })
+);
+
+/**
+ * POST /api/s3buckets/:bucketId/files/ot-content
+ * Return only OT in-memory document contents for a bucket.
+ * Lightweight endpoint used by container flush to catch in-transit operations.
+ * Returns only documents currently loaded in OT (no S3 fallback).
+ */
+router.post(
+  "/:bucketId/files/ot-content",
+  asyncHandler(async (req: Request, res: Response) => {
+    const { bucketId } = req.params;
+    const serviceToken = req.headers["x-container-service-token"] as string;
+
+    const expectedToken = process.env.CONTAINER_SERVICE_TOKEN;
+    if (!expectedToken || serviceToken !== expectedToken) {
+      return res.status(401).json({ error: "Invalid or missing service token" });
+    }
+
+    const { getDocumentContentsForBucket } = await import("../services/otProviderService");
+    const files = getDocumentContentsForBucket(bucketId);
+
+    return res.json({ files });
+  })
+);
+
+/**
  * GET /api/s3buckets/:bucketId/files
  * List all files in bucket, return file tree structure
  */
@@ -2224,75 +2372,83 @@ router.post(
     }
 
     try {
-      const bucketRegion = bucket.region || S3_DEFAULT_REGION;
-      const bucketS3Client = new S3Client({
-        region: bucketRegion,
-        credentials:
-          process.env.IDE_MANAGER_ACCESS_KEY_ID && process.env.IDE_MANAGER_SECRET_ACCESS_KEY
-            ? {
-                accessKeyId: process.env.IDE_MANAGER_ACCESS_KEY_ID,
-                secretAccessKey: process.env.IDE_MANAGER_SECRET_ACCESS_KEY,
-              }
-            : undefined,
-      });
+      const { getBucketMode, applyContainerContent } = await import("../services/otProviderService");
+      const { getIO } = await import("../services/websocket");
+      const mode = getBucketMode(bucketId);
+      const isBinary = encoding === 'base64';
 
-      const contentBuffer = encoding === 'base64'
-        ? Buffer.from(content, 'base64')
-        : (typeof content === "string" ? Buffer.from(content, "utf-8") : content);
-
-      const extension = filePath.split(".").pop()?.toLowerCase();
-      const contentTypeMap: Record<string, string> = {
-        py: "text/x-python",
-        js: "text/javascript",
-        ts: "text/typescript",
-        java: "text/x-java-source",
-        html: "text/html",
-        css: "text/css",
-        json: "application/json",
-        md: "text/markdown",
-        txt: "text/plain",
-        sh: "text/x-shellscript",
-        class: "application/java-vm",
-        jar: "application/java-archive",
-        png: "image/png",
-        jpg: "image/jpeg",
-        jpeg: "image/jpeg",
-        gif: "image/gif",
-        pdf: "application/pdf",
-        zip: "application/zip",
-      };
-      const contentType = contentTypeMap[extension || ""] || "text/plain";
-
-      // Check if file already exists in S3 (to detect new files for tree updates)
+      // Mode B text files: skip S3 write (OT + background timer handles persistence)
+      // Mode B binary files: ALWAYS write to S3 (no OT path for binaries)
+      // Mode A: always write to S3
+      const skipS3 = mode === 'B' && !isBinary;
       let isNewFile = false;
-      try {
-        await bucketS3Client.send(new HeadObjectCommand({
+
+      if (!skipS3) {
+        const bucketRegion = bucket.region || S3_DEFAULT_REGION;
+        const bucketS3Client = new S3Client({
+          region: bucketRegion,
+          credentials:
+            process.env.IDE_MANAGER_ACCESS_KEY_ID && process.env.IDE_MANAGER_SECRET_ACCESS_KEY
+              ? {
+                  accessKeyId: process.env.IDE_MANAGER_ACCESS_KEY_ID,
+                  secretAccessKey: process.env.IDE_MANAGER_SECRET_ACCESS_KEY,
+                }
+              : undefined,
+        });
+
+        const contentBuffer = encoding === 'base64'
+          ? Buffer.from(content, 'base64')
+          : (typeof content === "string" ? Buffer.from(content, "utf-8") : content);
+
+        const extension = filePath.split(".").pop()?.toLowerCase();
+        const contentTypeMap: Record<string, string> = {
+          py: "text/x-python",
+          js: "text/javascript",
+          ts: "text/typescript",
+          java: "text/x-java-source",
+          html: "text/html",
+          css: "text/css",
+          json: "application/json",
+          md: "text/markdown",
+          txt: "text/plain",
+          sh: "text/x-shellscript",
+          class: "application/java-vm",
+          jar: "application/java-archive",
+          png: "image/png",
+          jpg: "image/jpeg",
+          jpeg: "image/jpeg",
+          gif: "image/gif",
+          pdf: "application/pdf",
+          zip: "application/zip",
+        };
+        const contentType = contentTypeMap[extension || ""] || "text/plain";
+
+        // Check if file already exists in S3 (to detect new files for tree updates)
+        try {
+          await bucketS3Client.send(new HeadObjectCommand({
+            Bucket: bucket.bucket_name,
+            Key: filePath,
+          }));
+        } catch (headError: any) {
+          if (headError.name === "NotFound" || headError.$metadata?.httpStatusCode === 404) {
+            isNewFile = true;
+          }
+        }
+
+        const putCommand = new PutObjectCommand({
           Bucket: bucket.bucket_name,
           Key: filePath,
-        }));
-      } catch (headError: any) {
-        if (headError.name === "NotFound" || headError.$metadata?.httpStatusCode === 404) {
-          isNewFile = true;
-        }
-        // Other errors are non-fatal — proceed with the put regardless
+          Body: contentBuffer,
+          ContentType: contentType,
+          ContentLength: contentBuffer.length,
+        });
+
+        await bucketS3Client.send(putCommand);
       }
 
-      const putCommand = new PutObjectCommand({
-        Bucket: bucket.bucket_name,
-        Key: filePath,
-        Body: contentBuffer,
-        ContentType: contentType,
-        ContentLength: contentBuffer.length,
-      });
-
-      const putResult = await bucketS3Client.send(putCommand);
-      const etag = putResult.ETag;
-
-      // Only update OT for text files (binary files can't be collaboratively edited)
+      // Always update OT for text files (binary files can't be collaboratively edited)
       if (encoding !== 'base64') {
         try {
-          const { applyContainerContent } = await import("../services/otProviderService");
-          const { getIO } = await import("../services/websocket");
           const newContent = typeof content === "string" ? content : content.toString("utf-8");
           await applyContainerContent(bucketId, filePath, newContent, getIO());
         } catch (error: any) {
@@ -2300,10 +2456,22 @@ router.post(
         }
       }
 
+      // In Mode B, detect new files by checking if OT doc existed before
+      // (we can't check S3 since we skipped the write)
+      if (mode === 'B' && !isNewFile) {
+        // For Mode B, we rely on the OT server to detect new files
+        // The file-tree-change event will be broadcast if the OT doc was newly created
+        // But we need to detect truly new files — check if a document existed
+        const { getDocumentContent } = await import("../services/otProviderService");
+        const existingContent = getDocumentContent(bucketId, filePath);
+        if (existingContent === null && encoding !== 'base64') {
+          isNewFile = true;
+        }
+      }
+
       // Notify frontend clients about new files so file tree updates instantly
       if (isNewFile) {
         try {
-          const { getIO } = await import("../services/websocket");
           const io = getIO();
           const bucketRoom = `bucket:${bucketId}`;
           io.of("/ot").to(bucketRoom).emit("file-tree-change", {

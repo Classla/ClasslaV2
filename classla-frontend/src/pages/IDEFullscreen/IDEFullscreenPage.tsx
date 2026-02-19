@@ -6,7 +6,7 @@ import { Button } from "../../components/ui/button";
 import { useToast } from "../../hooks/use-toast";
 import { useAuth } from "../../contexts/AuthContext";
 import { apiClient } from "../../lib/api";
-import { otProvider } from "../../lib/otClient";
+
 
 const PRODUCTION_IDE_API_BASE_URL =
   import.meta.env.VITE_IDE_API_BASE_URL || "https://ide.classla.org";
@@ -302,39 +302,6 @@ const IDEFullscreenPage: React.FC = () => {
     }
 
     const filename = runFilename || "main.py";
-
-    // Write OT content to container before running
-    if (bucketId && filename) {
-      try {
-        const doc = otProvider.getDocument(bucketId, filename);
-        if (doc) {
-          const content = doc.content;
-          if (content) {
-            await fetch(`${ideApiBaseUrl}/web/${container.id}/write-file`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ path: filename, content }),
-            });
-            apiClient.saveS3File(bucketId, filename, content).catch(() => {});
-          }
-        }
-      } catch (e) {
-        console.warn("[IDE Fullscreen] Failed to write file before run:", e);
-        if (e instanceof TypeError) {
-          try {
-            const statusResp = await apiClient.checkContainerStatus(container.id);
-            if (statusResp.data.status !== "running") throw new Error("not running");
-          } catch {
-            toast({
-              title: "Container disconnected",
-              description: "Restarting container. Please click Run again in a moment.",
-            });
-            startContainer();
-            return;
-          }
-        }
-      }
-    }
 
     const ext = filename.split(".").pop()?.toLowerCase();
     const languageMap: Record<string, string> = {

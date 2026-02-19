@@ -613,10 +613,10 @@ export class ContainerService {
         `[ContainerService] Successfully assigned S3 bucket ${s3Config.bucket} to container ${containerId}`
       );
 
-      // Wait for Y.js initial sync to complete before returning
+      // Wait for file sync to complete before returning
       // This ensures the container workspace has files before the IDE is shown
       console.log(
-        `[ContainerService] Waiting for Y.js initial sync to complete for container ${containerId}...`
+        `[ContainerService] Waiting for file sync to complete for container ${containerId}...`
       );
       const syncMaxRetries = 30; // 30 retries * 1s = 30s max wait
       const syncRetryDelay = 1000;
@@ -642,7 +642,7 @@ export class ContainerService {
             if (syncData.status === "ready") {
               syncReady = true;
               console.log(
-                `[ContainerService] ✅ Y.js initial sync complete for container ${containerId} (attempt ${attempt}/${syncMaxRetries})`
+                `[ContainerService] ✅ File sync complete for container ${containerId} (attempt ${attempt}/${syncMaxRetries})`
               );
               break;
             }
@@ -650,7 +650,7 @@ export class ContainerService {
 
           if (attempt < syncMaxRetries) {
             console.log(
-              `[ContainerService] Y.js sync not ready yet for container ${containerId} (attempt ${attempt}/${syncMaxRetries}), waiting...`
+              `[ContainerService] File sync not ready yet for container ${containerId} (attempt ${attempt}/${syncMaxRetries}), waiting...`
             );
             await new Promise((resolve) => setTimeout(resolve, syncRetryDelay));
           }
@@ -664,7 +664,7 @@ export class ContainerService {
 
       if (!syncReady) {
         console.warn(
-          `[ContainerService] ⚠️ Y.js sync did not complete within timeout for container ${containerId}, proceeding anyway`
+          `[ContainerService] ⚠️ File sync did not complete within timeout for container ${containerId}, proceeding anyway`
         );
       }
     } catch (error) {

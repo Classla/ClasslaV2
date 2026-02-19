@@ -4,7 +4,7 @@
  * Provides:
  * - TextOperation: client-side OT data structure (same algorithms as server)
  * - OTDocumentClient: manages single document's OT state machine
- * - OTProvider: singleton Socket.IO provider (replaces yjsProvider)
+ * - OTProvider: singleton Socket.IO provider for real-time collaboration
  */
 
 import { io, Socket } from "socket.io-client";
@@ -411,7 +411,7 @@ export class OTDocumentClient {
 }
 
 // ============================================================================
-// OTProvider - singleton, replaces yjsProvider
+// OTProvider - singleton Socket.IO provider
 // ============================================================================
 
 const getBackendApiUrl = (): string => {

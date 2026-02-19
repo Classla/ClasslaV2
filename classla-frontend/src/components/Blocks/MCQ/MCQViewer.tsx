@@ -245,7 +245,7 @@ const MCQViewer: React.FC<MCQViewerProps> = memo(
               Question
             </div>
             <div
-              className="text-base font-medium text-foreground leading-relaxed select-text"
+              className="rich-text-content text-base font-medium text-foreground leading-relaxed select-text"
               dangerouslySetInnerHTML={{
                 __html: mcqData.question || "Question text not available",
               }}
@@ -304,7 +304,7 @@ const MCQViewer: React.FC<MCQViewerProps> = memo(
                   {/* Option text with rich text display */}
                   <div className="flex-1 select-text">
                     <div
-                      className={`text-sm transition-colors ${
+                      className={`rich-text-content text-sm transition-colors ${
                         isSelected
                           ? "text-blue-900 font-medium"
                           : "text-foreground"

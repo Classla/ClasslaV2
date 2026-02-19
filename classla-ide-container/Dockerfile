@@ -696,7 +696,7 @@ RUN echo '#!/usr/bin/env python3' > /usr/local/bin/run-server.py && \
     echo '@app.route("/sync-status", methods=["GET"])' >> /usr/local/bin/run-server.py && \
     echo 'def sync_status():' >> /usr/local/bin/run-server.py && \
     echo '    """Check if initial sync has completed"""' >> /usr/local/bin/run-server.py && \
-    echo '    marker_file = "/tmp/yjs-initial-sync-complete"' >> /usr/local/bin/run-server.py && \
+    echo '    marker_file = "/tmp/sync-initial-complete"' >> /usr/local/bin/run-server.py && \
     echo '    if os.path.exists(marker_file):' >> /usr/local/bin/run-server.py && \
     echo '        try:' >> /usr/local/bin/run-server.py && \
     echo '            import json' >> /usr/local/bin/run-server.py && \
@@ -1309,7 +1309,7 @@ COPY file-watcher.sh /usr/local/bin/file-watcher.sh
 RUN chmod +x /usr/local/bin/file-watcher.sh
 
 # Install Node.js packages for container file sync
-RUN npm install -g chokidar && \
+RUN npm install -g chokidar socket.io-client && \
     echo 'export NODE_PATH=/usr/lib/node_modules' >> /etc/profile && \
     echo 'export NODE_PATH=/usr/lib/node_modules' >> /home/user/.bashrc && \
     ls -la /usr/lib/node_modules/ | grep chokidar && \

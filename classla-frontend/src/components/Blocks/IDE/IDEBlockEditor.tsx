@@ -40,7 +40,7 @@ import { apiClient } from "../../../lib/api";
 import { useAuth } from "../../../contexts/AuthContext";
 import { useIDEPanel } from "../../../contexts/IDEPanelContext";
 import { useAssignmentContext } from "../../../contexts/AssignmentContext";
-import { otProvider } from "../../../lib/otClient";
+
 
 // Deterministic color from user ID for cursor sharing
 const CURSOR_COLORS = [
@@ -711,40 +711,6 @@ const IDEBlockEditor: React.FC<IDEBlockEditorProps> = memo(
         const filename = runFilename[tab] || "main.py";
         const language = detectLanguage(filename);
         const bucketId = ideData[tab].s3_bucket_id;
-
-        // Write OT document content to the container filesystem before running
-        // This ensures the container runs the latest code, not stale filesystem content
-        if (bucketId && filename) {
-          try {
-            const doc = otProvider.getDocument(bucketId, filename);
-            if (doc) {
-              const content = doc.content;
-              if (content) {
-                console.log("[IDE Editor] Writing file to container before run:", filename);
-                await fetch(`${IDE_API_BASE_URL}/web/${container.id}/write-file`, {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ path: filename, content }),
-                });
-                // Also save to S3 for persistence (fire-and-forget)
-                apiClient.saveS3File(bucketId, filename, content).catch(() => {});
-              }
-            }
-          } catch (e) {
-            console.warn("[IDE Editor] Failed to write file to container before run:", e);
-            if (e instanceof TypeError) {
-              const isAlive = await checkContainerStatus(tab, container.id);
-              if (!isAlive) {
-                toast({
-                  title: "Container disconnected",
-                  description: "Restarting container. Please click Run again in a moment.",
-                });
-                startContainer(tab);
-                return;
-              }
-            }
-          }
-        }
 
         try {
           const response = await fetch(

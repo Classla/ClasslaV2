@@ -124,6 +124,7 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
   const saveStatusTimeoutRef = useRef<Record<string, NodeJS.Timeout>>({}); // Track debounced save status updates per file
   const instanceIdRef = useRef(`ide_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`); // Unique ID per MonacoIDE instance for local cursor dispatch
   const pendingRenamePathsRef = useRef<Set<string>>(new Set()); // Track paths that were just renamed — suppress content overwrite on reconnect
+  const setupOTBindingRef = useRef<((filePath: string) => void) | null>(null); // Ref to setupOTBinding for use in callbacks declared before it
   // Min and max constraints for side panel
   const SIDE_PANEL_MIN = 150;
   const SIDE_PANEL_MAX = 500;
@@ -585,15 +586,29 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
     try {
       const response = await apiClient.listS3Files(bucketId);
       const s3Files = response.data.files || [];
-      
+
+      // Filter out recently deleted files (S3 deletion may be async/slow)
+      const recentlyDeleted = recentlyDeletedFilesRef.current;
+      const filterDeleted = (nodes: FileNode[]): FileNode[] => {
+        return nodes
+          .filter((node) => !recentlyDeleted.has(node.path))
+          .map((node) => {
+            if (node.type === "folder" && node.children) {
+              return { ...node, children: filterDeleted(node.children) };
+            }
+            return node;
+          });
+      };
+      const filteredFiles = recentlyDeleted.size > 0 ? filterDeleted(s3Files) : s3Files;
+
       // Merge with recently created files that might not be in S3 yet
       // This prevents files from disappearing during the save window
       const recentlyCreated = Array.from(recentlyCreatedFilesRef.current);
-      const allFiles = [...s3Files];
-      
+      const allFiles = [...filteredFiles];
+
       // Add recently created files that aren't in S3 yet
       for (const filePath of recentlyCreated) {
-        const exists = getAllFilePaths(s3Files).includes(filePath);
+        const exists = getAllFilePaths(filteredFiles).includes(filePath);
         if (!exists) {
           // File was recently created but not in S3 yet - add it optimistically
           const parts = filePath.split("/");
@@ -614,7 +629,7 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
           }
         }
       }
-      
+
       setFiles(allFiles);
       setLoading(false);
     } catch (error: any) {
@@ -1080,6 +1095,35 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
       // even before the OT document fully loads from S3
       setFileContent((prev) => ({ ...prev, [newPath]: content }));
 
+      // Explicitly set up OT binding after document-state arrives.
+      // The useEffect/onMount chain is unreliable during rename because
+      // the editor remounts (key change) during the await, and by the time
+      // their timeouts fire, the old editor is disposed (model=null → silent return).
+      // The subscription is only sent HERE (after the await), so we need to
+      // explicitly bridge the gap.
+      otProvider.onDocumentReady(bucketId, newPath, () => {
+        console.log(`[MonacoIDE] Rename: document ready for ${newPath}, setting up binding`);
+        // Use requestAnimationFrame to ensure we're after React's commit phase
+        // (editor should already be mounted since the await took hundreds of ms)
+        requestAnimationFrame(() => {
+          const bindFn = setupOTBindingRef.current;
+          if (!bindFn) return;
+          if (editorRef.current && editorRef.current.getModel()) {
+            bindFn(newPath);
+          } else {
+            // Fallback: editor may still be initializing, retry after a short delay
+            setTimeout(() => {
+              const fn = setupOTBindingRef.current;
+              if (fn && editorRef.current && editorRef.current.getModel()) {
+                fn(newPath);
+              } else {
+                console.warn(`[MonacoIDE] Rename: editor not ready for binding after rename to ${newPath}`);
+              }
+            }, 200);
+          }
+        });
+      });
+
       // Mark new file as recently created to prevent disappearing during S3 save
       recentlyCreatedFilesRef.current.add(newPath);
       setTimeout(() => {
@@ -1206,6 +1250,7 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
 
     console.log(`[MonacoIDE] OT binding created for ${filePath} (rev=${doc.revision})`);
   }, [bucketId, currentUser]);
+  setupOTBindingRef.current = setupOTBinding;
 
   // Update Monaco editor theme when dark mode changes
   useEffect(() => {
@@ -1294,6 +1339,8 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
 
   // Track recently created files to prevent premature S3 reloads
   const recentlyCreatedFilesRef = useRef<Set<string>>(new Set());
+  // Track recently deleted files to prevent S3 reloads from resurrecting them
+  const recentlyDeletedFilesRef = useRef<Set<string>>(new Set());
 
   // Load file tree on mount and when bucketId changes
   useEffect(() => {
@@ -1310,6 +1357,10 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
       if (changedBucketId !== bucketId) return;
 
       if (action === "delete") {
+        // Track as recently deleted so loadFileTree (S3) doesn't resurrect it
+        recentlyDeletedFilesRef.current.add(filePath);
+        setTimeout(() => recentlyDeletedFilesRef.current.delete(filePath), 15000);
+
         // Remove file from tree
         const removeFromTree = (nodes: FileNode[]): FileNode[] => {
           return nodes
@@ -1779,7 +1830,15 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
               <Button
                 variant="outline"
                 size="sm"
-                onClick={onRun}
+                onClick={() => {
+                  onRun?.();
+                  // Reload file tree after run to catch container filesystem changes
+                  // (e.g. rm -f *.class, new compiled files). Delay allows the run
+                  // process + container sync to complete.
+                  if (containerId) {
+                    setTimeout(() => loadFileTree(), 5000);
+                  }
+                }}
                 disabled={isStarting || historyMode}
               >
                 {isStarting ? (
