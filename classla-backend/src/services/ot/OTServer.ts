@@ -69,6 +69,14 @@ export class OTServer {
     return this.bucketModes.get(bucketId) || 'A';
   }
 
+  /**
+   * Normalize line endings to LF only.
+   * Prevents \r\n divergence between Monaco (LF-only) and content loaded from S3/DB.
+   */
+  private normalizeContent(content: string): string {
+    return content.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  }
+
   private startS3BackgroundTimer(bucketId: string): void {
     this.stopS3BackgroundTimer(bucketId);
     const timer = setInterval(async () => {
@@ -164,7 +172,7 @@ export class OTServer {
     if (dbDoc) {
       // Load from Postgres only — container no longer writes directly to S3,
       // so S3 can't diverge from Postgres.
-      let content = dbDoc.content;
+      let content = this.normalizeContent(dbDoc.content);
       let revision = dbDoc.current_revision;
 
       // Clear stale operations from previous sessions.
@@ -202,7 +210,7 @@ export class OTServer {
     try {
       const s3Content = await this.persistence.loadFileFromS3(bucketInfo, filePath);
       if (s3Content !== null) {
-        content = s3Content;
+        content = this.normalizeContent(s3Content);
       }
     } catch (error: any) {
       logger.warn(`[OTServer] Failed to load S3 content for new document ${documentId}:`, error);

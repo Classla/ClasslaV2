@@ -143,7 +143,7 @@ export class MonacoOTBinding {
       // Force-sync doc.content to Monaco immediately, then rebuild as a full
       // replacement so applyLocal() operates on a consistent base.
       if (op.baseLength !== this.document.content.length) {
-        const divergenceMsg = `[OT] Content divergence detected: op.baseLength=${op.baseLength}, doc.content.length=${this.document.content.length}. Force-syncing and rebuilding as full replacement.`;
+        const divergenceMsg = `[OT] Content divergence detected: op.baseLength=${op.baseLength}, doc.content.length=${this.document.content.length}. Requesting resync.`;
         console.error(divergenceMsg);
         Sentry.captureMessage(divergenceMsg, {
           level: "error",
@@ -153,12 +153,10 @@ export class MonacoOTBinding {
             documentId: this.document.documentId,
           },
         });
-        // Directly correct doc.content so no further ops see the stale value
-        const staleLength = this.document.content.length;
-        this.document.content = fullText;
-        op = new TextOperation();
-        if (staleLength > 0) op.delete(staleLength);
-        if (fullText.length > 0) op.insert(fullText);
+        // Request fresh document state from server — do NOT send a destructive
+        // full delete+insert op which would wipe the document for all clients.
+        this.document.resetAndResync();
+        return;
       }
 
       if (!op.isNoop()) {
@@ -241,6 +239,26 @@ export class MonacoOTBinding {
             [{ range: model.getFullModelRange(), text: content }],
             () => null
           );
+        }
+
+        // Re-render all remote cursor decorations at their last stored positions.
+        //
+        // Why: cursor-update events are a fast passthrough on the server, but
+        // submit-operation requires an async DB write before remote-operation is
+        // emitted. So the remote-cursor event for a keystroke almost always
+        // arrives BEFORE the corresponding remote-operation. That means the remote
+        // cursor decoration is already placed at the post-edit column when the
+        // content change is applied. Monaco's auto-shift then advances it one
+        // column too far, producing a persistent off-by-one.
+        //
+        // Fix: after applying the op, re-render each remote cursor at its stored
+        // {lineNumber, column} (set by the most recent cursor-update). This
+        // removes the Monaco-shifted decoration and replaces it with the correct
+        // one. If the cursor-update hasn't arrived yet (rare), the decoration
+        // briefly shows the pre-edit position — it self-corrects when the
+        // cursor-update lands (within a few ms).
+        for (const [clientId, state] of this.remoteCursors.entries()) {
+          this.renderRemoteCursor(clientId, state);
         }
       } finally {
         this.isApplyingRemote = false;

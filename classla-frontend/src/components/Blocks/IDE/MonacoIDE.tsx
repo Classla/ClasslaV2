@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import React, { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo } from "react";
 import { useTheme } from "../../../hooks/useTheme";
 import Editor from "@monaco-editor/react";
 import { Terminal as TerminalIcon, ChevronRight, ChevronLeft, RefreshCw, Monitor, Play, Loader2, Files, Power, ExternalLink, PanelLeft, History, Clock, Settings } from "lucide-react";
@@ -121,6 +121,9 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
   const selectedFileRef = useRef<string | null>(null); // Track selected file in ref for binding checks
   const containerHealthCheckRef = useRef<NodeJS.Timeout | null>(null); // Track health check interval
   const disconnectionDetectedRef = useRef<boolean>(false); // Track if disconnection was already detected
+  // Keep a ref to the latest onContainerKilled so the health check effect doesn't need it as a
+  // dependency (avoids restarting the interval — and resetting the failure count — on every render).
+  const onContainerKilledRef = useRef(onContainerKilled);
   const saveStatusTimeoutRef = useRef<Record<string, NodeJS.Timeout>>({}); // Track debounced save status updates per file
   const instanceIdRef = useRef(`ide_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`); // Unique ID per MonacoIDE instance for local cursor dispatch
   const pendingRenamePathsRef = useRef<Set<string>>(new Set()); // Track paths that were just renamed — suppress content overwrite on reconnect
@@ -312,7 +315,7 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
             clearInterval(containerHealthCheckRef.current);
             containerHealthCheckRef.current = null;
           }
-          onContainerKilled?.();
+          onContainerKilledRef.current?.();
         }
       }
     };
@@ -329,7 +332,12 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
         containerHealthCheckRef.current = null;
       }
     };
-  }, [containerId, containerWebServerUrl, onContainerKilled]);
+  }, [containerId, containerWebServerUrl]); // onContainerKilled intentionally excluded — accessed via ref to avoid restarting the interval on every render
+
+  // Keep the ref current with the latest callback on every render
+  useLayoutEffect(() => {
+    onContainerKilledRef.current = onContainerKilled;
+  });
 
   // Reset disconnection flag when container changes
   useEffect(() => {
@@ -1393,13 +1401,15 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
           }
         }
         
-        // Clean up OT resources for deleted file
-        if (otBindingsRef.current[filePath]) {
-          otBindingsRef.current[filePath].destroy();
-          delete otBindingsRef.current[filePath];
-        }
-        if (bucketId) {
-          otProvider.unsubscribeDocument(bucketId, filePath);
+        // Clean up OT resources for deleted file (skip binary files — they were never subscribed)
+        if (!isBinaryFile(filePath)) {
+          if (otBindingsRef.current[filePath]) {
+            otBindingsRef.current[filePath].destroy();
+            delete otBindingsRef.current[filePath];
+          }
+          if (bucketId) {
+            otProvider.unsubscribeDocument(bucketId, filePath);
+          }
         }
         
         // CRITICAL: Do NOT reload file tree here - the deletion is already handled optimistically
@@ -1460,10 +1470,11 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
           }
         });
 
-        // Only subscribe to OT if this is a genuinely new file (not from a rename)
-        // Rename already handles its own OT subscription — double-subscribing
-        // causes the editor content to be overwritten with stale S3 content
-        if (bucketId && !fileAlreadyExists) {
+        // Only subscribe to OT if this is a genuinely new text file (not from a rename, not binary).
+        // Binary files (e.g. .class, .jar) can never be edited and should never enter OT.
+        // Subscribing them causes OT cleanup to fire when they're deleted (e.g. rm -f *.class),
+        // which disrupts active editing sessions on other files in the same bucket.
+        if (bucketId && !fileAlreadyExists && !isBinaryFile(filePath)) {
           try {
             otProvider.subscribeToDocument(bucketId, filePath);
             const doc = otProvider.getDocument(bucketId, filePath);
@@ -1830,7 +1841,27 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => {
+                onClick={async () => {
+                  // Pre-sync: write the currently open file's content directly to the
+                  // container before triggering run. This is a belt-and-suspenders
+                  // guard against OT WebSocket failures where edits appear in Monaco
+                  // locally but never reach the backend or container.
+                  // The flush inside /run still runs; this just guarantees disk has
+                  // the latest content regardless of OT state.
+                  if (containerId && selectedFileRef.current && editorRef.current) {
+                    const content = editorRef.current.getModel()?.getValue();
+                    if (content !== undefined) {
+                      try {
+                        await fetch(`${ideApiBaseUrl}/web/${containerId}/write-file`, {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ path: selectedFileRef.current, content }),
+                        });
+                      } catch {
+                        // Non-fatal — proceed with run even if direct write fails
+                      }
+                    }
+                  }
                   onRun?.();
                   // Reload file tree after run to catch container filesystem changes
                   // (e.g. rm -f *.class, new compiled files). Delay allows the run

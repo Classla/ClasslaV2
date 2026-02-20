@@ -206,7 +206,8 @@ export class ContainerStatsService {
    */
   async recordContainerStopped(
     containerId: string,
-    shutdownReason?: string
+    shutdownReason?: string,
+    crashMetrics?: { cpuPercent: number; memoryPercent: number; diskPercent: number }
   ): Promise<void> {
     if (!this.enabled || !this.supabase) {
       return;
@@ -242,14 +243,21 @@ export class ContainerStatsService {
         activeDurationMs = now.getTime() - requestReceivedAt.getTime();
       }
 
+      const updatePayload: Record<string, unknown> = {
+        container_stopped_at: now.toISOString(),
+        active_duration_ms: activeDurationMs,
+        shutdown_reason: shutdownReason || null,
+        updated_at: now.toISOString(),
+      };
+      if (crashMetrics) {
+        updatePayload.crash_cpu_percent = crashMetrics.cpuPercent;
+        updatePayload.crash_memory_percent = crashMetrics.memoryPercent;
+        updatePayload.crash_disk_percent = crashMetrics.diskPercent;
+      }
+
       const { error } = await this.supabase
         .from("container_stats")
-        .update({
-          container_stopped_at: now.toISOString(),
-          active_duration_ms: activeDurationMs,
-          shutdown_reason: shutdownReason || null,
-          updated_at: now.toISOString(),
-        })
+        .update(updatePayload)
         .eq("container_id", containerId);
 
       if (error) {

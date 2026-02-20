@@ -954,8 +954,9 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
                     updatePanelState({ showDesktop: !activePanelState.showDesktop });
                   }}
                   onContainerKilled={() => {
-                    // Container was killed — clear container state so user can restart
+                    // Container crashed — close the panel entirely and clear state
                     updatePanelState({ container: null, isStarting: false });
+                    closeSidePanel();
                   }}
                 />
               </div>

@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import { config } from "../config/index";
+import { discordAlertService } from "../services/serviceInstances";
 
 /**
  * Custom error class for application-specific errors
@@ -190,6 +191,15 @@ export function errorHandler(
 
   // Send error response
   res.status(statusCode).json(errorResponse);
+
+  // Alert Discord for server errors (5xx)
+  if (statusCode >= 500) {
+    discordAlertService
+      .sendApiErrorAlert(req.method, req.path, statusCode, getErrorCode(err), err.message)
+      .catch((alertErr) =>
+        console.error("[errorHandler] Failed to send Discord alert:", alertErr)
+      );
+  }
 }
 
 /**

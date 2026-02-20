@@ -3,6 +3,7 @@ import https from "https";
 import { ContainerService } from "./containerService";
 import { StateManager } from "./stateManager";
 import { ContainerStatsService } from "./containerStatsService";
+import { ResourceMonitor, SystemResources } from "./resourceMonitor";
 import { config } from "../config/index";
 
 export interface HealthCheckResult {
@@ -31,6 +32,7 @@ export class HealthMonitor {
   private containerService: ContainerService;
   private stateManager: StateManager;
   private containerStatsService: ContainerStatsService;
+  private resourceMonitor: ResourceMonitor | null;
   private healthStates: Map<string, ContainerHealthState>;
   private checkInterval: NodeJS.Timeout | null;
   private startingContainerIntervals: Map<string, NodeJS.Timeout> = new Map(); // Aggressive polling for starting containers
@@ -42,14 +44,23 @@ export class HealthMonitor {
   private readonly MAX_UNHEALTHY_DURATION_MS = 5 * 60 * 1000; // 5 minutes - shut down containers that stay unhealthy
   private codeServerAvailableTracked: Set<string> = new Set(); // Track which containers have had code-server availability recorded
 
+  /** Optional callback fired when a container is shut down due to prolonged unhealthy state */
+  onContainerCrash?: (
+    containerId: string,
+    resources: SystemResources,
+    details: { consecutiveFailures: number; unhealthyDurationMs: number; s3Bucket?: string }
+  ) => void;
+
   constructor(
     containerService: ContainerService,
     stateManager: StateManager,
-    containerStatsService?: ContainerStatsService
+    containerStatsService?: ContainerStatsService,
+    resourceMonitor?: ResourceMonitor
   ) {
     this.containerService = containerService;
     this.stateManager = stateManager;
     this.containerStatsService = containerStatsService || new ContainerStatsService();
+    this.resourceMonitor = resourceMonitor || null;
     this.healthStates = new Map();
     this.checkInterval = null;
   }
@@ -620,8 +631,45 @@ export class HealthMonitor {
         shutdownReason: "error",
       });
 
-      // Record container stopped in stats service
-      await this.containerStatsService.recordContainerStopped(containerId, "error");
+      // Capture system resources at crash time (used for both stats and Discord alert)
+      let crashResources: import("./resourceMonitor").SystemResources | null = null;
+      if (this.resourceMonitor) {
+        try {
+          crashResources = await this.resourceMonitor.getSystemResources();
+        } catch (err) {
+          console.error("[HealthMonitor] Failed to capture crash resources:", err);
+        }
+      }
+
+      // Record container stopped in stats service, including crash metrics if available
+      await this.containerStatsService.recordContainerStopped(
+        containerId,
+        "error",
+        crashResources
+          ? {
+              cpuPercent: crashResources.cpu.usage,
+              memoryPercent: crashResources.memory.usagePercent,
+              diskPercent: crashResources.disk.usagePercent,
+            }
+          : undefined
+      );
+
+      // Fire crash callback (e.g. sends Discord alert)
+      if (this.onContainerCrash && crashResources) {
+        try {
+          const containerInfo = this.stateManager.getContainer(containerId);
+          const unhealthyDurationMs = healthState.firstUnhealthyAt
+            ? Date.now() - healthState.firstUnhealthyAt.getTime()
+            : 0;
+          this.onContainerCrash(containerId, crashResources, {
+            consecutiveFailures: healthState.consecutiveFailures,
+            unhealthyDurationMs,
+            s3Bucket: containerInfo?.s3Bucket,
+          });
+        } catch (err) {
+          console.error("[HealthMonitor] Failed to fire crash callback:", err);
+        }
+      }
 
       // Remove health monitoring state
       this.removeContainerHealth(containerId);

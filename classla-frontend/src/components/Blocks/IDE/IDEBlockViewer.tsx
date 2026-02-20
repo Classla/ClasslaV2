@@ -69,7 +69,7 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
     const ideData = node.attrs.ideData as IDEBlockData;
     const { toast } = useToast();
     const { user } = useAuth();
-    const { openSidePanel, openFullscreen, updatePanelState, panelMode } = useIDEPanel();
+    const { openSidePanel, closeSidePanel, openFullscreen, updatePanelState, panelMode } = useIDEPanel();
     const { courseId, assignmentId, previewMode, studentId: contextStudentId, snapshotBucketMap } = useAssignmentContext();
 
     // When grading or viewing a submitted assignment, use the snapshot bucket if available
@@ -1029,7 +1029,10 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
                         onRefreshInstance={container ? handleRefreshInstance : undefined}
                         onToggleDesktop={handleToggleDesktop}
                         showDesktop={showDesktop}
-                        onContainerKilled={clearContainer}
+                        onContainerKilled={() => {
+                          clearContainer();
+                          if (isSidePanelOwnerRef.current) closeSidePanel();
+                        }}
                         showPanelButtons={true}
                         currentUser={currentUser}
                         onOpenSidePanel={() => openSidePanelWithOwnership({

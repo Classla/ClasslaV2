@@ -488,8 +488,20 @@ class OTProvider {
       this._connected = true;
       console.log("[OT] Connected", { socketId: this.socket?.id });
 
-      // Re-subscribe to all existing documents
+      // Re-subscribe to all existing documents.
+      // IMPORTANT: Reset any non-synchronized docs to synchronized BEFORE re-subscribing.
+      // After a disconnect, the server will never retransmit acks for outstanding ops —
+      // so any doc stuck in awaitingConfirm/awaitingWithBuffer would never recover.
+      // Resetting to synchronized lets the incoming document-state refresh to the
+      // server's authoritative content. The user may lose the last unacked keystroke,
+      // but that is far better than a permanent silent sync failure.
       for (const [docId, doc] of this.documents.entries()) {
+        if (doc.state.type !== "synchronized") {
+          console.warn(
+            `[OT] Reconnect: resetting pending state (${doc.state.type}) on ${docId} — ack will never arrive after disconnect`
+          );
+          doc.state = { type: "synchronized" };
+        }
         const [bucketId, ...rest] = docId.split(":");
         const filePath = rest.join(":");
         this.socket!.emit("subscribe-document", { bucketId, filePath });
@@ -543,14 +555,21 @@ class OTProvider {
         const { documentId, revision } = data;
         const content = normalizeContent(data.content);
         let doc = this.documents.get(documentId);
+        // Track whether we should notify Monaco — skip for docs with pending ops
+        // to avoid the post-apply divergence check force-syncing Monaco to server
+        // content while doc.content still reflects uncommitted local operations.
+        let shouldNotifyContent = true;
 
         if (!doc) {
           doc = new OTDocumentClient(documentId, content, revision);
           this.documents.set(documentId, doc);
         } else if (doc.state.type !== "synchronized") {
-          // Document has pending operations — don't reset state or content.
-          // The ack/remote-operation handlers will reconcile naturally.
+          // Document still has pending operations (edge case: duplicate subscribe
+          // within the same session). Don't reset state or content, and don't
+          // fire onContentChanged — that would trigger a Monaco force-sync which
+          // would diverge Monaco from doc.content.
           console.log(`[OT] Ignoring document-state for ${documentId} (pending state: ${doc.state.type})`);
+          shouldNotifyContent = false;
         } else {
           // Synchronized state: safe to update content/revision
           const oldContent = doc.content;
@@ -583,9 +602,13 @@ class OTProvider {
           this.socket?.emit("subscribe-document", { bucketId: bId, filePath: fPath });
         };
 
-        // Notify listeners of content (for initial load — no-op retain)
-        doc.onContentChanged?.(content, new TextOperation().retain(content.length));
-        doc.onSaveStatusChanged?.("saved");
+        // Notify listeners of content (for initial load — no-op retain).
+        // Skipped for pending-state docs to avoid triggering Monaco's divergence
+        // force-sync while uncommitted local operations are still in flight.
+        if (shouldNotifyContent) {
+          doc.onContentChanged?.(content, new TextOperation().retain(content.length));
+          doc.onSaveStatusChanged?.("saved");
+        }
 
         console.log(`[OT] Document state received: ${documentId} (rev=${revision}, len=${content.length})`);
 

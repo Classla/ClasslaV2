@@ -126,6 +126,22 @@ app.use((req: Request, res: Response) => {
 // Centralized error handler (must be last)
 app.use(errorHandler);
 
+// Wire container crash → Discord alert
+healthMonitor.onContainerCrash = (containerId, resources, details) => {
+  discordAlertService.sendContainerCrashAlert(containerId, resources, details).catch(console.error);
+};
+
+// Alert Discord on unhandled process errors
+process.on("uncaughtException", (error) => {
+  console.error("[server] Uncaught exception:", error);
+  discordAlertService.sendProcessErrorAlert("uncaughtException", error).catch(console.error);
+});
+
+process.on("unhandledRejection", (reason) => {
+  console.error("[server] Unhandled rejection:", reason);
+  discordAlertService.sendProcessErrorAlert("unhandledRejection", reason).catch(console.error);
+});
+
 // Start health monitoring
 healthMonitor.start();
 

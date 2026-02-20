@@ -147,6 +147,7 @@ class OTReceiver {
   constructor(syncingFiles) {
     this.socket = null;
     this.registered = false;
+    this.hasCompletedInitialSync = false; // set to true after first register(); used to re-register on reconnect
     this.contentCache = new Map(); // filePath → string content
     this.syncingFiles = syncingFiles; // shared with ContainerFileSync
     this.bufferedEvents = []; // buffer events before registration
@@ -168,7 +169,13 @@ class OTReceiver {
 
     this.socket.on("connect", () => {
       console.log(`[OTReceiver] Connected (socketId=${this.socket.id})`);
-      // Don't register yet — wait for initial sync to complete
+      if (this.hasCompletedInitialSync) {
+        // Reconnect after a disconnect — re-register immediately since bulk sync is already done.
+        // The server removes containers from Socket.IO rooms on disconnect, so we must re-join.
+        console.log(`[OTReceiver] Reconnected — re-registering for bucket ${BUCKET_ID}`);
+        this.socket.emit("container-register", { bucketId: BUCKET_ID });
+      }
+      // On first connect, don't register yet — wait for bulk-content sync to complete.
     });
 
     this.socket.on("disconnect", (reason) => {
@@ -223,6 +230,7 @@ class OTReceiver {
     }
     console.log(`[OTReceiver] Registering for bucket ${BUCKET_ID}`);
     this.socket.emit("container-register", { bucketId: BUCKET_ID });
+    this.hasCompletedInitialSync = true;
   }
 
   /**
@@ -720,7 +728,15 @@ class ContainerFileSync {
           } else {
             content = await fs.readFile(fullPath, "utf-8");
             encoding = 'utf-8';
-            // Update OT content cache so subsequent remote ops apply correctly
+            // Echo detection: if content matches OT cache, this event is a reflection
+            // of an OT write (either within or after the 2s syncingFiles grace period).
+            // Skip silently to prevent the feedback loop that causes characters to disappear.
+            const cached = this.otReceiver.contentCache.get(relativePath);
+            if (cached !== undefined && content === cached) {
+              console.log(`[ContainerSync] Echo detected for ${relativePath}, skipping`);
+              return;
+            }
+            // Real external change (e.g. student ran a program that modified the file)
             this.otReceiver.updateCache(relativePath, content);
             console.log(`[ContainerSync] Syncing ${relativePath} (${content.length} chars)`);
           }

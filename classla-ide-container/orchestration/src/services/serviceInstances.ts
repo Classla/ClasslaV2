@@ -32,7 +32,8 @@ export const containerStatsService = new ContainerStatsService();
 export const healthMonitor = new HealthMonitor(
   containerService,
   stateManager,
-  containerStatsService
+  containerStatsService,
+  resourceMonitor
 );
 export const nodeMonitor = new NodeMonitor(docker);
 export const s3ValidationService = new S3ValidationService();

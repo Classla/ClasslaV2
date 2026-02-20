@@ -9,7 +9,6 @@ const DISCORD_WEBHOOK_URL =
 const CPU_THRESHOLD = 90; // Percentage
 const MEMORY_THRESHOLD = 90; // Percentage
 const CHECK_INTERVAL = 60 * 1000; // 60 seconds
-const ALERT_COOLDOWN = 5 * 60 * 1000; // 5 minutes between alerts
 
 interface DiscordEmbed {
   title: string;
@@ -53,7 +52,6 @@ export class DiscordAlertService {
   private resourceMonitor: ResourceMonitor;
   private containerService: ContainerService;
   private checkInterval: NodeJS.Timeout | null = null;
-  private lastAlertTime: number = 0;
   private isRunning: boolean = false;
 
   constructor(resourceMonitor: ResourceMonitor, containerService: ContainerService) {
@@ -72,7 +70,7 @@ export class DiscordAlertService {
 
     this.isRunning = true;
     console.log(
-      `[DiscordAlertService] Started (check interval: ${CHECK_INTERVAL / 1000}s, cooldown: ${ALERT_COOLDOWN / 1000}s)`
+      `[DiscordAlertService] Started (check interval: ${CHECK_INTERVAL / 1000}s)`
     );
 
     // Start periodic check
@@ -117,18 +115,7 @@ export class DiscordAlertService {
         resources.memory.usagePercent > MEMORY_THRESHOLD;
 
       if (cpuExceeded || memoryExceeded) {
-        // Check cooldown
-        const now = Date.now();
-        if (now - this.lastAlertTime < ALERT_COOLDOWN) {
-          console.log(
-            `[DiscordAlertService] Alert suppressed (cooldown active, ${Math.round((ALERT_COOLDOWN - (now - this.lastAlertTime)) / 1000)}s remaining)`
-          );
-          return;
-        }
-
-        // Send alert
         await this.sendAlert(resources, cpuExceeded, memoryExceeded);
-        this.lastAlertTime = now;
       }
     } catch (error) {
       console.error("[DiscordAlertService] Failed to check resources:", error);
@@ -239,6 +226,192 @@ export class DiscordAlertService {
       }
     } catch (error) {
       console.error("[DiscordAlertService] Failed to send alert:", error);
+    }
+  }
+
+  /**
+   * Send a Discord alert when a container is shut down due to prolonged unhealthy state
+   */
+  async sendContainerCrashAlert(
+    containerId: string,
+    resources: SystemResources,
+    details: { consecutiveFailures: number; unhealthyDurationMs: number; s3Bucket?: string }
+  ): Promise<void> {
+    try {
+      const payload: DiscordWebhookPayload = {
+        embeds: [
+          {
+            title: "⚠️ Container Crashed",
+            description: `Container \`${containerId}\` was shut down after being unhealthy for ${formatDuration(Math.round(details.unhealthyDurationMs / 1000))}.`,
+            color: 0xe67e22, // Orange
+            fields: [
+              {
+                name: "Container ID",
+                value: containerId,
+                inline: false,
+              },
+              ...(details.s3Bucket
+                ? [{ name: "S3 Bucket", value: details.s3Bucket, inline: false }]
+                : []),
+              {
+                name: "CPU at Crash",
+                value: `${resources.cpu.usage.toFixed(1)}% (${resources.cpu.available} cores)`,
+                inline: true,
+              },
+              {
+                name: "RAM at Crash",
+                value: `${formatBytes(resources.memory.used)} / ${formatBytes(resources.memory.total)} (${resources.memory.usagePercent.toFixed(1)}%)`,
+                inline: true,
+              },
+              {
+                name: "Disk at Crash",
+                value: `${formatBytes(resources.disk.used)} / ${formatBytes(resources.disk.total)} (${resources.disk.usagePercent.toFixed(1)}%)`,
+                inline: true,
+              },
+              {
+                name: "Unhealthy Duration",
+                value: formatDuration(Math.round(details.unhealthyDurationMs / 1000)),
+                inline: true,
+              },
+              {
+                name: "Consecutive Failures",
+                value: `${details.consecutiveFailures}`,
+                inline: true,
+              },
+            ],
+            timestamp: new Date().toISOString(),
+          },
+        ],
+      };
+
+      const response = await fetch(DISCORD_WEBHOOK_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(
+          `[DiscordAlertService] Failed to send crash alert: ${response.status}`,
+          errorText
+        );
+      } else {
+        console.log(
+          `[DiscordAlertService] Crash alert sent for container ${containerId}`
+        );
+      }
+    } catch (error) {
+      console.error("[DiscordAlertService] Failed to send crash alert:", error);
+    }
+  }
+
+  /**
+   * Send a Discord alert when the management API returns a 5xx response.
+   * Deduplicates by errorCode — suppresses repeat alerts within 2 minutes.
+   */
+  async sendApiErrorAlert(
+    method: string,
+    path: string,
+    statusCode: number,
+    errorCode: string,
+    message: string
+  ): Promise<void> {
+    try {
+      const payload: DiscordWebhookPayload = {
+        embeds: [
+          {
+            title: `🔴 API Error ${statusCode}`,
+            description: `The management API returned a server error.`,
+            color: 0xe74c3c, // Red
+            fields: [
+              { name: "Route", value: `\`${method} ${path}\``, inline: false },
+              { name: "Error Code", value: errorCode, inline: true },
+              { name: "Status", value: `${statusCode}`, inline: true },
+              { name: "Message", value: message.slice(0, 1024), inline: false },
+            ],
+            timestamp: new Date().toISOString(),
+          },
+        ],
+      };
+
+      const response = await fetch(DISCORD_WEBHOOK_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(
+          `[DiscordAlertService] Failed to send API error alert: ${response.status}`,
+          errorText
+        );
+      } else {
+        console.log(
+          `[DiscordAlertService] API error alert sent: ${method} ${path} → ${statusCode} ${errorCode}`
+        );
+      }
+    } catch (error) {
+      console.error("[DiscordAlertService] Failed to send API error alert:", error);
+    }
+  }
+
+  /**
+   * Send a Discord alert for uncaught process exceptions or unhandled promise rejections.
+   */
+  async sendProcessErrorAlert(
+    type: "uncaughtException" | "unhandledRejection",
+    error: unknown
+  ): Promise<void> {
+    const errorMessage =
+      error instanceof Error ? error.message : String(error);
+    const stack =
+      error instanceof Error && error.stack
+        ? error.stack.slice(0, 1024)
+        : "No stack trace";
+
+    try {
+      const payload: DiscordWebhookPayload = {
+        embeds: [
+          {
+            title: `💥 Process Error: ${type}`,
+            description: `The orchestration server encountered an unhandled error.`,
+            color: 0x8e44ad, // Purple
+            fields: [
+              { name: "Type", value: type, inline: true },
+              {
+                name: "Error",
+                value: errorMessage.slice(0, 1024),
+                inline: false,
+              },
+              { name: "Stack", value: `\`\`\`\n${stack}\n\`\`\``, inline: false },
+            ],
+            timestamp: new Date().toISOString(),
+          },
+        ],
+      };
+
+      const response = await fetch(DISCORD_WEBHOOK_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(
+          `[DiscordAlertService] Failed to send process error alert: ${response.status}`,
+          errorText
+        );
+      } else {
+        console.log(`[DiscordAlertService] Process error alert sent: ${type}`);
+      }
+    } catch (alertError) {
+      console.error(
+        "[DiscordAlertService] Failed to send process error alert:",
+        alertError
+      );
     }
   }
 
