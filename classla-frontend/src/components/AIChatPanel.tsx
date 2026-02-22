@@ -30,6 +30,7 @@ interface AIChatPanelProps {
   assignmentId: string;
   courseId: string;
   onBlockMutation?: () => void;
+  onClose?: () => void;
 }
 
 // Get base URL for WebSocket
@@ -212,6 +213,7 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
   assignmentId,
   courseId,
   onBlockMutation,
+  onClose,
 }) => {
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
@@ -669,6 +671,17 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
         >
           <Plus className="w-4 h-4" />
         </Button>
+        {onClose && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onClose}
+            className="h-7 w-7 p-0"
+            title="Close"
+          >
+            <X className="w-4 h-4" />
+          </Button>
+        )}
       </div>
 
       {/* Messages */}

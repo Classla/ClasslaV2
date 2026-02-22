@@ -1053,6 +1053,7 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
                     assignmentId={assignment.id}
                     courseId={assignment.course_id}
                     onBlockMutation={refetchAssignment}
+                    onClose={() => setActiveSidebarPanel(null)}
                   />
                 ) : canEdit ? (
                   <AssignmentSettingsPanel
