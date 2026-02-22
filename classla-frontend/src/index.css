@@ -457,6 +457,71 @@
   color: hsl(260 15% 85%);
 }
 
+/* Inline images in rich text content */
+.rich-text-content img[data-s3-key] {
+  display: inline-block;
+  vertical-align: middle;
+  border-radius: 0.25rem;
+  max-width: 100%;
+}
+
+/* NodeView wrapper for inline images in editor */
+.inline-image-wrapper {
+  display: inline;
+  line-height: 0;
+}
+
+.inline-image-wrapper .inline-image-node {
+  display: inline-block;
+  vertical-align: middle;
+  position: relative;
+  line-height: 0;
+}
+
+.inline-image-wrapper .inline-image-node img {
+  border-radius: 0.25rem;
+  max-width: 100%;
+  vertical-align: middle;
+}
+
+.inline-image-wrapper .inline-image-node.selected {
+  outline: 2px solid hsl(var(--primary));
+  outline-offset: 2px;
+  border-radius: 0.25rem;
+}
+
+/* Vertical resize bar on the right edge of the image */
+.inline-image-wrapper .inline-image-node .resize-bar {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+  opacity: 0;
+  transition: opacity 0.15s;
+  border-radius: 3px;
+  background: hsl(var(--primary));
+}
+
+.inline-image-wrapper .inline-image-node:hover .resize-bar,
+.inline-image-wrapper .inline-image-node.selected .resize-bar {
+  opacity: 0.5;
+}
+
+.inline-image-wrapper .inline-image-node .resize-bar:hover {
+  opacity: 0.8;
+}
+
+.inline-image-wrapper .inline-image-node.resizing .resize-bar {
+  opacity: 1;
+}
+
+.inline-image-wrapper .inline-image-node.resizing img {
+  pointer-events: none;
+  user-select: none;
+}
+
 /* Input autofill dark mode fix */
 .dark input:-webkit-autofill,
 .dark input:-webkit-autofill:hover,

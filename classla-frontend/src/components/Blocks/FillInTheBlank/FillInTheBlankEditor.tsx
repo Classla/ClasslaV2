@@ -26,8 +26,7 @@ import { Checkbox } from "../../ui/checkbox";
 import { Popover } from "../../ui/popover";
 import { useToast } from "../../../hooks/use-toast";
 import RichTextEditor from "../../RichTextEditor";
-import { isEmptyContent } from "../../extensions/blockUtils";
-import { generateUUID } from "../../extensions/blockUtils";
+import { isEmptyContent, generateUUID, getAssignmentIdFromUrl } from "../../extensions/blockUtils";
 import { ChevronDown, ChevronUp } from "lucide-react";
 
 interface FillInTheBlankEditorProps {
@@ -426,6 +425,7 @@ const FillInTheBlankEditor: React.FC<FillInTheBlankEditorProps> = memo(
             </div>
             <div className="select-text">
               <RichTextEditor
+                assignmentId={getAssignmentIdFromUrl() || undefined}
                 content={fillInTheBlankData.question || ""}
                 onChange={(html) => {
                   // Extract blank IDs from text markers - support both [BLANK1] and [BLANK:id]

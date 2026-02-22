@@ -1,9 +1,15 @@
-import React, { useCallback, useEffect } from "react";
+import React, { useCallback, useEffect, useRef, useMemo } from "react";
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
 import Typography from "@tiptap/extension-typography";
-import { Bold, Italic, List, ListOrdered, Quote, Code, Braces } from "lucide-react";
+import { Bold, Italic, List, ListOrdered, Quote, Code, Braces, ImageIcon, Loader2 } from "lucide-react";
+import { InlineImage } from "./extensions/InlineImage";
+import { apiClient } from "../lib/api";
+import axios from "axios";
+
+const ALLOWED_IMAGE_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"];
+const MAX_IMAGE_SIZE = 10 * 1024 * 1024; // 10 MB
 
 interface RichTextEditorProps {
   content: string;
@@ -17,6 +23,7 @@ interface RichTextEditorProps {
   showToolbar?: boolean;
   customExtensions?: any[]; // Additional TipTap extensions to include
   onEditorReady?: (editor: any) => void; // Callback when editor is ready
+  assignmentId?: string; // When provided, enables inline image support
 }
 
 const RichTextEditor: React.FC<RichTextEditorProps> = ({
@@ -31,7 +38,16 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
   showToolbar = true,
   customExtensions = [],
   onEditorReady,
+  assignmentId,
 }) => {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isUploading, setIsUploading] = React.useState(false);
+
+  const imageExtensions = useMemo(
+    () => (assignmentId ? [InlineImage] : []),
+    [assignmentId]
+  );
+
   const editor = useEditor({
     extensions: [
       StarterKit.configure({
@@ -69,6 +85,7 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
         placeholder,
       }),
       Typography,
+      ...imageExtensions,
       ...customExtensions,
     ],
     content,
@@ -79,7 +96,7 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
     editorProps: {
       attributes: {
         class: `rich-text-content text-foreground focus:outline-none ${className}`,
-        style: `min-height: ${minHeight}; max-height: ${maxHeight}; overflow-y: auto; resize: none; padding: 8px !important; margin: 0 !important;`,
+        style: `min-height: ${minHeight};${assignmentId ? "" : ` max-height: ${maxHeight};`} overflow-y: auto; resize: none; padding: 8px !important; margin: 0 !important;`,
       },
       handleKeyDown: (view, event) => {
         if (onKeyDown) {
@@ -88,9 +105,104 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
         }
         return false;
       },
+      handlePaste: assignmentId
+        ? (view, event) => {
+            const items = event.clipboardData?.items;
+            if (!items) return false;
+
+            for (const item of Array.from(items)) {
+              if (item.type.startsWith("image/")) {
+                event.preventDefault();
+                const file = item.getAsFile();
+                if (file) {
+                  handleImageUpload(file);
+                }
+                return true;
+              }
+            }
+            return false;
+          }
+        : undefined,
+      handleDrop: assignmentId
+        ? (view, event) => {
+            const files = event.dataTransfer?.files;
+            if (!files || files.length === 0) return false;
+
+            const file = files[0];
+            if (file.type.startsWith("image/")) {
+              event.preventDefault();
+              handleImageUpload(file);
+              return true;
+            }
+            return false;
+          }
+        : undefined,
     },
     immediatelyRender: false,
   });
+
+  const handleImageUpload = useCallback(
+    async (file: File) => {
+      if (!assignmentId || !editor) return;
+
+      if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
+        console.warn("[RichTextEditor] Unsupported image type:", file.type);
+        return;
+      }
+      if (file.size > MAX_IMAGE_SIZE) {
+        console.warn("[RichTextEditor] Image too large:", file.size);
+        return;
+      }
+
+      setIsUploading(true);
+      try {
+        // 1. Get presigned upload URL
+        const { data } = await apiClient.getImageUploadUrl({
+          assignmentId,
+          filename: file.name,
+          contentType: file.type,
+        });
+
+        // 2. Upload directly to S3
+        await axios.put(data.uploadUrl, file, {
+          headers: { "Content-Type": file.type },
+        });
+
+        // 3. Insert inline image node
+        editor
+          .chain()
+          .focus()
+          .insertContent({
+            type: "inlineImage",
+            attrs: {
+              s3Key: data.s3Key,
+              assignmentId,
+              width: 0,
+              alt: file.name,
+            },
+          })
+          .run();
+      } catch (err) {
+        console.error("[RichTextEditor] Image upload failed:", err);
+      } finally {
+        setIsUploading(false);
+      }
+    },
+    [assignmentId, editor]
+  );
+
+  const handleImageButtonClick = useCallback(() => {
+    fileInputRef.current?.click();
+  }, []);
+
+  const handleFileInputChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (file) handleImageUpload(file);
+      e.target.value = "";
+    },
+    [handleImageUpload]
+  );
 
   // Update editor content when prop changes
   useEffect(() => {
@@ -127,18 +239,25 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
       // Get the scroll height (natural content height)
       const scrollHeight = editorElement.scrollHeight;
       const minHeightPx = parseInt(minHeight);
-      const maxHeightPx = parseInt(maxHeight);
 
-      // Set height to content height, respecting min/max bounds
-      const newHeight = Math.max(
-        minHeightPx,
-        Math.min(scrollHeight, maxHeightPx)
-      );
-      editorElement.style.height = `${newHeight}px`;
+      if (assignmentId) {
+        // When images are enabled, grow freely with no max cap
+        const newHeight = Math.max(minHeightPx, scrollHeight);
+        editorElement.style.height = `${newHeight}px`;
+        editorElement.style.overflowY = "hidden";
+      } else {
+        const maxHeightPx = parseInt(maxHeight);
+        // Set height to content height, respecting min/max bounds
+        const newHeight = Math.max(
+          minHeightPx,
+          Math.min(scrollHeight, maxHeightPx)
+        );
+        editorElement.style.height = `${newHeight}px`;
 
-      // Show scrollbar only if content exceeds max height
-      editorElement.style.overflowY =
-        scrollHeight > maxHeightPx ? "auto" : "hidden";
+        // Show scrollbar only if content exceeds max height
+        editorElement.style.overflowY =
+          scrollHeight > maxHeightPx ? "auto" : "hidden";
+      }
     };
 
     // Update height on content changes
@@ -283,6 +402,29 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
           >
             <Quote className="w-4 h-4" />
           </ToolbarButton>
+
+          {assignmentId && (
+            <>
+              <div className="w-px h-6 bg-border mx-1" />
+              <ToolbarButton
+                onClick={handleImageButtonClick}
+                title="Insert Image"
+              >
+                {isUploading ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <ImageIcon className="w-4 h-4" />
+                )}
+              </ToolbarButton>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/png,image/jpeg,image/gif,image/webp"
+                className="hidden"
+                onChange={handleFileInputChange}
+              />
+            </>
+          )}
         </div>
       )}
 

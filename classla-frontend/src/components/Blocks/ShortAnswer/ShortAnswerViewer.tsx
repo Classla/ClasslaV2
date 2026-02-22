@@ -6,6 +6,7 @@ import {
   sanitizeShortAnswerData,
 } from "../../extensions/ShortAnswerBlock";
 import { AlertTriangle } from "lucide-react";
+import { useResolvedHtml } from "../../../hooks/useResolvedHtml";
 
 interface ShortAnswerViewerProps {
   node: any;
@@ -79,6 +80,8 @@ const ShortAnswerViewer: React.FC<ShortAnswerViewerProps> = memo(
       [shortAnswerData.id, onAnswerChange, editor]
     );
 
+    const resolvedPrompt = useResolvedHtml(shortAnswerData.prompt || "Prompt not available");
+
     const isReadOnly = (editor?.storage as any)?.isReadOnly;
     const minWords = shortAnswerData.minWords;
     const maxWords = shortAnswerData.maxWords;
@@ -136,7 +139,7 @@ const ShortAnswerViewer: React.FC<ShortAnswerViewerProps> = memo(
             <div
               className="text-base font-medium text-foreground leading-relaxed select-text"
               dangerouslySetInnerHTML={{
-                __html: shortAnswerData.prompt || "Prompt not available",
+                __html: resolvedPrompt,
               }}
             />
           </div>

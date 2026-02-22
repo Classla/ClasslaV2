@@ -5,6 +5,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "../../ui/tabs";
 import { useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Typography from "@tiptap/extension-typography";
+import ResolvedHtml from "../../ResolvedHtml";
 
 interface TabbedContentViewerProps {
   node: any;
@@ -80,9 +81,9 @@ const TabbedContentViewer: React.FC<TabbedContentViewerProps> = memo(
             </TabsList>
             {tabbedContentData.tabs.map((tab) => (
               <TabsContent key={tab.id} value={tab.id} className="mt-4">
-                <div
+                <ResolvedHtml
+                  html={tab.content}
                   className="prose max-w-none"
-                  dangerouslySetInnerHTML={{ __html: tab.content }}
                 />
               </TabsContent>
             ))}

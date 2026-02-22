@@ -11,6 +11,7 @@ import { Button } from "../../ui/button";
 import { Input } from "../../ui/input";
 import { Label } from "../../ui/label";
 import RichTextEditor from "../../RichTextEditor";
+import { getAssignmentIdFromUrl } from "../../extensions/blockUtils";
 
 interface TabbedContentEditorProps {
   node: any;
@@ -236,6 +237,7 @@ const TabbedContentEditor: React.FC<TabbedContentEditorProps> = memo(
                 minHeight="150px"
                 maxHeight="400px"
                 showToolbar={true}
+                assignmentId={getAssignmentIdFromUrl() || undefined}
               />
             </div>
           )}

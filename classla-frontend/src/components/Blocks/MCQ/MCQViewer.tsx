@@ -6,6 +6,8 @@ import {
   sanitizeMCQData,
 } from "../../extensions/MCQBlock";
 import { Check, AlertTriangle } from "lucide-react";
+import { useResolvedHtml } from "../../../hooks/useResolvedHtml";
+import ResolvedHtml from "../../ResolvedHtml";
 
 interface MCQViewerProps {
   node: any;
@@ -175,6 +177,8 @@ const MCQViewer: React.FC<MCQViewerProps> = memo(
     const blockScore = blockScores[mcqData.id];
     const hasScore = blockScore !== undefined;
 
+    const resolvedQuestion = useResolvedHtml(mcqData.question || "Question text not available");
+
     console.log("[MCQViewer] Block scores:", {
       blockId: mcqData.id,
       blockScores,
@@ -247,7 +251,7 @@ const MCQViewer: React.FC<MCQViewerProps> = memo(
             <div
               className="rich-text-content text-base font-medium text-foreground leading-relaxed select-text"
               dangerouslySetInnerHTML={{
-                __html: mcqData.question || "Question text not available",
+                __html: resolvedQuestion,
               }}
             />
           </div>
@@ -303,15 +307,14 @@ const MCQViewer: React.FC<MCQViewerProps> = memo(
 
                   {/* Option text with rich text display */}
                   <div className="flex-1 select-text">
-                    <div
+                    <ResolvedHtml
+                      html={option.text}
+                      fallback={`Option ${index + 1}`}
                       className={`rich-text-content text-sm transition-colors ${
                         isSelected
                           ? "text-blue-900 dark:text-blue-200 font-medium"
                           : "text-foreground"
                       }`}
-                      dangerouslySetInnerHTML={{
-                        __html: option.text || `Option ${index + 1}`,
-                      }}
                     />
                   </div>
                 </div>

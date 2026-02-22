@@ -3,6 +3,7 @@ import { NodeViewWrapper } from "@tiptap/react";
 import { RevealContentData } from "../../extensions/RevealContentBlock";
 import { Button } from "../../ui/button";
 import { ChevronDown, ChevronUp } from "lucide-react";
+import { useResolvedHtml } from "../../../hooks/useResolvedHtml";
 
 interface RevealContentViewerProps {
   node: any;
@@ -12,6 +13,7 @@ interface RevealContentViewerProps {
 const RevealContentViewer: React.FC<RevealContentViewerProps> = memo(
   ({ node }) => {
     const revealContentData = node.attrs.revealContentData as RevealContentData;
+    const resolvedContent = useResolvedHtml(revealContentData.content || "");
     const [isExpanded, setIsExpanded] = useState(
       revealContentData.initiallyVisible
     );
@@ -39,7 +41,7 @@ const RevealContentViewer: React.FC<RevealContentViewerProps> = memo(
           {isExpanded && (
             <div className="mt-4 prose max-w-none">
               <div
-                dangerouslySetInnerHTML={{ __html: revealContentData.content }}
+                dangerouslySetInnerHTML={{ __html: resolvedContent }}
               />
               {revealContentData.showHideButton && (
                 <Button
