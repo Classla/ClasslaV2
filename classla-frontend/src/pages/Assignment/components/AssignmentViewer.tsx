@@ -732,8 +732,8 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
   // ── Live answer sync via WebSocket ──────────────────────────────────────────
 
   const getSocketBaseURL = () => {
-    const apiUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:3001/api";
-    return apiUrl.replace(/\/api$/, "") || "http://localhost:3001";
+    const apiUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000/api";
+    return apiUrl.replace(/\/api$/, "") || "http://localhost:8000";
   };
 
   // Student: maintain a persistent socket and emit answerState changes

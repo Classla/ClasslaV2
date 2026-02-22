@@ -626,10 +626,7 @@ const GradingSidebar: React.FC<GradingSidebarProps> = ({
                 student.latestSubmission,
                 !!student.grader
               );
-              const hasGrade =
-                student.grader &&
-                student.grader.raw_assignment_score !== null &&
-                student.grader.raw_assignment_score !== undefined;
+              const hasGrade = !!student.grader;
               const isReviewed =
                 reviewedOverrides[student.userId] ??
                 (student.grader?.reviewed_at !== null && student.grader?.reviewed_at !== undefined);
@@ -662,7 +659,7 @@ const GradingSidebar: React.FC<GradingSidebarProps> = ({
                       {isStudentResubmitting ? "Resubmitting" : status.label}
                       {showGrades && hasGrade && (
                         <span className="ml-1.5 font-semibold text-foreground">
-                          · {student.grader.raw_assignment_score}{totalPossiblePoints > 0 ? `/${totalPossiblePoints}` : ""}
+                          · {(Number(student.grader.raw_assignment_score) || 0) + (Number(student.grader.raw_rubric_score) || 0) + (parseFloat(student.grader.score_modifier) || 0)}{totalPossiblePoints > 0 ? `/${totalPossiblePoints}` : ""}
                         </span>
                       )}
                     </div>

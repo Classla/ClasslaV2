@@ -32,7 +32,7 @@ const AuthCallbackPage = () => {
         }
 
         // Send the authorization code to our backend
-        const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001'
+        const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
         const response = await fetch(`${API_BASE_URL}/auth/callback`, {
           method: 'POST',
           headers: {
