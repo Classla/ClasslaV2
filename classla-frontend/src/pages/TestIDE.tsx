@@ -284,7 +284,7 @@ const TestIDE: React.FC = () => {
 
             {/* Error Display */}
             {error && (
-              <div className="text-sm text-red-600 bg-red-50 px-3 py-1 rounded">
+              <div className="text-sm text-red-600 bg-red-50 dark:bg-red-950/30 px-3 py-1 rounded">
                 {error}
               </div>
             )}

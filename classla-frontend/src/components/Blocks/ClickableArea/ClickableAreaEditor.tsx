@@ -283,21 +283,21 @@ const ClickableAreaEditor: React.FC<ClickableAreaEditorProps> = memo(
               variant="ghost"
               size="sm"
               onClick={deleteNode}
-              className="text-red-600 hover:text-red-700 hover:bg-red-50"
+              className="text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/30"
             >
               <Trash2 className="w-4 h-4" />
             </Button>
           </div>
 
           {validationErrors.length > 0 && (
-            <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-md">
+            <div className="mb-4 p-3 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-md">
               <div className="flex items-center gap-2 mb-2">
                 <AlertTriangle className="w-4 h-4 text-red-600" />
-                <span className="text-sm font-medium text-red-800">
+                <span className="text-sm font-medium text-red-800 dark:text-red-400">
                   Validation Issues
                 </span>
               </div>
-              <ul className="text-sm text-red-700 space-y-1">
+              <ul className="text-sm text-red-700 dark:text-red-400 space-y-1">
                 {validationErrors.map((error, index) => (
                   <li key={index} className="flex items-start gap-1">
                     <span className="text-red-500 mt-0.5">•</span>

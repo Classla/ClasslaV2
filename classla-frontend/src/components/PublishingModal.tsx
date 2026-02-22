@@ -1009,7 +1009,7 @@ const PublishingModal: React.FC<PublishingModalProps> = ({
             variant="outline"
             onClick={handleClearPublishing}
             disabled={loading}
-            className="text-red-600 hover:text-red-700 hover:bg-red-50"
+            className="text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/30"
           >
             Clear All
           </Button>

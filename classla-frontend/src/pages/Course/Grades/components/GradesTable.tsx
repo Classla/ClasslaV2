@@ -86,7 +86,7 @@ const GradesTable: React.FC<GradesTableProps> = ({
 
     if (submission.status === "in-progress") {
       return (
-        <Badge variant="outline" className="bg-yellow-50 text-yellow-700">
+        <Badge variant="outline" className="bg-yellow-50 dark:bg-yellow-950/30 text-yellow-700 dark:text-yellow-400">
           In Progress
         </Badge>
       );
@@ -94,7 +94,7 @@ const GradesTable: React.FC<GradesTableProps> = ({
 
     if (submission.status === "submitted" && !grader) {
       return (
-        <Badge variant="outline" className="bg-blue-50 text-blue-700">
+        <Badge variant="outline" className="bg-blue-50 dark:bg-blue-950/30 text-blue-700 dark:text-blue-400">
           Submitted
         </Badge>
       );
@@ -107,7 +107,7 @@ const GradesTable: React.FC<GradesTableProps> = ({
       !grader
     ) {
       return (
-        <Badge variant="outline" className="bg-orange-50 text-orange-700">
+        <Badge variant="outline" className="bg-orange-50 dark:bg-orange-950/30 text-orange-700 dark:text-orange-400">
           Pending
         </Badge>
       );

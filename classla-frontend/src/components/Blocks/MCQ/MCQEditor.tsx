@@ -302,7 +302,7 @@ const MCQEditor: React.FC<MCQEditorProps> = memo(
               <div
                 className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors select-none ${
                   validationErrors.length > 0
-                    ? "bg-red-100 text-red-600"
+                    ? "bg-red-100 dark:bg-red-900/40 text-red-600"
                     : "bg-gradient-to-br from-blue-500 to-purple-600 text-white shadow-sm"
                 }`}
               >
@@ -323,7 +323,7 @@ const MCQEditor: React.FC<MCQEditorProps> = memo(
                 </div>
               </div>
               {validationErrors.length > 0 && (
-                <span className="text-xs text-red-600 bg-red-50 px-2 py-1 rounded-full font-medium border border-red-200 select-none">
+                <span className="text-xs text-red-600 bg-red-50 dark:bg-red-950/30 px-2 py-1 rounded-full font-medium border border-red-200 dark:border-red-800 select-none">
                   {validationErrors.length} error
                   {validationErrors.length > 1 ? "s" : ""}
                 </span>
@@ -391,7 +391,7 @@ const MCQEditor: React.FC<MCQEditorProps> = memo(
                 variant="ghost"
                 size="sm"
                 onClick={deleteNode}
-                className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                className="text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/30"
               >
                 <Trash2 className="w-4 h-4" />
               </Button>
@@ -400,14 +400,14 @@ const MCQEditor: React.FC<MCQEditorProps> = memo(
 
           {/* Validation Errors */}
           {validationErrors.length > 0 && (
-            <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-md select-none">
+            <div className="mb-4 p-3 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-md select-none">
               <div className="flex items-center gap-2 mb-2">
                 <AlertTriangle className="w-4 h-4 text-red-600" />
-                <span className="text-sm font-medium text-red-800">
+                <span className="text-sm font-medium text-red-800 dark:text-red-400">
                   Validation Issues
                 </span>
               </div>
-              <ul className="text-sm text-red-700 space-y-1">
+              <ul className="text-sm text-red-700 dark:text-red-400 space-y-1">
                 {validationErrors.map((error, index) => (
                   <li key={index} className="flex items-start gap-1">
                     <span className="text-red-500 mt-0.5">•</span>
@@ -451,9 +451,9 @@ const MCQEditor: React.FC<MCQEditorProps> = memo(
                 key={option.id}
                 className={`flex items-center gap-2 p-1 border rounded-md transition-all duration-200 ${
                   draggedIndex === index
-                    ? "opacity-50 bg-blue-50 border-blue-300"
+                    ? "opacity-50 bg-blue-50 dark:bg-blue-950/30 border-blue-300"
                     : dragOverIndex === index && draggedIndex !== null
-                    ? "bg-blue-50 border-blue-300 border-dashed"
+                    ? "bg-blue-50 dark:bg-blue-950/30 border-blue-300 border-dashed"
                     : "border-border bg-muted hover:bg-accent"
                 }`}
                 draggable={false} // Disable dragging on the option div
@@ -513,7 +513,7 @@ const MCQEditor: React.FC<MCQEditorProps> = memo(
                   className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 ${
                     option.isCorrect
                       ? "bg-green-500 border-green-500 text-white shadow-md scale-110"
-                      : "border-border hover:border-green-400 hover:bg-green-50"
+                      : "border-border hover:border-green-400 hover:bg-green-50 dark:hover:bg-green-950/30"
                   }`}
                   title={
                     option.isCorrect
@@ -548,7 +548,7 @@ const MCQEditor: React.FC<MCQEditorProps> = memo(
                   size="sm"
                   onClick={() => removeOption(option.id)}
                   disabled={!canRemoveOptions}
-                  className="text-red-600 hover:text-red-700 hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
+                  className="text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/30 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
                   aria-label={`Remove option ${index + 1}`}
                 >
                   <X className="w-4 h-4" />

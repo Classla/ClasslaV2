@@ -193,7 +193,7 @@ const MCQViewer: React.FC<MCQViewerProps> = memo(
         <div
           className={`mcq-viewer border border-border rounded-lg p-3 bg-card shadow-sm transition-all duration-300 select-none ${
             selectedCount > 0 ? "border-blue-300 shadow-md" : ""
-          } ${isAnswerChanged ? "ring-2 ring-blue-200" : ""}`}
+          } ${isAnswerChanged ? "ring-2 ring-blue-200 dark:ring-blue-800" : ""}`}
           role="group"
           aria-label="Multiple choice question"
           style={{ cursor: "default" }}
@@ -204,7 +204,7 @@ const MCQViewer: React.FC<MCQViewerProps> = memo(
               <div
                 className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors select-none ${
                   hasDataError
-                    ? "bg-red-100 text-red-600"
+                    ? "bg-red-100 dark:bg-red-900/40 text-red-600"
                     : selectedOptions.length > 0
                     ? "bg-gradient-to-br from-blue-500 to-purple-600 text-white shadow-sm"
                     : "bg-gradient-to-br from-blue-500 to-purple-600 text-white shadow-sm opacity-70"
@@ -227,12 +227,12 @@ const MCQViewer: React.FC<MCQViewerProps> = memo(
                 </div>
               </div>
               {hasDataError && (
-                <span className="text-xs text-red-600 bg-red-50 px-2 py-1 rounded-full font-medium border border-red-200 select-none">
+                <span className="text-xs text-red-600 bg-red-50 dark:bg-red-950/30 px-2 py-1 rounded-full font-medium border border-red-200 dark:border-red-800 select-none">
                   Data recovered
                 </span>
               )}
               {selectedOptions.length > 0 && (
-                <span className="text-xs text-blue-600 bg-blue-50 px-2 py-1 rounded-full font-medium border border-blue-200 select-none">
+                <span className="text-xs text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/30 px-2 py-1 rounded-full font-medium border border-blue-200 dark:border-blue-800 select-none">
                   Answered
                 </span>
               )}
@@ -270,7 +270,7 @@ const MCQViewer: React.FC<MCQViewerProps> = memo(
                       : "cursor-pointer"
                   } ${
                     isSelected
-                      ? "border-blue-500 bg-blue-50 shadow-sm"
+                      ? "border-blue-500 bg-blue-50 dark:bg-blue-900/30 shadow-sm"
                       : "border-border bg-muted hover:bg-accent"
                   } ${isAnswerChanged && isSelected ? "animate-pulse" : ""}`}
                   onClick={() => !isReadOnly && handleOptionSelect(option.id)}
@@ -294,7 +294,7 @@ const MCQViewer: React.FC<MCQViewerProps> = memo(
                       className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all duration-200 ${
                         isSelected
                           ? "bg-blue-500 border-blue-500 text-white shadow-md scale-110"
-                          : "border-border hover:border-blue-400 hover:bg-blue-50"
+                          : "border-border hover:border-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/30"
                       }`}
                     >
                       {isSelected && <Check className="w-4 h-4" />}
@@ -306,7 +306,7 @@ const MCQViewer: React.FC<MCQViewerProps> = memo(
                     <div
                       className={`rich-text-content text-sm transition-colors ${
                         isSelected
-                          ? "text-blue-900 font-medium"
+                          ? "text-blue-900 dark:text-blue-200 font-medium"
                           : "text-foreground"
                       }`}
                       dangerouslySetInnerHTML={{

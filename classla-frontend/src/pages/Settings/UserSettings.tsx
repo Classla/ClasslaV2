@@ -268,7 +268,7 @@ const UserSettings = () => {
 
               {/* Success Message */}
               {success && (
-                <Alert className="border-green-200 bg-green-50">
+                <Alert className="border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-950/30">
                   <AlertDescription className="text-green-800">
                     {success}
                   </AlertDescription>
@@ -351,7 +351,7 @@ const UserSettings = () => {
                 )}
 
                 {passwordSuccess && (
-                  <Alert className="border-green-200 bg-green-50">
+                  <Alert className="border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-950/30">
                     <AlertDescription className="text-green-800">
                       {passwordSuccess}
                     </AlertDescription>

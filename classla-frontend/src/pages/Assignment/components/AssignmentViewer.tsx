@@ -973,7 +973,7 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
                   // Create error replacement
                   const errorDiv = document.createElement("div");
                   errorDiv.className =
-                    "p-4 bg-red-50 border border-red-200 rounded-md my-4";
+                    "p-4 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-md my-4";
                   errorDiv.innerHTML = `
                     <div class="flex items-center gap-2 text-red-800">
                       <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
@@ -1018,7 +1018,7 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
           "Failed to load assignment content. The content may be corrupted."
         );
         editor.commands.setContent(`
-          <div class="p-4 bg-red-50 border border-red-200 rounded-md my-4" role="alert">
+          <div class="p-4 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-md my-4" role="alert">
             <div class="flex items-center gap-2 text-red-800">
               <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
                 <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"></path>
@@ -1476,7 +1476,7 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
 
       {/* No Submission Banner */}
       {!hasSubmission && !previewMode && (
-        <div className="bg-yellow-50 border-b border-yellow-200 px-4 py-3">
+        <div className="bg-yellow-50 dark:bg-yellow-950/30 border-b border-yellow-200 dark:border-yellow-800 px-4 py-3">
           <div className="max-w-4xl mx-auto flex items-center justify-center gap-2">
             <AlertTriangle className="w-5 h-5 text-yellow-600" />
             <span className="font-medium text-yellow-800">
@@ -1667,7 +1667,7 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
                                       ? "bg-purple-100 text-purple-700"
                                       : sub.status === "submitted"
                                       ? "bg-green-100 text-green-700"
-                                      : "bg-blue-100 text-blue-700"
+                                      : "bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-400"
                                   }`}
                                 >
                                   {sub.status === "in-progress"
@@ -1695,7 +1695,7 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
 
       {/* Content Error Banner */}
       {contentError && (
-        <div className="bg-yellow-50 border-b border-yellow-200 px-4 py-3">
+        <div className="bg-yellow-50 dark:bg-yellow-950/30 border-b border-yellow-200 dark:border-yellow-800 px-4 py-3">
           <div className="max-w-4xl mx-auto flex items-center justify-between">
             <div className="flex items-center gap-2">
               <AlertTriangle className="w-5 h-5 text-yellow-600" />
@@ -1769,8 +1769,8 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
                     : "Just now"}
                 </div>
               </div>
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                <p className="text-sm text-blue-800">
+              <div className="bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+                <p className="text-sm text-blue-800 dark:text-blue-400">
                   <strong>Note:</strong> Your instructor has disabled viewing
                   responses after submission. You will be notified when your
                   assignment has been graded.

@@ -1015,7 +1015,7 @@ const ManagedStudentsPage: React.FC = () => {
                   </thead>
                   <tbody>
                     {bulkStudents.map((s, i) => (
-                      <tr key={i} className={`border-t ${s.validationError ? "bg-red-50" : ""}`}>
+                      <tr key={i} className={`border-t ${s.validationError ? "bg-red-50 dark:bg-red-950/30" : ""}`}>
                         <td className="p-2">{s.firstName} {s.lastName}</td>
                         <td className="p-2 font-mono text-xs">
                           <span className={s.validationError ? "text-red-600" : ""}>

@@ -77,8 +77,8 @@ const AutograderTestResultsModal: React.FC<AutograderTestResultsModalProps> = ({
                 key={result.testId}
                 className={`border rounded-lg p-4 ${
                   result.passed
-                    ? "bg-green-50 border-green-200"
-                    : "bg-red-50 border-red-200"
+                    ? "bg-green-50 dark:bg-green-950/30 border-green-200 dark:border-green-800"
+                    : "bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-800"
                 }`}
               >
                 <div className="flex items-start justify-between mb-2">
@@ -113,7 +113,7 @@ const AutograderTestResultsModal: React.FC<AutograderTestResultsModalProps> = ({
                         <p className="text-xs font-medium text-red-700 mb-1">
                           Error:
                         </p>
-                        <pre className="text-xs bg-red-100 p-2 rounded border border-red-200 font-mono whitespace-pre-wrap max-h-32 overflow-y-auto">
+                        <pre className="text-xs bg-red-100 dark:bg-red-900/40 p-2 rounded border border-red-200 dark:border-red-800 font-mono whitespace-pre-wrap max-h-32 overflow-y-auto">
                           {result.error}
                         </pre>
                       </div>

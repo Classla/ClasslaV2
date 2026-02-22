@@ -100,7 +100,7 @@ const PollViewer: React.FC<PollViewerProps> = memo(({ node, editor, onAnswerChan
     >
       <div className="poll-viewer border border-border rounded-lg p-4 bg-card">
         <div
-          className="prose max-w-none mb-4"
+          className="prose dark:prose-invert max-w-none mb-4"
           dangerouslySetInnerHTML={{ __html: pollData.question }}
         />
         <div className="space-y-2 mb-4">
@@ -111,7 +111,7 @@ const PollViewer: React.FC<PollViewerProps> = memo(({ node, editor, onAnswerChan
                 key={option.id}
                 className={`flex items-center gap-2 p-3 rounded border cursor-pointer ${
                   isSelected
-                    ? "bg-blue-50 border-blue-400"
+                    ? "bg-blue-50 dark:bg-blue-900/30 border-blue-400 dark:border-blue-500"
                     : "bg-muted border-border hover:bg-accent"
                 } ${(editor?.storage as any)?.isReadOnly ? "cursor-not-allowed opacity-60" : ""}`}
               >
@@ -129,7 +129,7 @@ const PollViewer: React.FC<PollViewerProps> = memo(({ node, editor, onAnswerChan
                   }}
                 />
                 {isSelected && (
-                  <Check className="w-4 h-4 text-blue-600" />
+                  <Check className="w-4 h-4 text-blue-600 dark:text-blue-400" />
                 )}
               </label>
             );

@@ -125,7 +125,7 @@ const ClickableAreaViewer: React.FC<ClickableAreaViewerProps> = memo(
       >
         <div className="clickable-area-viewer border border-border rounded-lg p-4 bg-card shadow-sm my-4">
           {hasDataError && (
-            <div className="mb-3 p-2 bg-yellow-50 border border-yellow-200 rounded text-xs text-yellow-800">
+            <div className="mb-3 p-2 bg-yellow-50 dark:bg-yellow-950/30 border border-yellow-200 dark:border-yellow-800 rounded text-xs text-yellow-800 dark:text-yellow-400">
               <AlertTriangle className="w-4 h-4 inline mr-1" />
               This block has some configuration issues but is still functional.
             </div>

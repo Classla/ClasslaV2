@@ -279,7 +279,7 @@ const TableControls: React.FC<TableControlsProps> = memo(
               <Tooltip>
                 <TooltipTrigger asChild>
                   <button
-                    className="p-2 rounded hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-ring text-red-600 transition-colors"
+                    className="p-2 rounded hover:bg-red-50 dark:hover:bg-red-950/30 focus:outline-none focus:ring-2 focus:ring-ring text-red-600 transition-colors"
                     onClick={() => editor.chain().focus().deleteRow().run()}
                   >
                     <div className="flex items-center">
@@ -342,7 +342,7 @@ const TableControls: React.FC<TableControlsProps> = memo(
               <Tooltip>
                 <TooltipTrigger asChild>
                   <button
-                    className="p-2 rounded hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-ring text-red-600 transition-colors"
+                    className="p-2 rounded hover:bg-red-50 dark:hover:bg-red-950/30 focus:outline-none focus:ring-2 focus:ring-ring text-red-600 transition-colors"
                     onClick={() => editor.chain().focus().deleteColumn().run()}
                   >
                     <div className="flex items-center">
@@ -429,13 +429,13 @@ const TableContextMenu: React.FC<TableContextMenuProps> = memo(
         label: "Delete row",
         icon: <Minus className="w-4 h-4" />,
         action: () => editor.chain().focus().deleteRow().run(),
-        className: "text-red-600 hover:bg-red-50",
+        className: "text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30",
       },
       {
         label: "Delete column",
         icon: <Minus className="w-4 h-4" />,
         action: () => editor.chain().focus().deleteColumn().run(),
-        className: "text-red-600 hover:bg-red-50",
+        className: "text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30",
       },
     ];
 
@@ -1668,7 +1668,7 @@ const AssignmentEditor: React.FC<AssignmentEditorProps> = ({
 
           {/* Performance optimization notice */}
           {shouldOptimize && (
-            <div className="bg-yellow-50/90 backdrop-blur-sm rounded-lg px-3 py-1 text-xs text-yellow-700 shadow-sm border border-yellow-200">
+            <div className="bg-yellow-50/90 dark:bg-yellow-950/30 backdrop-blur-sm rounded-lg px-3 py-1 text-xs text-yellow-700 dark:text-yellow-400 shadow-sm border border-yellow-200 dark:border-yellow-800">
               <div className="flex items-center">
                 <span className="w-2 h-2 bg-yellow-500 rounded-full mr-2"></span>
                 Large assignment detected - optimizations active

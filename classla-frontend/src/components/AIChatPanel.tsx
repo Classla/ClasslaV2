@@ -708,7 +708,7 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
 
         {/* Error */}
         {error && (
-          <div className="flex items-center gap-2 text-red-600 text-sm bg-red-50 rounded-lg px-3 py-2">
+          <div className="flex items-center gap-2 text-red-600 text-sm bg-red-50 dark:bg-red-950/30 rounded-lg px-3 py-2">
             <AlertCircle className="w-4 h-4 flex-shrink-0" />
             {error}
           </div>
@@ -868,7 +868,7 @@ const ToolCallPill: React.FC<{ toolCall: ToolCallDisplay }> = ({
     <div
       className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${
         toolCall.isError
-          ? "bg-red-50 text-red-700"
+          ? "bg-red-50 dark:bg-red-950/30 text-red-700 dark:text-red-400"
           : isRunning
             ? "bg-primary/10 text-primary"
             : "bg-primary/10 text-primary"

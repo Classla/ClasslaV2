@@ -242,7 +242,7 @@ const FillInTheBlankViewer: React.FC<FillInTheBlankViewerProps> = memo(
               <div
                 className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors select-none ${
                   hasDataError
-                    ? "bg-red-100 text-red-600"
+                    ? "bg-red-100 dark:bg-red-900/40 text-red-600"
                     : "bg-gradient-to-br from-green-500 to-teal-600 text-white shadow-sm opacity-70"
                 }`}
               >

@@ -991,7 +991,7 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
                   variant="outline"
                   size="sm"
                   onClick={handleResetToTemplate}
-                  className="text-orange-600 hover:text-orange-700 hover:bg-orange-50 border-orange-200"
+                  className="text-orange-600 hover:text-orange-700 hover:bg-orange-50 dark:hover:bg-orange-950/30 border-orange-200 dark:border-orange-800"
                   title="Reset workspace to template (deletes all changes)"
                 >
                   <RotateCcw className="w-4 h-4 mr-2" />
@@ -1158,8 +1158,8 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
                   {testRunHistory.length > 0 && (
                     <div className={`border rounded-lg p-4 ${
                       testRunHistory[0].tests_passed === testRunHistory[0].tests_total
-                        ? "bg-green-50 border-green-200"
-                        : "bg-yellow-50 border-yellow-200"
+                        ? "bg-green-50 dark:bg-green-950/30 border-green-200 dark:border-green-800"
+                        : "bg-yellow-50 dark:bg-yellow-950/30 border-yellow-200 dark:border-yellow-800"
                     }`}>
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-3">

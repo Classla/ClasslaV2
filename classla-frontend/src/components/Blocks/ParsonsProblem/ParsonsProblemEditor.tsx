@@ -303,7 +303,7 @@ const ParsonsProblemEditor: React.FC<ParsonsProblemEditorProps> = memo(
                 </div>
               </div>
               {validationErrors.length > 0 && (
-                <div className="flex items-center gap-2 text-xs text-red-600 bg-red-50 px-2 py-1 rounded border border-red-200">
+                <div className="flex items-center gap-2 text-xs text-red-600 bg-red-50 dark:bg-red-950/30 px-2 py-1 rounded border border-red-200 dark:border-red-800">
                   <AlertTriangle className="w-3 h-3" />
                   <span>{validationErrors.length} error{validationErrors.length !== 1 ? "s" : ""}</span>
                 </div>
@@ -313,13 +313,13 @@ const ParsonsProblemEditor: React.FC<ParsonsProblemEditorProps> = memo(
               variant="ghost"
               size="sm"
               onClick={deleteNode}
-              className="text-red-600 hover:text-red-700 hover:bg-red-50"
+              className="text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/30"
             >
               <Trash2 className="w-4 h-4" />
             </Button>
           </div>
           {validationErrors.length > 0 && (
-            <div className="mb-3 p-2 bg-red-50 border border-red-200 rounded text-xs text-red-700">
+            <div className="mb-3 p-2 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded text-xs text-red-700 dark:text-red-400">
               <ul className="space-y-1">
                 {validationErrors.map((error, index) => (
                   <li key={index} className="flex items-start gap-1">
@@ -495,7 +495,7 @@ const ParsonsProblemEditor: React.FC<ParsonsProblemEditorProps> = memo(
                 {parsonsProblemData.distractorBlocks.map((distractor) => (
                   <div
                     key={distractor.id}
-                    className="flex items-center gap-2 p-2 bg-yellow-50 border border-yellow-200 rounded"
+                    className="flex items-center gap-2 p-2 bg-yellow-50 dark:bg-yellow-950/30 border border-yellow-200 dark:border-yellow-800 rounded"
                   >
                     <Input
                       value={distractor.code}
