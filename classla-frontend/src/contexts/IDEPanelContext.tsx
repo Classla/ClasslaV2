@@ -22,6 +22,7 @@ export interface IDEPanelState {
   showDesktop: boolean;
   runFilename: string;
   ideApiBaseUrl: string;
+  readOnly?: boolean;
 }
 
 interface IDEPanelContextType {

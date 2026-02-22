@@ -49,6 +49,7 @@ interface StoredPanelState {
   showDesktop: boolean;
   isStarting: boolean;
   ideApiBaseUrl: string;
+  readOnly?: boolean;
 }
 
 // BroadcastChannel message type for cross-tab container sync
@@ -71,6 +72,7 @@ const IDEFullscreenPage: React.FC = () => {
   const [runFilename, setRunFilename] = useState("main.py");
   const [bucketId, setBucketId] = useState<string | null>(null);
   const [ideApiBaseUrl, setIdeApiBaseUrl] = useState(PRODUCTION_IDE_API_BASE_URL);
+  const [readOnly, setReadOnly] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
 
@@ -151,6 +153,7 @@ const IDEFullscreenPage: React.FC = () => {
       setShowDesktop(parsed.showDesktop);
       setRunFilename(parsed.runFilename || "main.py");
       setIdeApiBaseUrl(parsed.ideApiBaseUrl || PRODUCTION_IDE_API_BASE_URL);
+      setReadOnly(parsed.readOnly ?? false);
       setLoaded(true);
     } catch (err) {
       console.error("Failed to load IDE panel state:", err);
@@ -423,6 +426,7 @@ const IDEFullscreenPage: React.FC = () => {
           isStarting={isStarting}
           showDesktop={showDesktop}
           layoutMode="normal"
+          readOnly={readOnly}
           currentUser={currentUser}
           onRun={handleRun}
           onFilenameChange={setRunFilename}

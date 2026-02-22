@@ -66,6 +66,7 @@ interface MonacoIDEProps {
   onHistoryToggle?: () => void;
   onHistoryFileChange?: (filePath: string) => void;
   onSelectedFileChange?: (filePath: string) => void;
+  readOnly?: boolean;
 }
 
 const MonacoIDE: React.FC<MonacoIDEProps> = ({
@@ -98,6 +99,7 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
   onHistoryToggle,
   onHistoryFileChange,
   onSelectedFileChange,
+  readOnly: readOnlyProp = false,
 }) => {
   const { toast } = useToast();
   const { isDark } = useTheme();
@@ -1304,8 +1306,8 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
       // Set read-only
       editor.updateOptions({ readOnly: true });
     } else if (!historyMode && prevHistoryModeRef.current) {
-      // Exiting history mode — re-establish OT binding
-      editor.updateOptions({ readOnly: false });
+      // Exiting history mode — re-establish OT binding (stay read-only if prop says so)
+      editor.updateOptions({ readOnly: readOnlyProp });
       // Restore original content from OT before re-binding
       if (bucketId && selectedFile) {
         const doc = otProvider.getDocument(bucketId, selectedFile);
@@ -1324,7 +1326,13 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
     }
 
     prevHistoryModeRef.current = historyMode;
-  }, [historyMode, selectedFile, bucketId, setupOTBinding]);
+  }, [historyMode, selectedFile, bucketId, setupOTBinding, readOnlyProp]);
+
+  // Sync readOnly prop changes to Monaco editor (e.g., due date passes while editor is open)
+  useEffect(() => {
+    if (!editorRef.current) return;
+    editorRef.current.updateOptions({ readOnly: readOnlyProp || historyMode });
+  }, [readOnlyProp, historyMode]);
 
   // History mode: update editor content when version content changes
   useEffect(() => {
@@ -2182,7 +2190,7 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
                         renderLineHighlight: "all",
                         selectOnLineNumbers: true,
                         roundedSelection: false,
-                        readOnly: false,
+                        readOnly: readOnlyProp || historyMode,
                         cursorStyle: "line",
                         // Ensure proper keyboard handling
                         acceptSuggestionOnEnter: "on",

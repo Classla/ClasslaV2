@@ -183,9 +183,11 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
 
   // Viewer is read-only when:
   // 1. Explicitly locked (viewing submitted work or instructor viewing student work)
-  // 2. Submission is submitted/graded and resubmissions are not allowed
+  // 2. Past due date and late submissions not allowed
+  // 3. Submission is submitted/graded and resubmissions are not allowed
   const isReadOnly =
     locked ||
+    isSubmissionBlocked ||
     (!allowResubmissions &&
       (submissionStatus === "submitted" || submissionStatus === "graded"));
 

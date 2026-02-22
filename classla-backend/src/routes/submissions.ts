@@ -646,6 +646,27 @@ router.post(
         return;
       }
 
+      // Block creating/updating submissions past due date (unless late submissions allowed)
+      if (!isAdmin && assignment.due_dates_map) {
+        const userDueDate = assignment.due_dates_map[userId];
+        if (userDueDate) {
+          const now = new Date();
+          const dueDate = new Date(userDueDate);
+          const allowLateSubmissions = assignment.settings?.allowLateSubmissions ?? false;
+          if (now > dueDate && !allowLateSubmissions) {
+            res.status(403).json({
+              error: {
+                code: "PAST_DUE_DATE",
+                message: "Cannot create or update submission after the due date has passed",
+                timestamp: new Date().toISOString(),
+                path: req.path,
+              },
+            });
+            return;
+          }
+        }
+      }
+
       // Check if submission already exists for this student and assignment
       const { data: existingSubmissions, error: existingError } = await supabase
         .from("submissions")
@@ -835,6 +856,35 @@ router.put(
           },
         });
         return;
+      }
+
+      // Students cannot update submissions past due date (unless late submissions allowed)
+      if (existingSubmission.student_id === userId && !isAdmin) {
+        const { data: assignment } = await supabase
+          .from("assignments")
+          .select("due_dates_map, settings")
+          .eq("id", existingSubmission.assignment_id)
+          .single();
+
+        if (assignment?.due_dates_map) {
+          const userDueDate = assignment.due_dates_map[userId];
+          if (userDueDate) {
+            const now = new Date();
+            const dueDate = new Date(userDueDate);
+            const allowLateSubmissions = assignment.settings?.allowLateSubmissions ?? false;
+            if (now > dueDate && !allowLateSubmissions) {
+              res.status(403).json({
+                error: {
+                  code: "PAST_DUE_DATE",
+                  message: "Cannot update submission after the due date has passed",
+                  timestamp: new Date().toISOString(),
+                  path: req.path,
+                },
+              });
+              return;
+            }
+          }
+        }
       }
 
       // Prepare update data
