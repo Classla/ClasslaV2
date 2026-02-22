@@ -45,14 +45,6 @@ import { ImageBlockViewer } from "../../../components/extensions/ImageBlockViewe
 import { DiscussionBlockViewer } from "../../../components/extensions/DiscussionBlockViewer";
 import { validateMCQData, sanitizeMCQData } from "../../../components/extensions/MCQBlock";
 import { Button } from "../../../components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from "../../../components/ui/dialog";
 import { apiClient } from "../../../lib/api";
 import { useToast } from "../../../hooks/use-toast";
 import SubmissionSuccessModal from "./SubmissionSuccessModal";
@@ -164,8 +156,6 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
     setSubmissionTimestamp(initialSubmissionTimestamp || null);
   }, [initialSubmissionTimestamp]);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
-  const [showResubmitConfirm, setShowResubmitConfirm] = useState(false);
-  const resubmitConfirmedRef = useRef(false);
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Determine if the viewer should be read-only
@@ -1196,15 +1186,40 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
   ]);
 
   const handleUnsubmit = useCallback(async () => {
-    if (!submissionId) return;
+    if (!assignment) return;
     try {
       setIsSubmitting(true);
-      await apiClient.unsubmitSubmission(submissionId);
+      // Create a NEW in-progress submission so the old submitted one is preserved as a record
+      const submissionValues: Record<string, string[]> = {};
+      Object.keys(answerState).forEach((key) => {
+        const state = answerState[key];
+        if ('answer' in state && state.answer) {
+          submissionValues[key] = [state.answer];
+        } else if ('selectedOptions' in state && state.selectedOptions) {
+          submissionValues[key] = state.selectedOptions;
+        } else if ('solution' in state && state.solution) {
+          submissionValues[key] = state.solution;
+        } else if ('selectedLines' in state && state.selectedLines) {
+          submissionValues[key] = state.selectedLines.map((n: number) => n.toString());
+        } else if ('matches' in state && state.matches) {
+          submissionValues[key] = [JSON.stringify(state.matches)];
+        } else if ('answers' in state && state.answers) {
+          submissionValues[key] = [JSON.stringify(state.answers)];
+        }
+      });
+      const response = await apiClient.createOrUpdateSubmission({
+        assignment_id: assignment.id,
+        values: submissionValues,
+        course_id: assignment.course_id,
+      });
+      const newSubmissionId = response.data.id;
+      setSubmissionId(newSubmissionId);
       setSubmissionStatus("in-progress");
+      onSubmissionCreated?.(newSubmissionId);
       onSubmissionStatusChange?.("in-progress");
       toast({
         title: "Unsubmitted",
-        description: "Your submission is back to draft. You can make changes and resubmit.",
+        description: "Make your changes and resubmit when ready.",
       });
     } catch (error: any) {
       toast({
@@ -1215,7 +1230,7 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
     } finally {
       setIsSubmitting(false);
     }
-  }, [submissionId, onSubmissionStatusChange, toast]);
+  }, [assignment, answerState, onSubmissionCreated, onSubmissionStatusChange, toast]);
 
   const handleRetryAutograde = useCallback(async () => {
     if (!submissionId) {
@@ -1315,13 +1330,6 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
       });
       return;
     }
-
-    // Show confirmation modal when resubmitting over an existing submission
-    if (hasPreviousSubmission && !resubmitConfirmedRef.current) {
-      setShowResubmitConfirm(true);
-      return;
-    }
-    resubmitConfirmedRef.current = false;
 
     try {
       setIsSubmitting(true);
@@ -1899,6 +1907,11 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
                       <Clock className="w-4 h-4 mr-2" />
                       Submissions Closed
                     </>
+                  ) : hasPreviousSubmission ? (
+                    <>
+                      <Send className="w-4 h-4 mr-2" />
+                      Resubmit
+                    </>
                   ) : (
                     <>
                       <Send className="w-4 h-4 mr-2" />
@@ -1921,32 +1934,6 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
         courseSlug={courseSlug}
       />
 
-      {/* Resubmission Confirmation Dialog */}
-      <Dialog open={showResubmitConfirm} onOpenChange={(open) => !open && setShowResubmitConfirm(false)}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle>Replace Your Submission?</DialogTitle>
-            <DialogDescription>
-              This will become your active submission for grading. Your instructor can still view your previous submissions.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={() => setShowResubmitConfirm(false)}>
-              Cancel
-            </Button>
-            <Button
-              className="bg-purple-600 hover:bg-purple-700 dark:bg-purple-800 dark:hover:bg-purple-900 text-white"
-              onClick={() => {
-                resubmitConfirmedRef.current = true;
-                setShowResubmitConfirm(false);
-                handleSubmit();
-              }}
-            >
-              Submit Anyway
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 };

@@ -2,7 +2,7 @@ import React, { useState, useRef } from "react";
 import { Assignment, Submission, Grader, StudentGradebookInfo } from "../../../../types";
 import { getSubmissionStatus } from "../../../../utils/submissionStatus";
 import { calculateAssignmentPoints } from "../../../../utils/assignmentPoints";
-import { TooltipProvider } from "../../../../components/ui/tooltip";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../../../../components/ui/tooltip";
 import {
   ContextMenu,
   ContextMenuTrigger,
@@ -72,9 +72,16 @@ const GradebookTable: React.FC<GradebookTableProps> = React.memo(
               {isResubmitting ? "Resubmitting" : "In Progress"}
             </span>
             {count > 1 && (
-              <span className="absolute bottom-1 left-1 text-[9px] font-semibold px-1 py-0.5 rounded leading-none bg-accent text-muted-foreground">
-                {count}x
-              </span>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="absolute bottom-1 left-1 text-[9px] font-semibold px-1 py-0.5 rounded leading-none bg-accent text-muted-foreground cursor-default">
+                    {count}x
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent side="top" className="bg-card border-border text-foreground text-xs">
+                  This student has had {count} submissions
+                </TooltipContent>
+              </Tooltip>
             )}
           </div>
         );
@@ -143,9 +150,16 @@ const GradebookTable: React.FC<GradebookTableProps> = React.memo(
                   {isReviewed ? "Reviewed" : "Submitted"}
                 </span>
                 {(submissionCounts?.get(submissionKey) ?? 0) > 1 && (
-                  <span className="absolute bottom-1 left-1 text-[9px] font-semibold px-1 py-0.5 rounded leading-none bg-accent text-muted-foreground">
-                    {submissionCounts!.get(submissionKey)}x
-                  </span>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span className="absolute bottom-1 left-1 text-[9px] font-semibold px-1 py-0.5 rounded leading-none bg-accent text-muted-foreground cursor-default">
+                        {submissionCounts!.get(submissionKey)}x
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent side="top" className="bg-card border-border text-foreground text-xs">
+                      This student has had {submissionCounts!.get(submissionKey)} submissions
+                    </TooltipContent>
+                  </Tooltip>
                 )}
               </div>
             </ContextMenuTrigger>
