@@ -967,6 +967,7 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
                   isStarting={activePanelState.isStarting}
                   showDesktop={activePanelState.showDesktop}
                   layoutMode="side-panel"
+                  readOnly={activePanelState.readOnly}
                   currentUser={currentUser}
                   onRun={async () => {
                     const ideDataId = activePanelState.ideData?.id;

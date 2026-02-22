@@ -103,6 +103,9 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
     const blockScore = blockScores[ideData.id];
     const hasScore = blockScore !== undefined;
 
+    // Read assignment-level read-only state from editor storage (set by AssignmentViewer)
+    const isReadOnly = (editor?.storage as any)?.isReadOnly ?? false;
+
     const [activeTab, setActiveTab] = useState<TabType>("code");
     const [container, setContainer] = useState<ContainerInfo | null>(null);
     const [isStarting, setIsStarting] = useState(false);
@@ -1043,6 +1046,7 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
                           showDesktop,
                           runFilename,
                           ideApiBaseUrl: IDE_API_BASE_URL,
+                          readOnly: isReadOnly,
                         })}
                         onOpenFullscreen={() => openFullscreen({
                           ideData,
@@ -1052,8 +1056,10 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
                           showDesktop,
                           runFilename,
                           ideApiBaseUrl: IDE_API_BASE_URL,
+                          readOnly: isReadOnly,
                         })}
                         onSelectedFileChange={setSelectedFilePath}
+                        readOnly={isReadOnly}
                         // History mode props (only when viewing another student)
                         {...(isViewingOtherStudent ? {
                           historyMode: fileHistory.isHistoryMode,
