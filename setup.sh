@@ -29,6 +29,7 @@ done
 # 2. Symlink .env files from the main repo (worktree only)
 # ---------------------------------------------------------------------------
 if [ -n "$MAIN_ROOT" ] && [ "$MAIN_ROOT" != "$REPO_ROOT" ]; then
+  # Symlink .env files
   for pkg in classla-frontend classla-backend; do
     src="$MAIN_ROOT/$pkg/.env"
     dest="$REPO_ROOT/$pkg/.env"
@@ -41,8 +42,18 @@ if [ -n "$MAIN_ROOT" ] && [ "$MAIN_ROOT" != "$REPO_ROOT" ]; then
       echo "Warning: $MAIN_ROOT/$pkg/.env not found — create it from .env.example"
     fi
   done
+
+  # Symlink .claude/ settings directory
+  src="$MAIN_ROOT/.claude"
+  dest="$REPO_ROOT/.claude"
+  if [ -d "$src" ] && [ ! -e "$dest" ]; then
+    ln -s "$src" "$dest"
+    echo "Symlinked .claude/ → main repo"
+  elif [ -e "$dest" ]; then
+    echo ".claude/ already exists, skipping."
+  fi
 else
-  echo "Not a worktree (or already in main repo) — skipping .env symlinks."
+  echo "Not a worktree (or already in main repo) — skipping symlinks."
   for pkg in classla-frontend classla-backend; do
     if [ ! -f "$REPO_ROOT/$pkg/.env" ]; then
       echo "Warning: $pkg/.env missing — copy $pkg/.env.example and fill in values."
