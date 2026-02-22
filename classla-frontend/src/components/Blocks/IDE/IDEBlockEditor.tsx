@@ -853,6 +853,7 @@ const IDEBlockEditor: React.FC<IDEBlockEditorProps> = memo(
           ideData: {
             ...ideData,
             autograder: {
+              ...ideData.autograder,
               tests: updatedTests,
             },
             points: totalPoints, // Update points to match total test points
@@ -890,6 +891,7 @@ const IDEBlockEditor: React.FC<IDEBlockEditorProps> = memo(
           ideData: {
             ...ideData,
             autograder: {
+              ...ideData.autograder,
               tests: updatedTests,
             },
             points: totalPoints, // Update points to match total test points
