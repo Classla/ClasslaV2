@@ -382,8 +382,8 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
   useEffect(() => {
     if (!effectiveIsStudent || !assignmentId || !user?.id || !courseId) return;
 
-    const apiUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:3001/api";
-    const baseURL = apiUrl.replace(/\/api$/, "") || "http://localhost:3001";
+    const apiUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000/api";
+    const baseURL = apiUrl.replace(/\/api$/, "") || "http://localhost:8000";
 
     const socket = io(`${baseURL}/course-tree`, {
       transports: ["websocket", "polling"],

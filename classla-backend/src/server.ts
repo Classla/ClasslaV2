@@ -31,7 +31,7 @@ for (const envVar of requiredEnvVars) {
 
 const app = express();
 const server = createServer(app);
-const PORT = process.env.PORT || 3001;
+const PORT = process.env.PORT || 8000;
 
 // CRITICAL: Trust proxy for load balancer (ALB)
 // This is required for secure cookies to work correctly behind a load balancer

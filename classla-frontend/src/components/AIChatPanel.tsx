@@ -35,8 +35,8 @@ interface AIChatPanelProps {
 // Get base URL for WebSocket
 const getBaseURL = () => {
   const apiUrl =
-    import.meta.env.VITE_API_BASE_URL || "http://localhost:3001/api";
-  return apiUrl.replace(/\/api$/, "") || "http://localhost:3001";
+    import.meta.env.VITE_API_BASE_URL || "http://localhost:8000/api";
+  return apiUrl.replace(/\/api$/, "") || "http://localhost:8000";
 };
 
 // Image attachment (pending or displayed)
