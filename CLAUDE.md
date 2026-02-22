@@ -6,7 +6,7 @@ If `node_modules` is missing (e.g. in a fresh worktree), run:
 ```bash
 ./setup.sh
 ```
-This installs dependencies for all three packages.
+This installs dependencies for all three packages and, in worktrees, symlinks `.env` files and `.claude/` from the main repo. You **must** run this in worktrees or the backend/frontend will fail to start due to missing `.env` files.
 
 ---
 
