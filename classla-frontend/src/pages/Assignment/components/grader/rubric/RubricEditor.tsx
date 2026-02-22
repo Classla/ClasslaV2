@@ -35,6 +35,7 @@ const RubricEditor: React.FC<RubricEditorProps> = ({
     rubricSchema?.items || [{ title: "", points: 0, isExtraCredit: false }]
   );
   const [isSaving, setIsSaving] = useState(false);
+  const [pointsInputs, setPointsInputs] = useState<Record<number, string>>({});
 
   useEffect(() => {
     if (rubricSchema) {
@@ -183,10 +184,27 @@ const RubricEditor: React.FC<RubricEditorProps> = ({
                     </Label>
                     <Input
                       type="number"
-                      value={item.points}
-                      onChange={(e) =>
-                        updateItem(index, "points", e.target.value)
-                      }
+                      value={index in pointsInputs ? pointsInputs[index] : item.points}
+                      onChange={(e) => {
+                        const raw = e.target.value;
+                        setPointsInputs(prev => ({ ...prev, [index]: raw }));
+                        const parsed = parseFloat(raw);
+                        if (!isNaN(parsed)) {
+                          updateItem(index, "points", parsed);
+                        }
+                      }}
+                      onBlur={() => {
+                        const raw = pointsInputs[index];
+                        if (raw !== undefined) {
+                          const parsed = parseFloat(raw);
+                          updateItem(index, "points", isNaN(parsed) ? 0 : parsed);
+                          setPointsInputs(prev => {
+                            const next = { ...prev };
+                            delete next[index];
+                            return next;
+                          });
+                        }
+                      }}
                       placeholder="0"
                       className="w-24 bg-background"
                       step={type === RubricType.CHECKBOX ? "1" : "0.5"}

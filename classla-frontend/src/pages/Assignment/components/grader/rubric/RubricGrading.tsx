@@ -20,6 +20,7 @@ const RubricGrading: React.FC<RubricGradingProps> = ({
   const [values, setValues] = useState<number[]>(
     rubric?.values || rubricSchema.items.map(() => 0)
   );
+  const [valueInputs, setValueInputs] = useState<Record<number, string>>({});
 
   useEffect(() => {
     if (rubric) {
@@ -132,10 +133,32 @@ const RubricGrading: React.FC<RubricGradingProps> = ({
                     <Input
                       id={`rubric-item-${index}`}
                       type="number"
-                      value={values[index]}
-                      onChange={(e) =>
-                        handleNumericalChange(index, e.target.value)
-                      }
+                      value={index in valueInputs ? valueInputs[index] : values[index]}
+                      onChange={(e) => {
+                        const raw = e.target.value;
+                        setValueInputs(prev => ({ ...prev, [index]: raw }));
+                        const parsed = parseFloat(raw);
+                        if (!isNaN(parsed)) {
+                          handleNumericalChange(index, raw);
+                        }
+                      }}
+                      onBlur={() => {
+                        const raw = valueInputs[index];
+                        if (raw !== undefined) {
+                          const parsed = parseFloat(raw);
+                          const maxPoints = rubricSchema.items[index].points;
+                          const finalValue = isNaN(parsed) ? 0 : Math.max(0, Math.min(parsed, maxPoints));
+                          const newValues = [...values];
+                          newValues[index] = finalValue;
+                          setValues(newValues);
+                          onUpdate(newValues);
+                          setValueInputs(prev => {
+                            const next = { ...prev };
+                            delete next[index];
+                            return next;
+                          });
+                        }
+                      }}
                       disabled={disabled}
                       min={0}
                       max={item.points}
