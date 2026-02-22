@@ -757,6 +757,9 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
 
     // Handle reset to template - delete current bucket and clone fresh from template
     const handleResetToTemplate = useCallback(async () => {
+      // Never reset when viewing a snapshot — snapshots are immutable submission records
+      if (snapshotBucketId) return;
+
       if (!user?.id || !assignmentId) {
         toast({
           title: "Authentication required",
@@ -992,8 +995,8 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
               </div>
             </div>
             <div className="flex items-center gap-2">
-              {/* Reset to Template button (only show if student has a bucket, hide when viewing another student) */}
-              {studentBucketId && !isViewingOtherStudent && (
+              {/* Reset to Template button (only show if student has a bucket, hide when viewing another student or a snapshot) */}
+              {studentBucketId && !isViewingOtherStudent && !snapshotBucketId && (
                 <Button
                   variant="outline"
                   size="sm"

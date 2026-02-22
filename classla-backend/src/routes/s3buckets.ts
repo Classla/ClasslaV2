@@ -787,6 +787,11 @@ router.delete(
       return res.status(500).json({ error: fetchError.message });
     }
 
+    // Snapshot buckets are immutable submission records and must never be deleted
+    if (bucket.is_snapshot) {
+      return res.status(403).json({ error: "Snapshot buckets cannot be deleted" });
+    }
+
     // Update status to 'deleting'
     await supabase
       .from("s3_buckets")
@@ -1028,6 +1033,13 @@ router.post(
     if (!hasAccess) {
       return res.status(403).json({
         error: "You do not have permission to delete this bucket",
+      });
+    }
+
+    // Snapshot buckets are immutable submission records and must never be deleted
+    if (bucket.is_snapshot) {
+      return res.status(403).json({
+        error: "Snapshot buckets cannot be deleted",
       });
     }
 
