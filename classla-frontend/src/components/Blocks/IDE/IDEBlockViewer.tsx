@@ -27,6 +27,7 @@ import { apiClient } from "../../../lib/api";
 import { useAuth } from "../../../contexts/AuthContext";
 import { useIDEPanel } from "../../../contexts/IDEPanelContext";
 import { useAssignmentContext } from "../../../contexts/AssignmentContext";
+import { fetchWithNetworkRetry } from "./fetchWithNetworkRetry";
 
 import { useFileHistory } from "../../../hooks/useFileHistory";
 
@@ -562,7 +563,7 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
       const language = detectLanguage(filename);
 
       try {
-        const response = await fetch(
+        const response = await fetchWithNetworkRetry(
           `${IDE_API_BASE_URL}/web/${container.id}/run`,
           {
             method: "POST",
@@ -876,7 +877,7 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
           variant: "default",
         });
 
-        const response = await fetch(
+        const response = await fetchWithNetworkRetry(
           `${IDE_API_BASE_URL}/web/${container.id}/run-tests`,
           {
             method: "POST",
