@@ -80,12 +80,9 @@ const AssignmentSettingsPanel: React.FC<AssignmentSettingsPanelProps> = ({
       try {
         setIsLoadingRubric(true);
         const response = await apiClient.getRubricSchema(assignment.id);
-        setRubricSchema(response.data);
+        setRubricSchema(response.data || null);
       } catch (error: any) {
-        // 404 is expected if no rubric exists
-        if (error.statusCode !== 404) {
-          console.error("Failed to load rubric schema:", error);
-        }
+        console.error("Failed to load rubric schema:", error);
       } finally {
         setIsLoadingRubric(false);
       }
