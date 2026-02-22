@@ -146,15 +146,8 @@ router.get(
 
       if (schemaError) {
         if (schemaError.code === "PGRST116") {
-          // No rubric schema found
-          res.status(404).json({
-            error: {
-              code: "RUBRIC_SCHEMA_NOT_FOUND",
-              message: "No rubric schema found for this assignment",
-              timestamp: new Date().toISOString(),
-              path: req.path,
-            },
-          });
+          // No rubric schema found - return null (not an error)
+          res.json(null);
           return;
         }
         throw schemaError;

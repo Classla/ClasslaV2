@@ -81,11 +81,11 @@ export const GradingControls: React.FC<GradingControlsProps> = React.memo(
           setIsLoadingRubric(true);
           // Load rubric schema
           const schemaResponse = await apiClient.getRubricSchema(assignmentId);
-          const schema = schemaResponse.data;
+          const schema = schemaResponse.data || null;
           setRubricSchema(schema);
 
           // Load rubric instance if submission exists
-          if (submissionId) {
+          if (schema && submissionId) {
             try {
               const rubricResponse = await apiClient.getRubric(submissionId);
               const rubricData = rubricResponse.data;
@@ -110,10 +110,7 @@ export const GradingControls: React.FC<GradingControlsProps> = React.memo(
             }
           }
         } catch (error: any) {
-          // 404 is expected if no rubric schema exists
-          if (error.statusCode !== 404) {
-            console.error("Failed to load rubric schema:", error);
-          }
+          console.error("Failed to load rubric schema:", error);
         } finally {
           setIsLoadingRubric(false);
         }
