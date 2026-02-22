@@ -276,8 +276,8 @@ const CourseLayoutInner: React.FC<CourseLayoutProps> = ({ children }) => {
             <Allotment.Pane minSize={200} maxSize={400} preferredSize={256}>
               <div className="h-full bg-card border-r border-border flex flex-col">
                 {/* Navigation Items */}
-                <div className="flex-1 overflow-auto py-6">
-                  <nav className="space-y-1 px-3">
+                <div className="flex-1 overflow-hidden flex flex-col pt-6">
+                  <nav className="space-y-1 px-3 shrink-0">
                     {navigationTabs.map((tab) => {
                       const Icon = tab.icon;
                       const isActive = currentPage === tab.id;
