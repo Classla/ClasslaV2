@@ -28,6 +28,7 @@ import { Checkbox } from "../../ui/checkbox";
 import { Popover } from "../../ui/popover";
 import { useToast } from "../../../hooks/use-toast";
 import RichTextEditor from "../../RichTextEditor";
+import { getAssignmentIdFromUrl } from "../../extensions/blockUtils";
 
 interface MCQEditorProps {
   node: any;
@@ -437,6 +438,7 @@ const MCQEditor: React.FC<MCQEditorProps> = memo(
                 minHeight="32px"
                 maxHeight="300px"
                 showToolbar={true}
+                assignmentId={getAssignmentIdFromUrl() || undefined}
               />
             </div>
           </div>
@@ -539,6 +541,7 @@ const MCQEditor: React.FC<MCQEditorProps> = memo(
                     minHeight="28px"
                     maxHeight="150px"
                     showToolbar={true}
+                    assignmentId={getAssignmentIdFromUrl() || undefined}
                   />
                 </div>
 

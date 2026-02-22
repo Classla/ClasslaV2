@@ -12,6 +12,7 @@ import {
   sanitizeFillInTheBlankData,
 } from "../../extensions/FillInTheBlankBlock";
 import { AlertTriangle } from "lucide-react";
+import { useResolvedHtml } from "../../../hooks/useResolvedHtml";
 
 interface FillInTheBlankViewerProps {
   node: any;

@@ -1,6 +1,17 @@
 // Shared utilities for all block types
 
 /**
+ * Extract assignmentId from current URL path.
+ * Matches /course/:courseSlug/assignment/:assignmentId
+ */
+export function getAssignmentIdFromUrl(): string | null {
+  const path = window.location.pathname;
+  const match = path.match(/\/course\/[^/]+\/assignment\/([^/]+)/);
+  if (match) return match[1];
+  return null;
+}
+
+/**
  * Generate a UUID v4 compatible ID
  */
 export const generateUUID = (): string => {

@@ -2,6 +2,8 @@ import React, { useState, memo, useEffect, useCallback } from "react";
 import { NodeViewWrapper } from "@tiptap/react";
 import { PollData } from "../../extensions/PollBlock";
 import { Check } from "lucide-react";
+import { useResolvedHtml } from "../../../hooks/useResolvedHtml";
+import ResolvedHtml from "../../ResolvedHtml";
 
 interface PollViewerProps {
   node: any;
@@ -11,6 +13,7 @@ interface PollViewerProps {
 
 const PollViewer: React.FC<PollViewerProps> = memo(({ node, editor, onAnswerChange }) => {
   const pollData = node.attrs.pollData as PollData;
+  const resolvedQuestion = useResolvedHtml(pollData.question || "");
   const [selectedOptions, setSelectedOptions] = useState<string[]>([]);
   const [showResults, setShowResults] = useState(
     pollData.showResults === "immediately"
@@ -101,7 +104,7 @@ const PollViewer: React.FC<PollViewerProps> = memo(({ node, editor, onAnswerChan
       <div className="poll-viewer border border-border rounded-lg p-4 bg-card">
         <div
           className="prose dark:prose-invert max-w-none mb-4"
-          dangerouslySetInnerHTML={{ __html: pollData.question }}
+          dangerouslySetInnerHTML={{ __html: resolvedQuestion }}
         />
         <div className="space-y-2 mb-4">
           {pollData.options.map((option, index) => {
@@ -122,11 +125,10 @@ const PollViewer: React.FC<PollViewerProps> = memo(({ node, editor, onAnswerChan
                   disabled={(editor?.storage as any)?.isReadOnly}
                   className="text-blue-600"
                 />
-                <div
+                <ResolvedHtml
+                  html={option.text}
+                  fallback={`Option ${index + 1}`}
                   className="flex-1 select-text"
-                  dangerouslySetInnerHTML={{
-                    __html: option.text || `Option ${index + 1}`
-                  }}
                 />
                 {isSelected && (
                   <Check className="w-4 h-4 text-blue-600 dark:text-blue-400" />

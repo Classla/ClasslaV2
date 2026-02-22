@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef, memo } from "react";
 import { NodeViewWrapper } from "@tiptap/react";
 import { ImageBlockData } from "../../extensions/ImageBlock";
 import { apiClient } from "../../../lib/api";
+import { getAssignmentIdFromUrl } from "../../extensions/blockUtils";
 import axios from "axios";
 import {
   ImageIcon,
@@ -21,15 +22,6 @@ interface ImageBlockEditorProps {
   node: any;
   updateAttributes: (attrs: any) => void;
   deleteNode: () => void;
-}
-
-/** Extract assignmentId from current URL path */
-function getAssignmentIdFromUrl(): string | null {
-  const path = window.location.pathname;
-  // Match /course/:courseSlug/assignment/:assignmentId
-  const match = path.match(/\/course\/[^/]+\/assignment\/([^/]+)/);
-  if (match) return match[1];
-  return null;
 }
 
 const ALLOWED_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"];

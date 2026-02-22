@@ -10,6 +10,7 @@ import { Input } from "../../ui/input";
 import { Label } from "../../ui/label";
 import { Checkbox } from "../../ui/checkbox";
 import RichTextEditor from "../../RichTextEditor";
+import { getAssignmentIdFromUrl } from "../../extensions/blockUtils";
 
 interface RevealContentEditorProps {
   node: any;
@@ -165,6 +166,7 @@ const RevealContentEditor: React.FC<RevealContentEditorProps> = memo(
               minHeight="150px"
               maxHeight="400px"
               showToolbar={true}
+              assignmentId={getAssignmentIdFromUrl() || undefined}
             />
           </div>
 

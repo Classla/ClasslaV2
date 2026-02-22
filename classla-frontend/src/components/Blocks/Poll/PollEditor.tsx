@@ -6,6 +6,7 @@ import { Plus, Trash2, AlertTriangle, X, GripVertical } from "lucide-react";
 import { Button } from "../../ui/button";
 import { Label } from "../../ui/label";
 import RichTextEditor from "../../RichTextEditor";
+import { getAssignmentIdFromUrl } from "../../extensions/blockUtils";
 
 interface PollEditorProps {
   node: any;
@@ -148,6 +149,7 @@ const PollEditor: React.FC<PollEditorProps> = memo(
               minHeight="80px"
               maxHeight="200px"
               showToolbar={true}
+              assignmentId={getAssignmentIdFromUrl() || undefined}
             />
           </div>
 
@@ -175,6 +177,7 @@ const PollEditor: React.FC<PollEditorProps> = memo(
                       minHeight="28px"
                       maxHeight="150px"
                       showToolbar={true}
+                      assignmentId={getAssignmentIdFromUrl() || undefined}
                     />
                   </div>
                   <Button

@@ -11,6 +11,7 @@ import { Label } from "../../ui/label";
 import { Popover } from "../../ui/popover";
 import { useToast } from "../../../hooks/use-toast";
 import RichTextEditor from "../../RichTextEditor";
+import { getAssignmentIdFromUrl } from "../../extensions/blockUtils";
 
 interface ShortAnswerEditorProps {
   node: any;
@@ -187,6 +188,7 @@ const ShortAnswerEditor: React.FC<ShortAnswerEditorProps> = memo(
                 minHeight="80px"
                 maxHeight="300px"
                 showToolbar={true}
+                assignmentId={getAssignmentIdFromUrl() || undefined}
               />
             </div>
           </div>
