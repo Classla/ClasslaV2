@@ -75,9 +75,9 @@ const RubricGrading: React.FC<RubricGradingProps> = ({
               key={index}
               className={`p-3 rounded-md border ${
                 isNegative
-                  ? "border-red-200 bg-red-50"
+                  ? "border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-950/30"
                   : isExtraCredit
-                  ? "border-blue-200 bg-blue-50"
+                  ? "border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/30"
                   : "border-primary/30 bg-primary/10"
               }`}
             >

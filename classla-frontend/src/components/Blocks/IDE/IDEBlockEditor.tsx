@@ -1444,7 +1444,7 @@ const IDEBlockEditor: React.FC<IDEBlockEditorProps> = memo(
                 variant="ghost"
                 size="sm"
                 onClick={deleteNode}
-                className="text-red-600 hover:text-red-700 hover:bg-red-50 w-8 h-8 p-0"
+                className="text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/30 w-8 h-8 p-0"
                 title="Delete IDE Block"
               >
                 <Trash2 className="w-4 h-4" />
@@ -1846,7 +1846,7 @@ const IDETabContent: React.FC<IDETabContentProps> = memo(
                 size="sm"
                 onClick={onDeleteModelSolution || (() => {})}
                 disabled={!hasModelSolution}
-                className="text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/30 border-red-200 dark:border-red-800 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <Trash2 className="w-4 h-4 mr-2" />
                 Delete Model Solution

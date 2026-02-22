@@ -106,7 +106,7 @@ const PollEditor: React.FC<PollEditorProps> = memo(
               <div
                 className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors select-none ${
                   validationErrors.length > 0
-                    ? "bg-red-100 text-red-600"
+                    ? "bg-red-100 dark:bg-red-900/30 text-red-600"
                     : "bg-gradient-to-br from-pink-500 to-rose-600 text-white shadow-sm"
                 }`}
               >
@@ -130,7 +130,7 @@ const PollEditor: React.FC<PollEditorProps> = memo(
               variant="ghost"
               size="sm"
               onClick={deleteNode}
-              className="text-red-600 hover:text-red-700 hover:bg-red-50"
+              className="text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-900/30"
             >
               <Trash2 className="w-4 h-4" />
             </Button>

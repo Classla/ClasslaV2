@@ -106,7 +106,7 @@ const ShortAnswerViewer: React.FC<ShortAnswerViewerProps> = memo(
               <div
                 className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors select-none ${
                   hasDataError
-                    ? "bg-red-100 text-red-600"
+                    ? "bg-red-100 dark:bg-red-900/40 text-red-600"
                     : answer.trim()
                     ? "bg-gradient-to-br from-orange-500 to-red-600 text-white shadow-sm"
                     : "bg-gradient-to-br from-orange-500 to-red-600 text-white shadow-sm opacity-70"

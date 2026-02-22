@@ -60,10 +60,10 @@ const StatusBadge: React.FC<{ status: LoadTestContainerStatus }> = ({
   const variants: Record<LoadTestContainerStatus, string> = {
     pending: "bg-muted text-foreground",
     starting: "bg-yellow-100 text-yellow-800",
-    running: "bg-blue-100 text-blue-800",
+    running: "bg-blue-100 dark:bg-blue-900/40 text-blue-800 dark:text-blue-400",
     executing: "bg-purple-100 text-purple-800",
     completed: "bg-green-100 text-green-800",
-    failed: "bg-red-100 text-red-800",
+    failed: "bg-red-100 dark:bg-red-900/40 text-red-800 dark:text-red-400",
   };
 
   return (
@@ -394,7 +394,7 @@ const LoadTestPanel: React.FC = () => {
                       ? "bg-green-100 text-green-800"
                       : metrics.status === "stopped"
                       ? "bg-yellow-100 text-yellow-800"
-                      : "bg-red-100 text-red-800"
+                      : "bg-red-100 dark:bg-red-900/40 text-red-800 dark:text-red-400"
                   }
                 >
                   {metrics.status}
@@ -436,7 +436,7 @@ const LoadTestPanel: React.FC = () => {
                   </div>
                   <div className="text-xs text-yellow-600">Starting</div>
                 </div>
-                <div className="text-center p-2 bg-blue-100 rounded">
+                <div className="text-center p-2 bg-blue-100 dark:bg-blue-900/40 rounded">
                   <div className="text-2xl font-bold text-blue-600">
                     {metrics.summary.running}
                   </div>
@@ -454,7 +454,7 @@ const LoadTestPanel: React.FC = () => {
                   </div>
                   <div className="text-xs text-green-600">Completed</div>
                 </div>
-                <div className="text-center p-2 bg-red-100 rounded">
+                <div className="text-center p-2 bg-red-100 dark:bg-red-900/40 rounded">
                   <div className="text-2xl font-bold text-red-600">
                     {metrics.summary.failed}
                   </div>
@@ -596,7 +596,7 @@ const LoadTestPanel: React.FC = () => {
 
               {/* Error Display */}
               {metrics.error && (
-                <div className="p-3 bg-red-50 border border-red-200 rounded">
+                <div className="p-3 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded">
                   <div className="flex items-center gap-2 text-red-800">
                     <AlertCircle className="w-4 h-4" />
                     <span className="font-medium">Error</span>

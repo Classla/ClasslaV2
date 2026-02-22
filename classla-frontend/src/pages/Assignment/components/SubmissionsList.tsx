@@ -95,11 +95,11 @@ const SubmissionsList: React.FC<SubmissionsListProps> = ({
   const getStatusColor = (status: string) => {
     switch (status) {
       case "submitted":
-        return "text-blue-600 bg-blue-50";
+        return "text-blue-600 bg-blue-50 dark:bg-blue-950/30";
       case "graded":
-        return "text-green-600 bg-green-50";
+        return "text-green-600 bg-green-50 dark:bg-green-950/30";
       case "in-progress":
-        return "text-yellow-600 bg-yellow-50";
+        return "text-yellow-600 bg-yellow-50 dark:bg-yellow-950/30";
       default:
         return "text-muted-foreground bg-muted";
     }

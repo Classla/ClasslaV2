@@ -610,7 +610,7 @@ const CourseSettingsPage: React.FC<CourseSettingsPageProps> = ({
                       const effectivePerms = getEffectivePermissions(ta.id);
                       const hasOverride = hasPermissionOverride(ta.id);
                       return (
-                        <Card key={ta.id} className={hasOverride ? "border-blue-300 bg-blue-50/30" : ""}>
+                        <Card key={ta.id} className={hasOverride ? "border-blue-300 dark:border-blue-700 bg-blue-50/30 dark:bg-blue-950/20" : ""}>
                           <CardContent className="pt-4">
                             <div className="flex items-center justify-between mb-3">
                               <div>

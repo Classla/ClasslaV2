@@ -1812,7 +1812,7 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
                 }
               }}
               disabled={isStarting}
-              className="h-8 px-3 text-sm text-red-600 hover:text-red-700 hover:bg-red-50"
+              className="h-8 px-3 text-sm text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/30"
               title="Stop the container machine"
             >
               <Power className="w-4 h-4 mr-1" />
@@ -1909,7 +1909,7 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
                     variant="ghost"
                     size="sm"
                     onClick={onOpenFullscreen}
-                    className="text-blue-600 hover:text-blue-700 hover:bg-blue-50 w-8 h-8 p-0"
+                    className="text-blue-600 hover:text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-950/30 w-8 h-8 p-0"
                     title="Open in New Tab"
                   >
                     <ExternalLink className="w-4 h-4" />

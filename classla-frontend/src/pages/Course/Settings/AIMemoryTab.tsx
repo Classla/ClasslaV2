@@ -261,7 +261,7 @@ const AIMemoryTab: React.FC<AIMemoryTabProps> = ({ course, setCourse }) => {
                     className={`mt-0.5 p-1 rounded ${
                       memory.source === "ai"
                         ? "bg-purple-100 text-purple-600"
-                        : "bg-blue-100 text-blue-600"
+                        : "bg-blue-100 dark:bg-blue-900/40 text-blue-600"
                     }`}
                     title={memory.source === "ai" ? "Saved by AI" : "Added by instructor"}
                   >

@@ -182,7 +182,7 @@ const StatusBadge: React.FC<{ status: string }> = ({ status }) => {
     starting: "bg-yellow-100 text-yellow-800",
     stopping: "bg-orange-100 text-orange-800",
     stopped: "bg-muted text-foreground",
-    failed: "bg-red-100 text-red-800",
+    failed: "bg-red-100 dark:bg-red-900/40 text-red-800 dark:text-red-400",
   };
 
   return (
@@ -345,7 +345,7 @@ const IDEDashboard: React.FC = () => {
       {overview &&
         (overview.resources.cpu.usage > 90 ||
           overview.resources.memory.usagePercent > 90) && (
-          <Card className="border-red-200 bg-red-50">
+          <Card className="border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-950/30">
             <CardHeader className="pb-2">
               <div className="flex items-center gap-2">
                 <AlertTriangle className="h-5 w-5 text-red-600" />
@@ -431,7 +431,7 @@ const IDEDashboard: React.FC = () => {
                         variant="ghost"
                         size="sm"
                         onClick={() => openKillDialog(container.id)}
-                        className="text-red-600 hover:text-red-800 hover:bg-red-50"
+                        className="text-red-600 hover:text-red-800 hover:bg-red-50 dark:hover:bg-red-950/30"
                       >
                         <Trash2 className="w-4 h-4" />
                       </Button>

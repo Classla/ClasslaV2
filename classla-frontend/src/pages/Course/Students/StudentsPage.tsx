@@ -227,9 +227,9 @@ const StudentsPage: React.FC<StudentsPageProps> = ({
       case UserRole.INSTRUCTOR:
         return "bg-primary/20 text-purple-800";
       case UserRole.ADMIN:
-        return "bg-red-100 text-red-800";
+        return "bg-red-100 dark:bg-red-900/40 text-red-800 dark:text-red-400";
       case UserRole.TEACHING_ASSISTANT:
-        return "bg-blue-100 text-blue-800";
+        return "bg-blue-100 dark:bg-blue-900/40 text-blue-800 dark:text-blue-400";
       case UserRole.STUDENT:
         return "bg-green-100 text-green-800";
       case UserRole.AUDIT:
@@ -351,7 +351,7 @@ const StudentsPage: React.FC<StudentsPageProps> = ({
           </h1>
           {isStudent && currentUserEnrollment?.section && (
             <div className="mt-2 mb-1">
-              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 dark:bg-blue-900/40 text-blue-800 dark:text-blue-400">
                 Section: {currentUserEnrollment.section.name}
               </span>
             </div>
@@ -730,7 +730,7 @@ const StudentsPage: React.FC<StudentsPageProps> = ({
                                 getDisplayName(student)
                               )
                             }
-                            className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                            className="text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/30"
                           >
                             <Trash2 className="w-4 h-4" />
                           </Button>

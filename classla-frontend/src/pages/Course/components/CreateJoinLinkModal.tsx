@@ -218,14 +218,14 @@ const CreateJoinLinkModal: React.FC<CreateJoinLinkModalProps> = ({
                           onClick={() =>
                             window.open(generateJoinUrl(link.id), "_blank")
                           }
-                          className="p-2 text-muted-foreground hover:text-blue-600 hover:bg-blue-50 rounded-md transition-colors"
+                          className="p-2 text-muted-foreground hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/30 rounded-md transition-colors"
                           title="Open link"
                         >
                           <ExternalLink className="w-4 h-4" />
                         </button>
                         <button
                           onClick={() => handleDeleteLink(link.id)}
-                          className="p-2 text-muted-foreground hover:text-red-600 hover:bg-red-50 rounded-md transition-colors"
+                          className="p-2 text-muted-foreground hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 rounded-md transition-colors"
                           title="Delete link"
                         >
                           <Trash2 className="w-4 h-4" />
@@ -255,8 +255,8 @@ const CreateJoinLinkModal: React.FC<CreateJoinLinkModalProps> = ({
 
               <form onSubmit={handleSubmit} className="space-y-4">
                 {error && (
-                  <div className="bg-red-50 border border-red-200 rounded-lg p-3">
-                    <p className="text-red-800 text-sm">{error}</p>
+                  <div className="bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-lg p-3">
+                    <p className="text-red-800 dark:text-red-400 text-sm">{error}</p>
                   </div>
                 )}
 

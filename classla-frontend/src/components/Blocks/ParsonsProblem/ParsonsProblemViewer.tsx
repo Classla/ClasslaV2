@@ -81,7 +81,7 @@ const SortableBlock: React.FC<SortableBlockProps> = ({
   };
 
   const bgColor = isDistractor
-    ? "bg-yellow-50 border-yellow-300"
+    ? "bg-yellow-50 dark:bg-yellow-950/30 border-yellow-300 dark:border-yellow-700"
     : "bg-card border-border";
 
   return (
@@ -282,7 +282,7 @@ const ParsonsProblemViewer: React.FC<ParsonsProblemViewerProps> = memo(
       >
         <div className="parsons-problem-viewer border border-border rounded-lg p-4 bg-card shadow-sm my-4">
           {hasDataError && (
-            <div className="mb-3 p-2 bg-yellow-50 border border-yellow-200 rounded text-xs text-yellow-800">
+            <div className="mb-3 p-2 bg-yellow-50 dark:bg-yellow-950/30 border border-yellow-200 dark:border-yellow-800 rounded text-xs text-yellow-800 dark:text-yellow-400">
               <AlertTriangle className="w-4 h-4 inline mr-1" />
               This block has some configuration issues but is still functional.
             </div>
@@ -344,7 +344,7 @@ const ParsonsProblemViewer: React.FC<ParsonsProblemViewerProps> = memo(
                   Your Solution
                 </div>
                 <DroppableArea id="solution-area">
-                  <div className="min-h-[200px] p-3 bg-blue-50 border-2 border-dashed border-blue-300 rounded">
+                  <div className="min-h-[200px] p-3 bg-blue-50 dark:bg-blue-950/30 border-2 border-dashed border-blue-300 dark:border-blue-700 rounded">
                     <SortableContext
                       items={solutionBlocks.map((b) => b.id)}
                       strategy={verticalListSortingStrategy}
