@@ -422,7 +422,7 @@ const GradingSidebar: React.FC<GradingSidebarProps> = ({
     const activeSubmissionStatus = activeSubmission?.status ?? selectedStudent.latestSubmission?.status;
     const canSubmitForStudent = activeSubmissionStatus === "in-progress" && activeSubmissionIdForControls;
     const activeGrader = activeSubmission?._grader ?? selectedStudent.grader;
-    const isReviewed = !!activeGrader?.reviewed_at;
+    const isReviewed = reviewedOverrides[selectedStudent.userId] ?? !!activeGrader?.reviewed_at;
 
     const sortedSubs = [...selectedStudent.submissions].sort(
       (a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
@@ -433,7 +433,13 @@ const GradingSidebar: React.FC<GradingSidebarProps> = ({
     const totalSubmissions = selectedStudent.submissions.length;
 
     const handleToggleReviewed = async () => {
-      await handleGraderUpdate({ reviewed: !isReviewed });
+      const newReviewed = !isReviewed;
+      setReviewedOverrides((prev) => ({ ...prev, [selectedStudent.userId]: newReviewed }));
+      try {
+        await handleGraderUpdate({ reviewed: newReviewed });
+      } catch {
+        setReviewedOverrides((prev) => { const next = { ...prev }; delete next[selectedStudent.userId]; return next; });
+      }
     };
 
     return (
