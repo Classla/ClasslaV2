@@ -358,7 +358,7 @@ const GradingSidebar: React.FC<GradingSidebarProps> = ({
     try {
       await autoSaveGraderMutation.mutateAsync({
         graderId: student.grader.id,
-        updates: { reviewed: newReviewed },
+        updates: { reviewed_at: newReviewed ? new Date() : undefined },
       });
       await queryClient.invalidateQueries({
         queryKey: ["submissions", "with-students", assignment.id],
