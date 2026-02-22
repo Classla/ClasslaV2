@@ -15,6 +15,8 @@ import {
   Sparkles,
   Paperclip,
   X,
+  FileText,
+  FileCode,
 } from "lucide-react";
 import { Button } from "./ui/button";
 import {
@@ -40,12 +42,45 @@ const getBaseURL = () => {
   return apiUrl.replace(/\/api$/, "") || "http://localhost:8000";
 };
 
-// Image attachment (pending or displayed)
+// File attachment types (pending or displayed)
+type ImageMimeType = "image/jpeg" | "image/png" | "image/gif" | "image/webp";
+
 interface ImageAttachment {
+  kind: "image";
   data: string; // base64 data (no prefix)
-  media_type: "image/jpeg" | "image/png" | "image/gif" | "image/webp";
+  media_type: ImageMimeType;
   preview: string; // data URL for display
 }
+
+interface PDFAttachment {
+  kind: "pdf";
+  data: string; // base64
+  fileName: string;
+  fileSize: number;
+}
+
+interface TextFileAttachment {
+  kind: "text";
+  textContent: string; // raw text
+  fileName: string;
+  fileSize: number;
+}
+
+type FileAttachment = ImageAttachment | PDFAttachment | TextFileAttachment;
+
+// Supported text file extensions
+const TEXT_EXTENSIONS = new Set([
+  "py", "java", "txt", "md", "csv", "html", "css", "js", "ts", "json",
+  "xml", "yaml", "yml", "sql", "sh", "c", "cpp", "h", "rb", "go", "rs",
+  "swift", "kt", "php", "r", "m", "log", "jsx", "tsx",
+]);
+
+// Code file extensions (for icon selection)
+const CODE_EXTENSIONS = new Set([
+  "py", "java", "js", "ts", "html", "css", "json", "xml", "sql", "sh",
+  "c", "cpp", "h", "rb", "go", "rs", "swift", "kt", "php", "r", "m",
+  "jsx", "tsx",
+]);
 
 // Ordered content parts — text and tool calls interleaved
 type ContentPart =
@@ -57,7 +92,7 @@ interface DisplayMessage {
   id: string;
   role: "user" | "assistant";
   text?: string; // only for user messages
-  images?: ImageAttachment[]; // only for user messages with images
+  attachments?: FileAttachment[]; // only for user messages with file attachments
   parts?: ContentPart[]; // only for assistant messages
 }
 
@@ -152,23 +187,47 @@ function parseStoredMessages(messages: any[]): DisplayMessage[] {
           (b: any) => b.type === "tool_result"
         );
         if (!hasToolResult) {
-          const text = msg.content
-            .filter((b: any) => b.type === "text")
-            .map((b: any) => b.text)
-            .join("");
-          const images: ImageAttachment[] = msg.content
-            .filter((b: any) => b.type === "image" && b.source?.type === "base64")
-            .map((b: any) => ({
-              data: b.source.data,
-              media_type: b.source.media_type,
-              preview: `data:${b.source.media_type};base64,${b.source.data}`,
-            }));
-          if (text || images.length > 0) {
+          const attachments: FileAttachment[] = [];
+          const textParts: string[] = [];
+
+          for (const b of msg.content) {
+            if (b.type === "image" && b.source?.type === "base64") {
+              attachments.push({
+                kind: "image",
+                data: b.source.data,
+                media_type: b.source.media_type,
+                preview: `data:${b.source.media_type};base64,${b.source.data}`,
+              });
+            } else if (b.type === "document" && b.source?.media_type === "application/pdf") {
+              attachments.push({
+                kind: "pdf",
+                data: b.source.data,
+                fileName: b.title || "document.pdf",
+                fileSize: 0,
+              });
+            } else if (b.type === "text") {
+              // Check for text file convention marker
+              const fileMatch = b.text?.match(/^\[Attached file: (.+?)\]\n\n([\s\S]*)$/);
+              if (fileMatch) {
+                attachments.push({
+                  kind: "text",
+                  textContent: fileMatch[2],
+                  fileName: fileMatch[1],
+                  fileSize: fileMatch[2].length,
+                });
+              } else {
+                textParts.push(b.text);
+              }
+            }
+          }
+
+          const text = textParts.join("");
+          if (text || attachments.length > 0) {
             display.push({
               id: `msg-${display.length}`,
               role: "user",
               text: text || undefined,
-              images: images.length > 0 ? images : undefined,
+              attachments: attachments.length > 0 ? attachments : undefined,
             });
           }
         }
@@ -224,7 +283,7 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
   const [showSessionDropdown, setShowSessionDropdown] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [pendingImages, setPendingImages] = useState<ImageAttachment[]>([]);
+  const [pendingAttachments, setPendingAttachments] = useState<FileAttachment[]>([]);
 
   const socketRef = useRef<Socket | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -486,12 +545,12 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
   };
 
   const handleSend = () => {
-    if ((!inputValue.trim() && pendingImages.length === 0) || isStreaming || !activeSessionId) return;
+    if ((!inputValue.trim() && pendingAttachments.length === 0) || isStreaming || !activeSessionId) return;
 
-    const userMessage = inputValue.trim() || (pendingImages.length > 0 ? "What do you see in this image?" : "");
-    const imagesToSend = pendingImages.length > 0 ? [...pendingImages] : undefined;
+    const userMessage = inputValue.trim() || (pendingAttachments.length > 0 ? "Please analyze the attached file(s)." : "");
+    const attachmentsToSend = pendingAttachments.length > 0 ? [...pendingAttachments] : undefined;
     setInputValue("");
-    setPendingImages([]);
+    setPendingAttachments([]);
     setError(null);
 
     // Reset textarea height
@@ -506,7 +565,7 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
         id: `msg-${Date.now()}`,
         role: "user",
         text: userMessage,
-        images: imagesToSend,
+        attachments: attachmentsToSend,
       },
     ]);
 
@@ -520,10 +579,16 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
       sessionId: activeSessionId,
       assignmentId,
       message: userMessage,
-      images: imagesToSend?.map((img) => ({
-        data: img.data,
-        media_type: img.media_type,
-      })),
+      attachments: attachmentsToSend?.map((att) => {
+        switch (att.kind) {
+          case "image":
+            return { kind: "image", data: att.data, media_type: att.media_type };
+          case "pdf":
+            return { kind: "pdf", data: att.data, fileName: att.fileName };
+          case "text":
+            return { kind: "text", textContent: att.textContent, fileName: att.fileName };
+        }
+      }),
     });
   };
 
@@ -542,49 +607,105 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
     target.style.height = Math.min(target.scrollHeight, 150) + "px";
   };
 
-  // Convert a File to an ImageAttachment
-  const fileToImageAttachment = (file: File): Promise<ImageAttachment | null> => {
+  // Convert a File to a FileAttachment (image, PDF, or text)
+  const fileToAttachment = (file: File): Promise<FileAttachment | null> => {
     return new Promise((resolve) => {
-      const validTypes = ["image/jpeg", "image/png", "image/gif", "image/webp"];
-      if (!validTypes.includes(file.type)) {
-        resolve(null);
+      const imageTypes = ["image/jpeg", "image/png", "image/gif", "image/webp"];
+      const extension = file.name.split(".").pop()?.toLowerCase() || "";
+
+      // Image files
+      if (imageTypes.includes(file.type)) {
+        if (file.size > 20 * 1024 * 1024) {
+          setError(`Image "${file.name}" exceeds 20MB limit.`);
+          resolve(null);
+          return;
+        }
+        const reader = new FileReader();
+        reader.onload = () => {
+          const dataUrl = reader.result as string;
+          const base64 = dataUrl.split(",")[1];
+          resolve({
+            kind: "image",
+            data: base64,
+            media_type: file.type as ImageMimeType,
+            preview: dataUrl,
+          });
+        };
+        reader.onerror = () => resolve(null);
+        reader.readAsDataURL(file);
         return;
       }
-      const reader = new FileReader();
-      reader.onload = () => {
-        const dataUrl = reader.result as string;
-        const base64 = dataUrl.split(",")[1];
-        resolve({
-          data: base64,
-          media_type: file.type as ImageAttachment["media_type"],
-          preview: dataUrl,
-        });
-      };
-      reader.onerror = () => resolve(null);
-      reader.readAsDataURL(file);
+
+      // PDF files
+      if (file.type === "application/pdf" || extension === "pdf") {
+        if (file.size > 10 * 1024 * 1024) {
+          setError(`PDF "${file.name}" exceeds 10MB limit.`);
+          resolve(null);
+          return;
+        }
+        const reader = new FileReader();
+        reader.onload = () => {
+          const dataUrl = reader.result as string;
+          const base64 = dataUrl.split(",")[1];
+          resolve({
+            kind: "pdf",
+            data: base64,
+            fileName: file.name,
+            fileSize: file.size,
+          });
+        };
+        reader.onerror = () => resolve(null);
+        reader.readAsDataURL(file);
+        return;
+      }
+
+      // Text/code files
+      if (TEXT_EXTENSIONS.has(extension)) {
+        if (file.size > 500 * 1024) {
+          setError(`Text file "${file.name}" exceeds 500KB limit.`);
+          resolve(null);
+          return;
+        }
+        const reader = new FileReader();
+        reader.onload = () => {
+          resolve({
+            kind: "text",
+            textContent: reader.result as string,
+            fileName: file.name,
+            fileSize: file.size,
+          });
+        };
+        reader.onerror = () => resolve(null);
+        reader.readAsText(file);
+        return;
+      }
+
+      // Unsupported file type
+      setError("Unsupported file type. Supported: images, PDFs, and code/text files.");
+      resolve(null);
     });
   };
 
-  // Handle paste events for images
+  // Handle paste events for files
   const handlePaste = async (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
     const items = e.clipboardData?.items;
     if (!items) return;
 
-    const imageFiles: File[] = [];
+    const files: File[] = [];
     for (const item of Array.from(items)) {
-      if (item.type.startsWith("image/")) {
+      if (item.kind === "file") {
         const file = item.getAsFile();
-        if (file) imageFiles.push(file);
+        if (file) files.push(file);
       }
     }
 
-    if (imageFiles.length === 0) return;
+    if (files.length === 0) return;
 
     e.preventDefault();
-    const attachments = await Promise.all(imageFiles.map(fileToImageAttachment));
-    const valid = attachments.filter(Boolean) as ImageAttachment[];
+    const attachments = await Promise.all(files.map(fileToAttachment));
+    const valid = attachments.filter(Boolean) as FileAttachment[];
     if (valid.length > 0) {
-      setPendingImages((prev) => [...prev, ...valid]);
+      setPendingAttachments((prev) => [...prev, ...valid]);
     }
   };
 
@@ -594,19 +715,19 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
     if (!files || files.length === 0) return;
 
     const attachments = await Promise.all(
-      Array.from(files).map(fileToImageAttachment)
+      Array.from(files).map(fileToAttachment)
     );
-    const valid = attachments.filter(Boolean) as ImageAttachment[];
+    const valid = attachments.filter(Boolean) as FileAttachment[];
     if (valid.length > 0) {
-      setPendingImages((prev) => [...prev, ...valid]);
+      setPendingAttachments((prev) => [...prev, ...valid]);
     }
     // Reset file input so same file can be re-selected
     e.target.value = "";
   };
 
-  // Remove a pending image
-  const removePendingImage = (index: number) => {
-    setPendingImages((prev) => prev.filter((_, i) => i !== index));
+  // Remove a pending attachment
+  const removePendingAttachment = (index: number) => {
+    setPendingAttachments((prev) => prev.filter((_, i) => i !== index));
   };
 
   if (isLoading) {
@@ -732,18 +853,33 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
 
       {/* Input */}
       <div className="border-t flex-shrink-0">
-        {/* Pending image previews */}
-        {pendingImages.length > 0 && (
+        {/* Pending attachment previews */}
+        {pendingAttachments.length > 0 && (
           <div className="px-3 pt-2 flex gap-2 flex-wrap">
-            {pendingImages.map((img, idx) => (
+            {pendingAttachments.map((att, idx) => (
               <div key={idx} className="relative group">
-                <img
-                  src={img.preview}
-                  alt={`Attachment ${idx + 1}`}
-                  className="w-16 h-16 object-cover rounded-md border border-border"
-                />
+                {att.kind === "image" ? (
+                  <img
+                    src={att.preview}
+                    alt={`Attachment ${idx + 1}`}
+                    className="w-16 h-16 object-cover rounded-md border border-border"
+                  />
+                ) : (
+                  <div className="w-16 h-16 rounded-md border border-border bg-muted flex flex-col items-center justify-center gap-1 px-1">
+                    {att.kind === "pdf" ? (
+                      <FileText className="w-5 h-5 text-red-500 flex-shrink-0" />
+                    ) : CODE_EXTENSIONS.has(att.fileName.split(".").pop()?.toLowerCase() || "") ? (
+                      <FileCode className="w-5 h-5 text-blue-500 flex-shrink-0" />
+                    ) : (
+                      <FileText className="w-5 h-5 text-muted-foreground flex-shrink-0" />
+                    )}
+                    <span className="text-[9px] text-muted-foreground truncate w-full text-center leading-tight">
+                      {att.fileName}
+                    </span>
+                  </div>
+                )}
                 <button
-                  onClick={() => removePendingImage(idx)}
+                  onClick={() => removePendingAttachment(idx)}
                   className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-muted text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
                 >
                   <X className="w-3 h-3" />
@@ -757,7 +893,7 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
           <input
             ref={fileInputRef}
             type="file"
-            accept="image/jpeg,image/png,image/gif,image/webp"
+            accept="image/jpeg,image/png,image/gif,image/webp,application/pdf,.py,.java,.txt,.md,.csv,.html,.css,.js,.ts,.json,.xml,.yaml,.yml,.sql,.sh,.c,.cpp,.h,.rb,.go,.rs,.swift,.kt,.php,.r,.m,.log,.jsx,.tsx"
             multiple
             onChange={handleFileSelect}
             className="hidden"
@@ -766,7 +902,7 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
             onClick={() => fileInputRef.current?.click()}
             disabled={isStreaming}
             className="h-[38px] px-2 text-muted-foreground hover:text-foreground disabled:opacity-50 flex items-center justify-center"
-            title="Attach image"
+            title="Attach file"
           >
             <Paperclip className="w-4 h-4" />
           </button>
@@ -783,7 +919,7 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
           />
           <Button
             onClick={handleSend}
-            disabled={(!inputValue.trim() && pendingImages.length === 0) || isStreaming}
+            disabled={(!inputValue.trim() && pendingAttachments.length === 0) || isStreaming}
             size="sm"
             className="h-[38px] px-3 bg-purple-600 hover:bg-purple-700 dark:bg-purple-800 dark:hover:bg-purple-900"
           >
@@ -835,18 +971,39 @@ const AssistantLabel: React.FC = () => (
 // Message bubble component
 const MessageBubble: React.FC<{ message: DisplayMessage }> = ({ message }) => {
   if (message.role === "user") {
+    const imageAttachments = message.attachments?.filter((a) => a.kind === "image") as ImageAttachment[] | undefined;
+    const fileAttachments = message.attachments?.filter((a) => a.kind !== "image") as (PDFAttachment | TextFileAttachment)[] | undefined;
     return (
       <div className="flex justify-end">
         <div className="bg-purple-600 text-white rounded-lg px-3 py-2 text-sm max-w-[85%]">
-          {message.images && message.images.length > 0 && (
+          {imageAttachments && imageAttachments.length > 0 && (
             <div className="flex gap-1.5 flex-wrap mb-2">
-              {message.images.map((img, idx) => (
+              {imageAttachments.map((img, idx) => (
                 <img
                   key={idx}
                   src={img.preview}
                   alt={`Attachment ${idx + 1}`}
                   className="w-20 h-20 object-cover rounded-md border border-purple-400"
                 />
+              ))}
+            </div>
+          )}
+          {fileAttachments && fileAttachments.length > 0 && (
+            <div className="flex gap-1.5 flex-wrap mb-2">
+              {fileAttachments.map((att, idx) => (
+                <div
+                  key={idx}
+                  className="flex items-center gap-1.5 bg-white/15 rounded-md px-2 py-1"
+                >
+                  {att.kind === "pdf" ? (
+                    <FileText className="w-3.5 h-3.5 flex-shrink-0" />
+                  ) : CODE_EXTENSIONS.has(att.fileName.split(".").pop()?.toLowerCase() || "") ? (
+                    <FileCode className="w-3.5 h-3.5 flex-shrink-0" />
+                  ) : (
+                    <FileText className="w-3.5 h-3.5 flex-shrink-0" />
+                  )}
+                  <span className="text-xs truncate max-w-[120px]">{att.fileName}</span>
+                </div>
               ))}
             </div>
           )}

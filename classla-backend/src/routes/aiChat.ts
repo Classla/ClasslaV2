@@ -119,6 +119,12 @@ export function setupAIChatWebSocket(io: SocketIOServer): void {
         sessionId: string;
         assignmentId: string;
         message: string;
+        attachments?: Array<
+          | { kind: "image"; data: string; media_type: "image/jpeg" | "image/png" | "image/gif" | "image/webp" }
+          | { kind: "pdf"; data: string; fileName: string }
+          | { kind: "text"; textContent: string; fileName: string }
+        >;
+        // Legacy field for backward compat
         images?: Array<{
           data: string;
           media_type: "image/jpeg" | "image/png" | "image/gif" | "image/webp";
@@ -139,6 +145,16 @@ export function setupAIChatWebSocket(io: SocketIOServer): void {
             sessionId: data.sessionId,
           });
           return;
+        }
+
+        // Normalize legacy `images` field to `attachments` format
+        let attachments = data.attachments;
+        if (!attachments && data.images && data.images.length > 0) {
+          attachments = data.images.map((img) => ({
+            kind: "image" as const,
+            data: img.data,
+            media_type: img.media_type,
+          }));
         }
 
         try {
@@ -212,7 +228,7 @@ export function setupAIChatWebSocket(io: SocketIOServer): void {
             userId,
             isAdmin,
             userMessage: data.message,
-            images: data.images,
+            attachments,
             socket,
           });
         } catch (error: any) {
