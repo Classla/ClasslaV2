@@ -1,5 +1,15 @@
 # Classla Project
 
+## Worktree / First-Time Setup
+
+If `node_modules` is missing (e.g. in a fresh worktree), run:
+```bash
+./setup.sh
+```
+This installs dependencies for all three packages.
+
+---
+
 ## Quick Reference
 
 **Production IDE Server**: `ssh root@5.161.59.175`
@@ -184,6 +194,9 @@ const { isDark, toggle } = useTheme();
 ## Git Commits
 
 - Do NOT add a `Co-Authored-By` line to commit messages.
+- Every commit must reference a GitHub issue. Include the issue number in the commit message (e.g. `Fix login bug (#42)`).
+- If no relevant issue exists, create one first with `gh issue create` before committing.
+- After pushing, close the issue with `gh issue close <number>`.
 
 ---
 
