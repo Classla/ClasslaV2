@@ -725,7 +725,10 @@ const IDEBlockEditor: React.FC<IDEBlockEditorProps> = memo(
                 filename,
                 language,
               }),
-            }
+            },
+            10,
+            500,
+            true
           );
 
           const data = await response.json();
