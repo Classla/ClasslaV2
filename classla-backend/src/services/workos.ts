@@ -70,6 +70,7 @@ export class WorkOSAuthService {
       const authorizationUrl = this.workos.userManagement.getAuthorizationUrl({
         clientId: WORKOS_CONFIG.clientId,
         redirectUri: WORKOS_CONFIG.redirectUri,
+        provider: 'authkit',
         state,
       });
 

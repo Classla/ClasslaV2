@@ -114,7 +114,7 @@ export function useAutoSaveGrader() {
       updates,
     }: {
       graderId: string;
-      updates: Partial<Grader>;
+      updates: Partial<Grader> & { reviewed?: boolean };
     }) => {
       const response = await apiClient.autoSaveGrader(graderId, updates);
       return response.data;
