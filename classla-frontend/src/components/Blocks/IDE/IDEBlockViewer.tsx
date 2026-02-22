@@ -574,7 +574,10 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
               filename,
               language,
             }),
-          }
+          },
+          10,
+          500,
+          true
         );
 
         const data = await response.json();
@@ -887,7 +890,10 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
             body: JSON.stringify({
               tests: executableTests,
             }),
-          }
+          },
+          10,
+          500,
+          true
         );
 
         const data = await response.json();

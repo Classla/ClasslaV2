@@ -124,6 +124,7 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
   const selectedFileRef = useRef<string | null>(null); // Track selected file in ref for binding checks
   const containerHealthCheckRef = useRef<NodeJS.Timeout | null>(null); // Track health check interval
   const disconnectionDetectedRef = useRef<boolean>(false); // Track if disconnection was already detected
+  const containerReadyTimestampRef = useRef<number | null>(null); // When the container iframe first became ready (for grace period)
   // Keep a ref to the latest onContainerKilled so the health check effect doesn't need it as a
   // dependency (avoids restarting the interval — and resetting the failure count — on every render).
   const onContainerKilledRef = useRef(onContainerKilled);
@@ -225,6 +226,7 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
     // Reset readiness when URL changes or disappears
     if (!containerTerminalUrl || !containerId) {
       setTerminalUrlReady(false);
+      containerReadyTimestampRef.current = null;
       return;
     }
 
@@ -234,9 +236,11 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
     const probe = async () => {
       try {
         const resp = await fetch(probeUrl, { method: 'HEAD', cache: 'no-store', signal: AbortSignal.timeout(2000) });
-        // 404 means Traefik route not propagated yet; anything else (200/302/401) means route exists
-        if (resp.status !== 404) {
+        // 404 means Traefik route not propagated yet; 502/503/504 means route exists but upstream not ready
+        const NOT_READY_STATUSES = [404, 502, 503, 504];
+        if (!NOT_READY_STATUSES.includes(resp.status)) {
           console.log('[MonacoIDE] Terminal URL verified accessible', probeUrl);
+          containerReadyTimestampRef.current = Date.now();
           setTerminalUrlReady(true);
           if (terminalProbeRef.current) {
             clearInterval(terminalProbeRef.current);
@@ -251,6 +255,7 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
       terminalProbeAttemptsRef.current++;
       if (terminalProbeAttemptsRef.current >= MAX_ATTEMPTS) {
         console.warn('[MonacoIDE] Terminal URL probe timed out after 10s, showing iframe anyway');
+        containerReadyTimestampRef.current = Date.now();
         setTerminalUrlReady(true);
         if (terminalProbeRef.current) {
           clearInterval(terminalProbeRef.current);
@@ -275,10 +280,14 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
   const hasTerminal = !!(containerId && containerTerminalUrl && terminalUrlReady);
   const hasVnc = !!(containerId && containerVncUrl && showDesktop);
 
+  // Grace period (ms) after container ready — transient 502s are tolerated during this window
+  const CONTAINER_GRACE_PERIOD_MS = 15_000;
+
   // Detect container disconnection by monitoring health endpoints
   // Track consecutive failures - only disconnect after multiple failures
   const healthCheckFailureCountRef = useRef(0);
   const HEALTH_CHECK_FAILURE_THRESHOLD = 3; // Require 3 consecutive failures before disconnecting
+  const HEALTH_CHECK_GRACE_THRESHOLD = 6; // During grace period, allow more failures
 
   useEffect(() => {
     if (!containerId || !containerWebServerUrl || disconnectionDetectedRef.current) {
@@ -308,10 +317,15 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
         // Don't treat as fatal immediately - increment failure count
         healthCheckFailureCountRef.current++;
 
-        console.warn(`[MonacoIDE] Container health check failed (attempt ${healthCheckFailureCountRef.current}/${HEALTH_CHECK_FAILURE_THRESHOLD})`, error.message);
+        // During grace period after startup, allow more failures before disconnecting
+        const inGracePeriod = containerReadyTimestampRef.current != null &&
+          (Date.now() - containerReadyTimestampRef.current) < CONTAINER_GRACE_PERIOD_MS;
+        const threshold = inGracePeriod ? HEALTH_CHECK_GRACE_THRESHOLD : HEALTH_CHECK_FAILURE_THRESHOLD;
+
+        console.warn(`[MonacoIDE] Container health check failed (attempt ${healthCheckFailureCountRef.current}/${threshold}${inGracePeriod ? ' grace' : ''})`, error.message);
 
         // Only disconnect after multiple consecutive failures
-        if (healthCheckFailureCountRef.current >= HEALTH_CHECK_FAILURE_THRESHOLD) {
+        if (healthCheckFailureCountRef.current >= threshold) {
           console.warn("[MonacoIDE] Container health check failed multiple times, disconnecting...");
           disconnectionDetectedRef.current = true;
           if (containerHealthCheckRef.current) {
@@ -346,6 +360,28 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
   useEffect(() => {
     disconnectionDetectedRef.current = false;
   }, [containerId]);
+
+  // Shared iframe onError handler — during the grace period after startup,
+  // log the error but don't disconnect (transient Traefik 502s are expected).
+  const handleIframeError = useCallback((label: string) => {
+    if (disconnectionDetectedRef.current) return;
+
+    const inGracePeriod = containerReadyTimestampRef.current != null &&
+      (Date.now() - containerReadyTimestampRef.current) < CONTAINER_GRACE_PERIOD_MS;
+
+    if (inGracePeriod) {
+      console.warn(`[MonacoIDE] ${label} iframe error during grace period, ignoring`);
+      return;
+    }
+
+    console.warn(`[MonacoIDE] ${label} iframe failed to load, disconnecting...`);
+    disconnectionDetectedRef.current = true;
+    if (containerHealthCheckRef.current) {
+      clearInterval(containerHealthCheckRef.current);
+      containerHealthCheckRef.current = null;
+    }
+    onContainerKilled?.();
+  }, [onContainerKilled]);
   
   // Ensure sidePanelSize is always within bounds
   useEffect(() => {
@@ -2313,17 +2349,7 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
                                 console.log("Could not focus terminal iframe on click:", err);
                               }
                             }}
-                            onError={() => {
-                              if (!disconnectionDetectedRef.current) {
-                                console.warn("[MonacoIDE] Terminal iframe failed to load, disconnecting...");
-                                disconnectionDetectedRef.current = true;
-                                if (containerHealthCheckRef.current) {
-                                  clearInterval(containerHealthCheckRef.current);
-                                  containerHealthCheckRef.current = null;
-                                }
-                                onContainerKilled?.();
-                              }
-                            }}
+                            onError={() => handleIframeError('Terminal')}
                           />
                         </div>
                       ) : (
@@ -2377,17 +2403,7 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
                             overflow: 'hidden'
                           }}
                           tabIndex={0}
-                          onError={() => {
-                            if (!disconnectionDetectedRef.current) {
-                              console.warn("[MonacoIDE] VNC iframe failed to load, disconnecting...");
-                              disconnectionDetectedRef.current = true;
-                              if (containerHealthCheckRef.current) {
-                                clearInterval(containerHealthCheckRef.current);
-                                containerHealthCheckRef.current = null;
-                              }
-                              onContainerKilled?.();
-                            }
-                          }}
+                          onError={() => handleIframeError('VNC')}
                         />
                       </div>
                     </div>
@@ -2436,18 +2452,7 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
                               console.log("Could not focus terminal iframe on click:", err);
                             }
                           }}
-                          onError={() => {
-                            // Iframe failed to load - container is likely disconnected
-                            if (!disconnectionDetectedRef.current) {
-                              console.warn("[MonacoIDE] Terminal iframe failed to load, disconnecting...");
-                              disconnectionDetectedRef.current = true;
-                              if (containerHealthCheckRef.current) {
-                                clearInterval(containerHealthCheckRef.current);
-                                containerHealthCheckRef.current = null;
-                              }
-                              onContainerKilled?.();
-                            }
-                          }}
+                          onError={() => handleIframeError('Terminal')}
                         />
                       </div>
                     ) : (
@@ -2522,18 +2527,7 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
                             overflow: 'hidden'
                           }}
                           tabIndex={0}
-                          onError={() => {
-                            // VNC iframe failed to load - container is likely disconnected
-                            if (!disconnectionDetectedRef.current) {
-                              console.warn("[MonacoIDE] VNC iframe failed to load, disconnecting...");
-                              disconnectionDetectedRef.current = true;
-                              if (containerHealthCheckRef.current) {
-                                clearInterval(containerHealthCheckRef.current);
-                                containerHealthCheckRef.current = null;
-                              }
-                              onContainerKilled?.();
-                            }
-                          }}
+                          onError={() => handleIframeError('VNC')}
                         />
                       </div>
                     </div>
