@@ -42,7 +42,7 @@ interface MonacoIDEProps {
   containerVncUrl?: string;
   containerWebServerUrl?: string;
   ideApiBaseUrl: string;
-  onRun?: () => void;
+  onRun?: () => void | Promise<void>;
   runFilename?: string;
   onFilenameChange?: (filename: string) => void;
   isStarting?: boolean;
@@ -114,6 +114,7 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
     return localStorage.getItem('ide-show-hidden-files') === 'true';
   });
   const [saveStatus, setSaveStatus] = useState<Record<string, "saving" | "saved" | "error">>({}); // Track save status per file
+  const [isRunning, setIsRunning] = useState(false);
   const editorRef = useRef<any>(null);
   const editorReadyRef = useRef<boolean>(false); // Track if editor is mounted and ready
   const otBindingsRef = useRef<Record<string, MonacoOTBinding>>({}); // Track OT bindings per file
@@ -1870,7 +1871,12 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
                       }
                     }
                   }
-                  onRun?.();
+                  setIsRunning(true);
+                  try {
+                    await onRun?.();
+                  } finally {
+                    setIsRunning(false);
+                  }
                   // Reload file tree after run to catch container filesystem changes
                   // (e.g. rm -f *.class, new compiled files). Delay allows the run
                   // process + container sync to complete.
@@ -1878,7 +1884,7 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
                     setTimeout(() => loadFileTree(), 5000);
                   }
                 }}
-                disabled={isStarting || historyMode}
+                disabled={isStarting || isRunning || historyMode}
               >
                 {isStarting ? (
                   <>
@@ -1887,7 +1893,11 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
                   </>
                 ) : containerId ? (
                   <>
-                    <Play className="w-4 h-4 mr-2" />
+                    {isRunning ? (
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    ) : (
+                      <Play className="w-4 h-4 mr-2" />
+                    )}
                     Run
                   </>
                 ) : (

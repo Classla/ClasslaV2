@@ -6,6 +6,7 @@ import { Button } from "../../components/ui/button";
 import { useToast } from "../../hooks/use-toast";
 import { useAuth } from "../../contexts/AuthContext";
 import { apiClient } from "../../lib/api";
+import { fetchWithNetworkRetry } from "../../components/Blocks/IDE/fetchWithNetworkRetry";
 
 
 const PRODUCTION_IDE_API_BASE_URL =
@@ -317,7 +318,7 @@ const IDEFullscreenPage: React.FC = () => {
     const language = languageMap[ext || ""] || "python";
 
     try {
-      const response = await fetch(
+      const response = await fetchWithNetworkRetry(
         `${ideApiBaseUrl}/web/${container.id}/run`,
         {
           method: "POST",

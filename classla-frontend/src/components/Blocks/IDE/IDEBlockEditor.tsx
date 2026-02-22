@@ -28,6 +28,7 @@ import { Button } from "../../ui/button";
 import { Input } from "../../ui/input";
 import { Label } from "../../ui/label";
 import { Checkbox } from "../../ui/checkbox";
+import { fetchWithNetworkRetry } from "./fetchWithNetworkRetry";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "../../ui/tabs";
 import {
   DropdownMenu,
@@ -713,7 +714,7 @@ const IDEBlockEditor: React.FC<IDEBlockEditorProps> = memo(
         const bucketId = ideData[tab].s3_bucket_id;
 
         try {
-          const response = await fetch(
+          const response = await fetchWithNetworkRetry(
             `${IDE_API_BASE_URL}/web/${container.id}/run`,
             {
               method: "POST",
