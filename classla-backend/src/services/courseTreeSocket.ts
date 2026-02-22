@@ -84,10 +84,56 @@ export function setupCourseTreeSocket(io: SocketIOServer): void {
       }
     });
 
+    // Instructor joins a room to watch a specific student's live answers
+    socket.on("join-submission-grading", (submissionId: string) => {
+      if (submissionId) {
+        socket.join(`grading:${submissionId}`);
+      }
+    });
+
+    socket.on("leave-submission-grading", (submissionId: string) => {
+      if (submissionId) {
+        socket.leave(`grading:${submissionId}`);
+      }
+    });
+
+    // Student emits their full answer state; backend relays to watching instructors
+    socket.on(
+      "submission-answers",
+      ({ submissionId, answers }: { submissionId: string; answers: any }) => {
+        if (submissionId && answers) {
+          socket
+            .to(`grading:${submissionId}`)
+            .emit("submission-answers", { submissionId, answers });
+        }
+      }
+    );
+
     socket.on("disconnect", () => {
       // Rooms are automatically cleaned up on disconnect
     });
   });
+}
+
+/**
+ * Emit a submission update event to all clients watching a course.
+ */
+export function emitSubmissionUpdate(
+  io: SocketIOServer,
+  courseId: string,
+  data: { assignmentId: string; studentId: string; status: string }
+): void {
+  try {
+    io.of("/course-tree")
+      .to(`course:${courseId}`)
+      .emit("submission-update", data);
+  } catch (error) {
+    logger.error("Failed to emit submission update", {
+      courseId,
+      data,
+      error: error instanceof Error ? error.message : "Unknown",
+    });
+  }
 }
 
 /**

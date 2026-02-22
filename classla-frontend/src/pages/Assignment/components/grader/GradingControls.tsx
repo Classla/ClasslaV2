@@ -1,9 +1,8 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { Grader, RubricSchema, Rubric } from "../../../../types";
 import { Input } from "../../../../components/ui/input";
-import { Textarea } from "../../../../components/ui/textarea";
-import { Checkbox } from "../../../../components/ui/checkbox";
 import { Label } from "../../../../components/ui/label";
+import { Textarea } from "../../../../components/ui/textarea";
 import { useToast } from "../../../../hooks/use-toast";
 import { useEnsureGrader } from "../../../../hooks/useEnsureGrader";
 import { Loader2 } from "lucide-react";
@@ -68,13 +67,11 @@ export const GradingControls: React.FC<GradingControlsProps> = React.memo(
       grader?.score_modifier || "0"
     );
     const [feedback, setFeedback] = useState(grader?.feedback || "");
-    const [isReviewed, setIsReviewed] = useState(!!grader?.reviewed_at);
 
     // Update local state when grader prop changes
     useEffect(() => {
       setScoreModifier(grader?.score_modifier || "0");
       setFeedback(grader?.feedback || "");
-      setIsReviewed(!!grader?.reviewed_at);
     }, [grader]);
 
     // Load rubric schema and rubric instance
@@ -269,52 +266,6 @@ export const GradingControls: React.FC<GradingControlsProps> = React.memo(
       setFeedback(e.target.value);
     };
 
-    const handleReviewedChange = async (checked: boolean) => {
-      // Ensure grader exists before updating reviewed status
-      if (!grader && !isCreating) {
-        try {
-          await ensureGrader();
-        } catch (error) {
-          console.error("Failed to create grader:", error);
-          toast({
-            title: "Error",
-            description: "Failed to initialize grading. Please try again.",
-            variant: "destructive",
-          });
-          return; // Don't update the checkbox if creation failed
-        }
-      }
-      
-      // Update local state immediately for responsive UI
-      setIsReviewed(checked);
-      
-      // If auto-save is enabled, trigger immediate save for reviewed status changes
-      // This ensures the change is saved right away rather than waiting for debounce
-      if (autoSave && grader) {
-        // Clear any pending debounced saves to prevent them from overwriting this change
-        if (saveTimeoutRef.current) {
-          clearTimeout(saveTimeoutRef.current);
-          saveTimeoutRef.current = null;
-        }
-        
-        try {
-          const updates: any = {
-            reviewed: checked,
-          };
-          await onUpdate(updates);
-        } catch (error) {
-          console.error("Failed to save reviewed status:", error);
-          // Revert the checkbox state on error
-          setIsReviewed(!checked);
-          toast({
-            title: "Error",
-            description: "Failed to update reviewed status",
-            variant: "destructive",
-          });
-        }
-      }
-    };
-
     // Handle focus on input fields - ensure grader exists before allowing input
     const handleFocus = async () => {
       if (!grader && !isCreating) {
@@ -482,27 +433,6 @@ export const GradingControls: React.FC<GradingControlsProps> = React.memo(
           />
         </div>
 
-        {/* Reviewed checkbox */}
-        <div className="flex items-center space-x-3 p-4 bg-muted rounded-md border border-border">
-          <Checkbox
-            id="reviewed"
-            checked={isReviewed}
-            onCheckedChange={handleReviewedChange}
-            disabled={isCreating}
-            className="data-[state=checked]:bg-purple-600 data-[state=checked]:border-purple-600"
-          />
-          <Label
-            htmlFor="reviewed"
-            className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer text-foreground"
-          >
-            Mark as Reviewed
-            {grader?.reviewed_at && (
-              <span className="ml-2 text-xs text-muted-foreground font-normal">
-                (Last reviewed: {new Date(grader.reviewed_at).toLocaleString()})
-              </span>
-            )}
-          </Label>
-        </div>
       </div>
     );
   }

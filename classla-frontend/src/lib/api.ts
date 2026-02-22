@@ -398,6 +398,8 @@ export const apiClient = {
   updateSubmissionValues: (id: string, values: Record<string, any>) =>
     api.put(`/submission/${id}`, { values }),
   submitSubmission: (id: string) => api.post(`/submission/${id}/submit`),
+  submitSubmissionOverride: (id: string) => api.post(`/submission/${id}/submit-override`),
+  unsubmitSubmission: (id: string) => api.post(`/submission/${id}/unsubmit`),
   gradeSubmission: (id: string, grade: number, grader_id?: string) =>
     api.put(`/submission/${id}/grade`, { grade, grader_id }),
 
@@ -446,11 +448,17 @@ export const apiClient = {
   extractBlocks: (assignmentId: string) =>
     api.get(`/blocks/extract/${assignmentId}`),
 
-  // Autograding endpoint
+  // Autograding endpoints
   autogradeSubmission: (
     submissionId: string
   ): Promise<AxiosResponse<AutogradeResponse>> =>
     api.post(`/autograder/grade/${submissionId}`),
+
+  // Run IDE container tests + autograde (instructor-only, long-running)
+  runAndGradeSubmission: (
+    submissionId: string
+  ): Promise<AxiosResponse<AutogradeResponse>> =>
+    aiApi.post(`/autograder/run-and-grade/${submissionId}`),
 
   // Rubric endpoints
   getRubricSchema: (assignmentId: string) =>

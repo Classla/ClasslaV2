@@ -135,12 +135,6 @@ const PollViewer: React.FC<PollViewerProps> = memo(({ node, editor, onAnswerChan
             );
           })}
         </div>
-        {selectedOptions.length > 0 && (
-          <div className="text-sm text-green-600 flex items-center gap-2 mt-2">
-            <Check className="w-4 h-4" />
-            Response saved
-          </div>
-        )}
       </div>
     </NodeViewWrapper>
   );

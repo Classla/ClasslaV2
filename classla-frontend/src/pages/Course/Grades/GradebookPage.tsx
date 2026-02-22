@@ -100,7 +100,44 @@ const GradebookPage: React.FC<GradebookPageProps> = ({
     const map = new Map<string, Submission>();
     gradebookData.submissions.forEach((submission) => {
       const key = `${submission.student_id}_${submission.assignment_id}`;
-      map.set(key, submission);
+      const existing = map.get(key);
+      // Keep the latest submission by timestamp
+      if (!existing || new Date(submission.timestamp) > new Date(existing.timestamp)) {
+        map.set(key, submission);
+      }
+    });
+    return map;
+  }, [gradebookData]);
+
+  const submissionCountMap = useMemo(() => {
+    if (!gradebookData) return new Map<string, number>();
+    const map = new Map<string, number>();
+    gradebookData.submissions.forEach((submission) => {
+      const key = `${submission.student_id}_${submission.assignment_id}`;
+      map.set(key, (map.get(key) || 0) + 1);
+    });
+    return map;
+  }, [gradebookData]);
+
+  const inProgressAfterSubmitMap = useMemo(() => {
+    if (!gradebookData) return new Map<string, boolean>();
+    const groups = new Map<string, Submission[]>();
+    gradebookData.submissions.forEach((s) => {
+      const key = `${s.student_id}_${s.assignment_id}`;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key)!.push(s);
+    });
+    const map = new Map<string, boolean>();
+    groups.forEach((subs, key) => {
+      const sorted = [...subs].sort(
+        (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+      );
+      const hasOlderSubmitted = sorted.slice(1).some(
+        (s) => s.status === "submitted" || s.status === "graded"
+      );
+      if (sorted[0]?.status === "in-progress" && hasOlderSubmitted) {
+        map.set(key, true);
+      }
     });
     return map;
   }, [gradebookData]);
@@ -337,6 +374,8 @@ const GradebookPage: React.FC<GradebookPageProps> = ({
           assignments={gradebookData.assignments}
           submissions={submissionsMap}
           graders={gradersMap}
+          submissionCounts={submissionCountMap}
+          inProgressAfterSubmit={inProgressAfterSubmitMap}
           onCellClick={handleCellClick}
           onHeaderClick={handleHeaderClick}
           onMarkReviewed={handleMarkReviewed}

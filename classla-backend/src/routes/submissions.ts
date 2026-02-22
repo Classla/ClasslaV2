@@ -16,8 +16,10 @@ import {
   GradebookData,
   StudentGradesData,
 } from "../types/api";
-import { autogradeSubmission } from "./autograder";
+import { runIDETestsAndGrade } from "./autograder";
 import { createBucketSnapshot } from "./s3buckets";
+import { emitSubmissionUpdate } from "../services/courseTreeSocket";
+import { getIO } from "../services/websocket";
 
 const router = Router();
 
@@ -742,6 +744,15 @@ router.post(
         submission = newSubmission;
       }
 
+      // Emit real-time update for grading panel
+      try {
+        emitSubmissionUpdate(getIO(), course_id, {
+          assignmentId: assignment_id,
+          studentId: userId,
+          status: submission.status,
+        });
+      } catch {}
+
       res.status(existingSubmission ? 200 : 201).json(submission);
     } catch (error) {
       console.error("Error creating/updating submission:", error);
@@ -1057,22 +1068,27 @@ router.post(
         });
       }
 
-      // Trigger autograding asynchronously (Requirements 9.1, 9.2, 9.3, 9.4)
-      // Don't block the response on autograding completion
-      autogradeSubmission(id)
+      // Trigger full autograding (IDE containers + MCQ) asynchronously.
+      // Response is already sent — student does not wait for this.
+      runIDETestsAndGrade(id)
         .then(() => {
-          console.log(
-            `Autograding completed successfully for submission ${id}`
-          );
+          console.log(`Autograding completed for submission ${id}`);
         })
         .catch((error) => {
-          // Log error but don't fail the submission (Requirements 9.3, 9.4, 9.5)
           console.error("Autograding failed:", {
             submissionId: id,
             error: error instanceof Error ? error.message : "Unknown error",
-            stack: error instanceof Error ? error.stack : undefined,
           });
         });
+
+      // Emit real-time update for grading panel
+      try {
+        emitSubmissionUpdate(getIO(), existingSubmission.course_id, {
+          assignmentId: existingSubmission.assignment_id,
+          studentId: existingSubmission.student_id,
+          status: "submitted",
+        });
+      } catch {}
 
       // Return submission immediately without waiting for autograding (Requirement 9.2)
       res.json(updatedSubmission);
@@ -1082,6 +1098,287 @@ router.post(
         error: {
           code: "INTERNAL_SERVER_ERROR",
           message: "Failed to submit submission",
+          timestamp: new Date().toISOString(),
+          path: req.path,
+        },
+      });
+    }
+  }
+);
+
+/**
+ * POST /submission/:id/submit-override
+ * Submit a student's in-progress submission on their behalf (instructor/TA only)
+ * Bypasses due date enforcement and ownership checks
+ */
+router.post(
+  "/submission/:id/submit-override",
+  authenticateToken,
+  async (req: Request, res: Response): Promise<void> => {
+    try {
+      const { id } = req.params;
+      const { id: userId, isAdmin } = req.user!;
+
+      // Get the existing submission
+      const { data: existingSubmission, error: existingError } = await supabase
+        .from("submissions")
+        .select("*")
+        .eq("id", id)
+        .single();
+
+      if (existingError || !existingSubmission) {
+        res.status(404).json({
+          error: {
+            code: "SUBMISSION_NOT_FOUND",
+            message: "Submission not found",
+            timestamp: new Date().toISOString(),
+            path: req.path,
+          },
+        });
+        return;
+      }
+
+      // Caller must have canGrade permission (instructor/TA/admin)
+      const permissions = await getCoursePermissions(
+        userId,
+        existingSubmission.course_id,
+        isAdmin
+      );
+
+      if (!permissions.canGrade && !permissions.canManage) {
+        res.status(403).json({
+          error: {
+            code: "INSUFFICIENT_PERMISSIONS",
+            message: "Not authorized to submit on behalf of students in this course",
+            timestamp: new Date().toISOString(),
+            path: req.path,
+          },
+        });
+        return;
+      }
+
+      // Block if already submitted or graded
+      if (
+        existingSubmission.status === SubmissionStatus.SUBMITTED ||
+        existingSubmission.status === SubmissionStatus.GRADED
+      ) {
+        res.status(400).json({
+          error: {
+            code: "ALREADY_SUBMITTED",
+            message: "Submission has already been submitted or graded",
+            timestamp: new Date().toISOString(),
+            path: req.path,
+          },
+        });
+        return;
+      }
+
+      // Get assignment content for S3 snapshot
+      const { data: assignment } = await supabase
+        .from("assignments")
+        .select("content")
+        .eq("id", existingSubmission.assignment_id)
+        .single();
+
+      // Update to submitted — no late check, is_late = false for teacher override
+      const { data: updatedSubmission, error: updateError } = await supabase
+        .from("submissions")
+        .update({
+          status: SubmissionStatus.SUBMITTED,
+          timestamp: new Date(),
+          is_late: false,
+        })
+        .eq("id", id)
+        .select()
+        .single();
+
+      if (updateError) {
+        throw updateError;
+      }
+
+      // Create S3 bucket snapshots for each IDE block (same as regular submit)
+      try {
+        if (assignment?.content) {
+          const ideBlockIds = extractAllIDEBlockIds(assignment.content);
+
+          if (ideBlockIds.length > 0) {
+            const { data: liveBuckets } = await supabase
+              .from("s3_buckets")
+              .select("id, block_id")
+              .eq("user_id", existingSubmission.student_id)
+              .eq("assignment_id", existingSubmission.assignment_id)
+              .in("block_id", ideBlockIds)
+              .is("deleted_at", null)
+              .or("is_snapshot.is.null,is_snapshot.eq.false")
+              .eq("is_template", false);
+
+            if (liveBuckets && liveBuckets.length > 0) {
+              const snapshotResults = await Promise.allSettled(
+                liveBuckets.map(async (bucket) => {
+                  const snapshotId = await createBucketSnapshot(bucket.id, id);
+                  return { blockId: bucket.block_id, snapshotId };
+                })
+              );
+
+              const snapshotValues: Record<string, any> = {};
+              for (const result of snapshotResults) {
+                if (result.status === "fulfilled" && result.value.blockId) {
+                  snapshotValues[result.value.blockId] = {
+                    ...(updatedSubmission.values?.[result.value.blockId] || {}),
+                    s3_snapshot_bucket_id: result.value.snapshotId,
+                  };
+                }
+              }
+
+              if (Object.keys(snapshotValues).length > 0) {
+                const mergedValues = {
+                  ...(updatedSubmission.values || {}),
+                  ...snapshotValues,
+                };
+
+                await supabase
+                  .from("submissions")
+                  .update({ values: mergedValues })
+                  .eq("id", id);
+
+                updatedSubmission.values = mergedValues;
+              }
+            }
+          }
+        }
+      } catch (snapshotError) {
+        console.error("Failed to create S3 snapshots for override submission:", {
+          submissionId: id,
+          error: snapshotError instanceof Error ? snapshotError.message : "Unknown error",
+        });
+      }
+
+      // Trigger full autograding asynchronously — teacher does not wait for this.
+      runIDETestsAndGrade(id)
+        .then(() => {
+          console.log(`Autograding completed for override submission ${id}`);
+        })
+        .catch((error) => {
+          console.error("Autograding failed for override submission:", {
+            submissionId: id,
+            error: error instanceof Error ? error.message : "Unknown error",
+          });
+        });
+
+      // Emit real-time update for grading panel
+      try {
+        emitSubmissionUpdate(getIO(), existingSubmission.course_id, {
+          assignmentId: existingSubmission.assignment_id,
+          studentId: existingSubmission.student_id,
+          status: "submitted",
+        });
+      } catch {}
+
+      res.json(updatedSubmission);
+    } catch (error) {
+      console.error("Error submitting override submission:", error);
+      res.status(500).json({
+        error: {
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Failed to submit submission",
+          timestamp: new Date().toISOString(),
+          path: req.path,
+        },
+      });
+    }
+  }
+);
+
+/**
+ * POST /submission/:id/unsubmit
+ * Revert a submitted/graded submission back to in-progress.
+ * Student can only unsubmit their own submission; instructor/TA can unsubmit any.
+ */
+router.post(
+  "/submission/:id/unsubmit",
+  authenticateToken,
+  async (req: Request, res: Response): Promise<void> => {
+    try {
+      const { id } = req.params;
+      const { id: userId, isAdmin } = req.user!;
+
+      const { data: existingSubmission, error: existingError } = await supabase
+        .from("submissions")
+        .select("*")
+        .eq("id", id)
+        .single();
+
+      if (existingError || !existingSubmission) {
+        res.status(404).json({
+          error: {
+            code: "SUBMISSION_NOT_FOUND",
+            message: "Submission not found",
+            timestamp: new Date().toISOString(),
+            path: req.path,
+          },
+        });
+        return;
+      }
+
+      const permissions = await getCoursePermissions(
+        userId,
+        existingSubmission.course_id,
+        isAdmin
+      );
+
+      // Allow if student owns it, or instructor/TA has canGrade
+      const isOwner = existingSubmission.student_id === userId;
+      if (!isOwner && !permissions.canGrade) {
+        res.status(403).json({
+          error: {
+            code: "INSUFFICIENT_PERMISSIONS",
+            message: "Not authorized to unsubmit this submission",
+            timestamp: new Date().toISOString(),
+            path: req.path,
+          },
+        });
+        return;
+      }
+
+      if (
+        existingSubmission.status !== SubmissionStatus.SUBMITTED &&
+        existingSubmission.status !== SubmissionStatus.GRADED
+      ) {
+        res.status(400).json({
+          error: {
+            code: "INVALID_STATUS",
+            message: "Only submitted or graded submissions can be unsubmitted",
+            timestamp: new Date().toISOString(),
+            path: req.path,
+          },
+        });
+        return;
+      }
+
+      const { data: updatedSubmission, error: updateError } = await supabase
+        .from("submissions")
+        .update({ status: SubmissionStatus.IN_PROGRESS })
+        .eq("id", id)
+        .select()
+        .single();
+
+      if (updateError) throw updateError;
+
+      try {
+        emitSubmissionUpdate(getIO(), existingSubmission.course_id, {
+          assignmentId: existingSubmission.assignment_id,
+          studentId: existingSubmission.student_id,
+          status: "in-progress",
+        });
+      } catch {}
+
+      res.json(updatedSubmission);
+    } catch (error) {
+      console.error("Error unsubmitting submission:", error);
+      res.status(500).json({
+        error: {
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Failed to unsubmit submission",
           timestamp: new Date().toISOString(),
           path: req.path,
         },

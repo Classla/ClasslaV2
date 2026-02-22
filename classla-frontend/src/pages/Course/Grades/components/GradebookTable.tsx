@@ -17,6 +17,8 @@ interface GradebookTableProps {
   assignments: Assignment[];
   submissions: Map<string, Submission>;
   graders: Map<string, Grader>;
+  submissionCounts?: Map<string, number>;
+  inProgressAfterSubmit?: Map<string, boolean>;
   onCellClick: (studentId: string, assignmentId: string) => void;
   onHeaderClick: (assignmentId: string) => void;
   onMarkReviewed: (graderId: string) => void;
@@ -24,7 +26,7 @@ interface GradebookTableProps {
 }
 
 const GradebookTable: React.FC<GradebookTableProps> = React.memo(
-  ({ students, assignments, submissions, graders, onCellClick, onHeaderClick, onMarkReviewed, onChangeGrade }) => {
+  ({ students, assignments, submissions, graders, submissionCounts, inProgressAfterSubmit, onCellClick, onHeaderClick, onMarkReviewed, onChangeGrade }) => {
 
     // State for the "Change Grade" inline input
     const [changeGradeState, setChangeGradeState] = useState<{
@@ -56,6 +58,8 @@ const GradebookTable: React.FC<GradebookTableProps> = React.memo(
       if (submission?.status === "in-progress") {
         const totalPoints = calculateAssignmentPoints(assignment.content);
         const score = grader ? calculateFinalGrade(grader) : null;
+        const isResubmitting = !!inProgressAfterSubmit?.get(submissionKey);
+        const count = submissionCounts?.get(submissionKey) ?? 0;
         return (
           <div className="w-full h-full flex items-center justify-center">
             <span className="text-yellow-600 dark:text-yellow-400 text-sm font-medium flex items-center gap-0.5">
@@ -65,8 +69,13 @@ const GradebookTable: React.FC<GradebookTableProps> = React.memo(
               </span>
             </span>
             <span className="absolute top-1 right-1 text-[9px] font-bold px-1 py-0.5 rounded leading-none bg-yellow-100 text-yellow-700 dark:bg-yellow-900/50 dark:text-yellow-300">
-              In Progress
+              {isResubmitting ? "Resubmitting" : "In Progress"}
             </span>
+            {count > 1 && (
+              <span className="absolute bottom-1 left-1 text-[9px] font-semibold px-1 py-0.5 rounded leading-none bg-accent text-muted-foreground">
+                {count}x
+              </span>
+            )}
           </div>
         );
       }
@@ -133,6 +142,11 @@ const GradebookTable: React.FC<GradebookTableProps> = React.memo(
                 }`}>
                   {isReviewed ? "Reviewed" : "Submitted"}
                 </span>
+                {(submissionCounts?.get(submissionKey) ?? 0) > 1 && (
+                  <span className="absolute bottom-1 left-1 text-[9px] font-semibold px-1 py-0.5 rounded leading-none bg-accent text-muted-foreground">
+                    {submissionCounts!.get(submissionKey)}x
+                  </span>
+                )}
               </div>
             </ContextMenuTrigger>
             <ContextMenuContent>

@@ -6,6 +6,7 @@ import React, {
   useRef,
   startTransition,
 } from "react";
+import { io } from "socket.io-client";
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
@@ -44,6 +45,14 @@ import { ImageBlockViewer } from "../../../components/extensions/ImageBlockViewe
 import { DiscussionBlockViewer } from "../../../components/extensions/DiscussionBlockViewer";
 import { validateMCQData, sanitizeMCQData } from "../../../components/extensions/MCQBlock";
 import { Button } from "../../../components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "../../../components/ui/dialog";
 import { apiClient } from "../../../lib/api";
 import { useToast } from "../../../hooks/use-toast";
 import SubmissionSuccessModal from "./SubmissionSuccessModal";
@@ -155,12 +164,22 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
     setSubmissionTimestamp(initialSubmissionTimestamp || null);
   }, [initialSubmissionTimestamp]);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
+  const [showResubmitConfirm, setShowResubmitConfirm] = useState(false);
+  const resubmitConfirmedRef = useRef(false);
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Determine if the viewer should be read-only
   const showResponsesAfterSubmission =
     assignment.settings?.showResponsesAfterSubmission ?? false;
   const allowResubmissions = assignment.settings?.allowResubmissions ?? false;
+
+  // True when student is submitting over a previously submitted/graded submission
+  const hasPreviousSubmission = useMemo(() => {
+    if (!allowResubmissions || !allSubmissions || allSubmissions.length === 0) return false;
+    return allSubmissions.some(
+      (s) => s.id !== submissionId && (s.status === "submitted" || s.status === "graded")
+    );
+  }, [allowResubmissions, allSubmissions, submissionId]);
   const allowLateSubmissions =
     assignment.settings?.allowLateSubmissions ?? false;
 
@@ -186,6 +205,8 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
 
   // Fetch submission data when submissionId changes - always from backend
   useEffect(() => {
+    let cancelled = false;
+
     const fetchSubmissionData = async () => {
       if (!submissionId) {
         startTransition(() => {
@@ -198,6 +219,7 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
       try {
         setIsLoadingSubmission(true);
         const response = await apiClient.getSubmission(submissionId);
+        if (cancelled) return;
         const submission = response.data;
 
         console.log("[AssignmentViewer] Fetched submission:", {
@@ -297,6 +319,7 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
           setIsLoadingSubmission(false);
         });
       } catch (error) {
+        if (cancelled) return;
         console.error("Failed to fetch submission data:", error);
         startTransition(() => {
           setIsLoadingSubmission(false);
@@ -305,6 +328,9 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
     };
 
     fetchSubmissionData();
+    return () => {
+      cancelled = true;
+    };
   }, [submissionId]);
 
   // Save answer state to session storage whenever it changes
@@ -713,6 +739,73 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
     answerStateRef.current = answerState;
   }, [answerState]);
 
+  // ── Live answer sync via WebSocket ──────────────────────────────────────────
+
+  const getSocketBaseURL = () => {
+    const apiUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:3001/api";
+    return apiUrl.replace(/\/api$/, "") || "http://localhost:3001";
+  };
+
+  // Student: maintain a persistent socket and emit answerState changes
+  const studentAnswerSocketRef = useRef<ReturnType<typeof io> | null>(null);
+
+  useEffect(() => {
+    if (!isStudent || !submissionId) return;
+
+    const socket = io(`${getSocketBaseURL()}/course-tree`, {
+      transports: ["websocket", "polling"],
+      withCredentials: true,
+    });
+    studentAnswerSocketRef.current = socket;
+
+    return () => {
+      socket.disconnect();
+      studentAnswerSocketRef.current = null;
+    };
+  }, [isStudent, submissionId]);
+
+  // Debounced emit when student's answerState changes
+  useEffect(() => {
+    if (!isStudent || !submissionId) return;
+    const timer = setTimeout(() => {
+      studentAnswerSocketRef.current?.emit("submission-answers", {
+        submissionId,
+        answers: answerStateRef.current,
+      });
+    }, 150);
+    return () => clearTimeout(timer);
+  }, [answerState, isStudent, submissionId]);
+
+  // Teacher/grader: subscribe to live answer updates for the viewed submission
+  useEffect(() => {
+    if (!locked || isStudent || !submissionId) return;
+
+    const socket = io(`${getSocketBaseURL()}/course-tree`, {
+      transports: ["websocket", "polling"],
+      withCredentials: true,
+    });
+
+    socket.on("connect", () => {
+      socket.emit("join-submission-grading", submissionId);
+    });
+
+    socket.on(
+      "submission-answers",
+      ({ submissionId: incomingId, answers }: { submissionId: string; answers: AnswerState }) => {
+        if (incomingId === submissionId) {
+          startTransition(() => setAnswerState(answers));
+        }
+      }
+    );
+
+    return () => {
+      socket.emit("leave-submission-grading", submissionId);
+      socket.disconnect();
+    };
+  }, [locked, isStudent, submissionId]);
+
+  // ────────────────────────────────────────────────────────────────────────────
+
   // Memoize editor extensions to prevent recreation
   const editorExtensions = useMemo(
     () => [
@@ -1102,6 +1195,28 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
     toast,
   ]);
 
+  const handleUnsubmit = useCallback(async () => {
+    if (!submissionId) return;
+    try {
+      setIsSubmitting(true);
+      await apiClient.unsubmitSubmission(submissionId);
+      setSubmissionStatus("in-progress");
+      onSubmissionStatusChange?.("in-progress");
+      toast({
+        title: "Unsubmitted",
+        description: "Your submission is back to draft. You can make changes and resubmit.",
+      });
+    } catch (error: any) {
+      toast({
+        title: "Failed to unsubmit",
+        description: error.message || "Failed to unsubmit",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
+  }, [submissionId, onSubmissionStatusChange, toast]);
+
   const handleRetryAutograde = useCallback(async () => {
     if (!submissionId) {
       return;
@@ -1200,6 +1315,13 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
       });
       return;
     }
+
+    // Show confirmation modal when resubmitting over an existing submission
+    if (hasPreviousSubmission && !resubmitConfirmedRef.current) {
+      setShowResubmitConfirm(true);
+      return;
+    }
+    resubmitConfirmedRef.current = false;
 
     try {
       setIsSubmitting(true);
@@ -1326,6 +1448,7 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
     previewMode,
     answerState,
     isSubmissionBlocked,
+    hasPreviousSubmission,
   ]);
 
   return (
@@ -1355,39 +1478,51 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
 
       {/* Submitted Banner */}
       {isStudent && submissionStatus === "submitted" && hasSubmission && (
-        <div className="bg-green-600 text-white px-4 py-3 border-b border-green-700">
+        <div className="px-4 py-2 border-b border-border">
+          <div className="bg-green-50 dark:bg-green-950/40 border border-green-200 dark:border-green-800 rounded-lg px-4 py-3 flex items-center justify-center gap-2">
+              <svg className="w-5 h-5 text-green-600 dark:text-green-400 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                <path
+                  fillRule="evenodd"
+                  d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
+                  clipRule="evenodd"
+                />
+              </svg>
+              <span className="font-medium flex items-center gap-2 text-green-800 dark:text-green-300">
+                {grader?.raw_assignment_score != null && totalPossiblePoints != null ? (
+                  <>
+                    Assignment Submitted — Your score: {grader.raw_assignment_score} / {totalPossiblePoints} points
+                    {(!grader.reviewed_at) && (
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <span className="inline-flex items-center px-2 py-0.5 rounded bg-orange-500 text-white text-xs font-semibold cursor-help">
+                              Pending
+                            </span>
+                          </TooltipTrigger>
+                          <TooltipContent className="bg-card border-border text-foreground">
+                            <p>Instructor has not marked as reviewed</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    )}
+                  </>
+                ) : showResponsesAfterSubmission ? (
+                  "Assignment Submitted — You can view your responses below"
+                ) : (
+                  "Assignment Submitted — Your answers are locked"
+                )}
+              </span>
+          </div>
+        </div>
+      )}
+
+      {/* In-Progress Banner (instructor viewing a student's in-progress submission) */}
+      {locked && !isStudent && submissionStatus === "in-progress" && hasSubmission && (
+        <div className="bg-amber-50 dark:bg-amber-950/40 border-b border-amber-200 dark:border-amber-800 px-4 py-3">
           <div className="max-w-4xl mx-auto flex items-center justify-center gap-2">
-            <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-              <path
-                fillRule="evenodd"
-                d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
-                clipRule="evenodd"
-              />
-            </svg>
-            <span className="font-medium flex items-center gap-2">
-              {grader?.raw_assignment_score != null && totalPossiblePoints != null ? (
-                <>
-                  Assignment Submitted - Your score: {grader.raw_assignment_score} / {totalPossiblePoints} points
-                  {(!grader.reviewed_at) && (
-                    <TooltipProvider>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <span className="inline-flex items-center px-2 py-0.5 rounded bg-orange-500 text-white text-xs font-semibold cursor-help">
-                            Pending
-                          </span>
-                        </TooltipTrigger>
-                        <TooltipContent className="bg-card border-border text-foreground">
-                          <p>Instructor has not marked as reviewed</p>
-                        </TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
-                  )}
-                </>
-              ) : showResponsesAfterSubmission ? (
-                "Assignment Submitted - You can view your responses below"
-              ) : (
-                "Assignment Submitted - Your answers are locked"
-              )}
+            <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400 flex-shrink-0" />
+            <span className="font-medium text-amber-800 dark:text-amber-300">
+              In Progress — Student has not submitted this assignment yet
             </span>
           </div>
         </div>
@@ -1395,38 +1530,38 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
 
       {/* Graded Banner */}
       {isStudent && submissionStatus === "graded" && hasSubmission && (
-        <div className="bg-purple-600 text-white px-4 py-3 border-b border-purple-700">
-          <div className="max-w-4xl mx-auto flex items-center justify-center gap-2">
-            <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-              <path
-                fillRule="evenodd"
-                d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
-                clipRule="evenodd"
-              />
-            </svg>
-            <span className="font-medium flex items-center gap-2">
-              {grader?.raw_assignment_score != null && totalPossiblePoints != null ? (
-                <>
-                  Assignment Graded - Your score: {grader.raw_assignment_score} / {totalPossiblePoints} points
-                  {(!grader.reviewed_at) && (
-                    <TooltipProvider>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <span className="inline-flex items-center px-2 py-0.5 rounded bg-orange-500 text-white text-xs font-semibold cursor-help">
-                            Pending
-                          </span>
-                        </TooltipTrigger>
-                        <TooltipContent className="bg-card border-border text-foreground">
-                          <p>Instructor has not marked as reviewed</p>
-                        </TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
-                  )}
-                </>
-              ) : (
-                "Assignment Graded - View your results below"
-              )}
-            </span>
+        <div className="px-4 py-2 border-b border-border">
+          <div className="bg-purple-50 dark:bg-purple-950/40 border border-purple-200 dark:border-purple-800 rounded-lg px-4 py-3 flex items-center justify-center gap-2">
+              <svg className="w-5 h-5 text-purple-600 dark:text-purple-400 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                <path
+                  fillRule="evenodd"
+                  d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
+                  clipRule="evenodd"
+                />
+              </svg>
+              <span className="font-medium flex items-center gap-2 text-purple-800 dark:text-purple-300">
+                {grader?.raw_assignment_score != null && totalPossiblePoints != null ? (
+                  <>
+                    Assignment Graded — Your score: {grader.raw_assignment_score} / {totalPossiblePoints} points
+                    {(!grader.reviewed_at) && (
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <span className="inline-flex items-center px-2 py-0.5 rounded bg-orange-500 text-white text-xs font-semibold cursor-help">
+                              Pending
+                            </span>
+                          </TooltipTrigger>
+                          <TooltipContent className="bg-card border-border text-foreground">
+                            <p>Instructor has not marked as reviewed</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    )}
+                  </>
+                ) : (
+                  "Assignment Graded — View your results below"
+                )}
+              </span>
           </div>
         </div>
       )}
@@ -1585,7 +1720,7 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
       )}
 
       {/* Editor Content or Submission Success Screen */}
-      <div className="flex-1 overflow-auto pb-24">
+      <div className="flex-1 min-h-0 overflow-auto">
         {submissionStatus === "submitted" && !showResponsesAfterSubmission ? (
           // Show submission success screen when responses are disabled
           <div className="max-w-2xl mx-auto p-8">
@@ -1651,7 +1786,7 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
 
       {/* Fixed Bottom Bar for Students (hidden in preview mode) */}
       {isStudent && !previewMode && (
-        <div className="sticky bottom-0 left-0 right-0 border-t border-border bg-background shadow-lg z-40">
+        <div className="border-t border-border bg-background shadow-lg z-40">
           <div className="max-w-4xl mx-auto px-6 py-4 flex items-center justify-between">
             <div className="flex items-center gap-4">
               {submissionStatus === "submitted" && (
@@ -1722,62 +1857,56 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
                   )}
                 </Button>
               )}
-              {allowResubmissions && (submissionStatus === "submitted" || submissionStatus === "graded") && (
+              {(submissionStatus === "submitted" || submissionStatus === "graded") ? (
                 <Button
-                  onClick={handleResubmit}
-                  disabled={isSubmitting || isSubmissionBlocked}
+                  onClick={hasPreviousSubmission ? handleResubmit : handleUnsubmit}
+                  disabled={isSubmitting}
                   variant="outline"
                   size="lg"
-                  className="border-purple-600 text-purple-600 hover:bg-primary/10"
+                  className="border-purple-600 text-purple-600 hover:bg-primary/10 dark:border-purple-400 dark:text-purple-400"
                 >
                   {isSubmitting ? (
                     <>
                       <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
-                      Creating...
+                      {hasPreviousSubmission ? "Creating..." : "Unsubmitting..."}
                     </>
                   ) : (
                     <>
                       <RefreshCw className="w-4 h-4 mr-2" />
-                      Resubmit
+                      {hasPreviousSubmission ? "Resubmit" : "Unsubmit"}
+                    </>
+                  )}
+                </Button>
+              ) : (
+                <Button
+                  onClick={handleSubmit}
+                  disabled={
+                    isSubmitting ||
+                    !submissionId ||
+                    previewMode ||
+                    isSubmissionBlocked
+                  }
+                  className="bg-purple-600 hover:bg-purple-700 dark:bg-purple-800 dark:hover:bg-purple-900 text-white disabled:opacity-50 disabled:cursor-not-allowed"
+                  size="lg"
+                >
+                  {isSubmitting ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                      Submitting...
+                    </>
+                  ) : isSubmissionBlocked ? (
+                    <>
+                      <Clock className="w-4 h-4 mr-2" />
+                      Submissions Closed
+                    </>
+                  ) : (
+                    <>
+                      <Send className="w-4 h-4 mr-2" />
+                      Submit Assignment
                     </>
                   )}
                 </Button>
               )}
-              <Button
-                onClick={handleSubmit}
-                disabled={
-                  isSubmitting ||
-                  submissionStatus === "submitted" ||
-                  submissionStatus === "graded" ||
-                  !submissionId ||
-                  previewMode ||
-                  isSubmissionBlocked
-                }
-                className="bg-purple-600 hover:bg-purple-700 dark:bg-purple-800 dark:hover:bg-purple-900 text-white disabled:opacity-50 disabled:cursor-not-allowed"
-                size="lg"
-              >
-                {isSubmitting ? (
-                  <>
-                    <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
-                    Submitting...
-                  </>
-                ) : isSubmissionBlocked ? (
-                  <>
-                    <Clock className="w-4 h-4 mr-2" />
-                    Submissions Closed
-                  </>
-                ) : submissionStatus === "submitted" ? (
-                  <>
-                    <Send className="w-4 h-4 mr-2" />
-                    Submitted
-                  </>
-                ) : (
-                  <>
-                    <Send className="w-4 h-4 mr-2" />
-                    Submit Assignment
-                  </>
-                )}
-              </Button>
             </div>
           </div>
         </div>
@@ -1791,6 +1920,33 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
         assignmentId={assignment.id}
         courseSlug={courseSlug}
       />
+
+      {/* Resubmission Confirmation Dialog */}
+      <Dialog open={showResubmitConfirm} onOpenChange={(open) => !open && setShowResubmitConfirm(false)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Replace Your Submission?</DialogTitle>
+            <DialogDescription>
+              This will become your active submission for grading. Your instructor can still view your previous submissions.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setShowResubmitConfirm(false)}>
+              Cancel
+            </Button>
+            <Button
+              className="bg-purple-600 hover:bg-purple-700 dark:bg-purple-800 dark:hover:bg-purple-900 text-white"
+              onClick={() => {
+                resubmitConfirmedRef.current = true;
+                setShowResubmitConfirm(false);
+                handleSubmit();
+              }}
+            >
+              Submit Anyway
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

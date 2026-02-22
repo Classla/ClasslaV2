@@ -23,6 +23,7 @@ import { AIChatPanel } from "../../components/AIChatPanel";
 import { Allotment } from "allotment";
 import "allotment/dist/style.css";
 import { calculateAssignmentPoints } from "../../utils/assignmentPoints";
+import { io } from "socket.io-client";
 import { useIDEPanel } from "../../contexts/IDEPanelContext";
 import { AssignmentProvider } from "../../contexts/AssignmentContext";
 import MonacoIDE from "../../components/Blocks/IDE/MonacoIDE";
@@ -377,6 +378,37 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
     courseSlug,
   ]);
 
+  // Student: listen for teacher-initiated status changes (e.g. submit-override, unsubmit)
+  useEffect(() => {
+    if (!effectiveIsStudent || !assignmentId || !user?.id || !courseId) return;
+
+    const apiUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:3001/api";
+    const baseURL = apiUrl.replace(/\/api$/, "") || "http://localhost:3001";
+
+    const socket = io(`${baseURL}/course-tree`, {
+      transports: ["websocket", "polling"],
+      withCredentials: true,
+    });
+
+    socket.on("connect", () => {
+      socket.emit("join-course", courseId);
+    });
+
+    socket.on(
+      "submission-update",
+      (data: { assignmentId: string; studentId: string; status: string }) => {
+        if (data.assignmentId === assignmentId && data.studentId === user.id) {
+          setSubmissionStatus(data.status);
+        }
+      }
+    );
+
+    return () => {
+      socket.emit("leave-course", courseId);
+      socket.disconnect();
+    };
+  }, [effectiveIsStudent, assignmentId, user?.id, courseId]);
+
   const handleSaveName = async () => {
     if (!assignment || !canEdit) return;
 
@@ -580,7 +612,7 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
       <Allotment className="flex-1">
         {/* Main Scrollable Content Area */}
         <Allotment.Pane minSize={400}>
-          <div className="h-full flex flex-col overflow-auto">
+          <div className="h-full flex flex-col overflow-hidden">
             {/* Assignment Header */}
             <Card className="bg-purple-600 dark:bg-purple-900 text-white border-0 rounded-3xl mx-6 mt-4 flex-shrink-0">
               <div className="p-6">
@@ -750,15 +782,21 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
             )}
 
             {/* Assignment Content */}
-            <div className="flex-1 mx-6">
-              <Card className="h-full p-0 overflow-hidden">
+            <div className="flex-1 min-h-0 mx-6">
+              <div className="h-full overflow-hidden">
                 {assignment && (
                   <AssignmentProvider courseId={assignment.course_id} assignmentId={assignment.id} previewMode={isPreviewMode} studentId={selectedGradingStudent?.userId ?? null} snapshotBucketMap={snapshotBucketMap}>
                     {canEdit ? (
                       selectedGradingStudent ? (
                         <AssignmentViewer
+                          key={selectedGradingStudent.userId}
                           assignment={assignment}
-                          submissionId={selectedGradingSubmissionId || selectedGradingStudent.latestSubmission?.id}
+                          submissionId={
+                            selectedGradingSubmissionId &&
+                            selectedGradingStudent.submissions.some((s: any) => s.id === selectedGradingSubmissionId)
+                              ? selectedGradingSubmissionId
+                              : selectedGradingStudent.latestSubmission?.id
+                          }
                           submissionStatus={activeGradingSubmission?.status || selectedGradingStudent.latestSubmission?.status}
                           submissionTimestamp={activeGradingSubmission?.timestamp || selectedGradingStudent.latestSubmission?.timestamp}
                           isStudent={false}
@@ -896,7 +934,7 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
                     )}
                   </AssignmentProvider>
                 )}
-              </Card>
+              </div>
             </div>
           </div>
         </Allotment.Pane>

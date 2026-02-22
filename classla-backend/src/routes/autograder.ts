@@ -8,8 +8,159 @@ import {
 import { UserRole, SubmissionStatus } from "../types/enums";
 import { Submission, Grader, BlockScore } from "../types/entities";
 import { AutogradeResponse } from "../types/api";
+import { getIO } from "../services/websocket";
+import { emitSubmissionUpdate } from "../services/courseTreeSocket";
 
 const router = Router();
+
+// ─── IDE container helpers ──────────────────────────────────────────────────
+
+const IDE_API_BASE_URL =
+  process.env.IDE_API_BASE_URL || "https://ide.classla.org/api";
+const IDE_API_KEY = process.env.IDE_API_KEY || "test-api-key-12345";
+
+// Strip /api suffix to get Traefik root (e.g. https://ide.classla.org)
+const IDE_TRAEFIK_BASE = IDE_API_BASE_URL.replace(/\/api$/, "");
+
+function getIDEAWSCredentials() {
+  const accessKeyId = process.env.AWS_ACCESS_KEY_ID;
+  const secretAccessKey = process.env.AWS_SECRET_ACCESS_KEY;
+  if (accessKeyId && secretAccessKey) {
+    return { awsAccessKeyId: accessKeyId, awsSecretAccessKey: secretAccessKey };
+  }
+  return null;
+}
+
+async function ideStartContainer(
+  s3Bucket: string,
+  s3BucketId: string,
+  s3Region: string,
+  userId: string
+): Promise<{ id: string; status: string; webServerUrl: string }> {
+  const body: any = { s3Bucket, s3BucketId, s3Region, userId };
+  const creds = getIDEAWSCredentials();
+  if (creds) Object.assign(body, creds);
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 60000);
+  try {
+    const res = await fetch(`${IDE_API_BASE_URL}/containers/start`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${IDE_API_KEY}`,
+      },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`Container start failed (${res.status}): ${text}`);
+    }
+    const data = (await res.json()) as any;
+    // Prefer urls.webServer from response; fall back to constructing from container ID
+    const webServerUrl =
+      data.urls?.webServer || `${IDE_TRAEFIK_BASE}/web/${data.id}`;
+    return { id: data.id, status: data.status, webServerUrl };
+  } catch (err) {
+    clearTimeout(timeoutId);
+    throw err;
+  }
+}
+
+async function ideWaitForReady(
+  containerId: string,
+  maxWaitMs = 300000
+): Promise<void> {
+  const deadline = Date.now() + maxWaitMs;
+  while (Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 5000));
+    try {
+      const res = await fetch(`${IDE_API_BASE_URL}/containers/${containerId}`, {
+        headers: { Authorization: `Bearer ${IDE_API_KEY}` },
+        signal: AbortSignal.timeout(10000),
+      });
+      if (res.ok) {
+        const data = (await res.json()) as any;
+        if (data.status === "running") return;
+        if (data.status === "error" || data.status === "stopped") {
+          throw new Error(`Container entered ${data.status} state`);
+        }
+      }
+    } catch (err: any) {
+      if (err.message?.includes("entered")) throw err;
+      // network / timeout errors — retry
+    }
+  }
+  throw new Error(
+    `Container ${containerId} did not become ready within ${maxWaitMs / 1000}s`
+  );
+}
+
+async function ideRunTests(
+  webServerUrl: string,
+  tests: any[]
+): Promise<{ results: any[]; totalPoints: number; pointsEarned: number }> {
+  const res = await fetch(`${webServerUrl}/run-tests`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ tests }),
+    signal: AbortSignal.timeout(120000), // 2 min per block
+  });
+  if (!res.ok) {
+    throw new Error(`run-tests returned ${res.status}`);
+  }
+  const data = (await res.json()) as any;
+  return {
+    results: data.results ?? [],
+    totalPoints: data.totalPoints ?? 0,
+    pointsEarned: data.pointsEarned ?? 0,
+  };
+}
+
+async function ideStopContainer(containerId: string): Promise<void> {
+  try {
+    await fetch(`${IDE_API_BASE_URL}/containers/${containerId}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${IDE_API_KEY}` },
+      signal: AbortSignal.timeout(15000),
+    });
+  } catch (err) {
+    console.error(`[autograder] Failed to stop container ${containerId}:`, err);
+  }
+}
+
+// ─── IDE block extraction (with full test configs) ──────────────────────────
+
+interface IDEBlockWithTests {
+  id: string;
+  executableTests: any[]; // test objects filtered to non-manualGrading
+}
+
+function extractIDEBlocksWithTests(assignmentContent: string): IDEBlockWithTests[] {
+  try {
+    const doc = JSON.parse(assignmentContent);
+    const blocks: IDEBlockWithTests[] = [];
+
+    function traverse(node: any) {
+      if (node.type === "ideBlock" && node.attrs?.ideData) {
+        const d = node.attrs.ideData;
+        const tests: any[] = d.autograder?.tests ?? [];
+        const executableTests = tests.filter((t) => t.type !== "manualGrading");
+        if (d.id && executableTests.length > 0) {
+          blocks.push({ id: d.id, executableTests });
+        }
+      }
+      if (node.content) node.content.forEach(traverse);
+    }
+
+    traverse(doc);
+    return blocks;
+  } catch {
+    return [];
+  }
+}
 
 /**
  * MCQ Block interface - represents a multiple choice question block
@@ -615,6 +766,155 @@ router.post(
           path: req.path,
         },
       });
+    }
+  }
+);
+
+/**
+ * Core function: start IDE containers, run tests, save results, then autograde.
+ * Fully server-side — no HTTP request context required.
+ * Safe to call fire-and-forget (handles all errors internally via logging).
+ *
+ * Used by:
+ *  - POST /submission/:id/submit  (student submits — background)
+ *  - POST /submission/:id/submit-override  (teacher override — background)
+ *  - POST /autograder/run-and-grade/:id  (instructor manual rerun — awaited)
+ */
+export async function runIDETestsAndGrade(submissionId: string): Promise<{ grader: Grader; totalPossiblePoints: number }> {
+  // Fetch submission
+  const { data: submission } = await supabase
+    .from("submissions")
+    .select("*")
+    .eq("id", submissionId)
+    .single();
+
+  if (!submission) throw new Error("Submission not found");
+
+  // Fetch assignment
+  const { data: assignment } = await supabase
+    .from("assignments")
+    .select("*")
+    .eq("id", submission.assignment_id)
+    .single();
+
+  if (!assignment) throw new Error("Assignment not found");
+
+  const ideBlocks = extractIDEBlocksWithTests(assignment.content);
+
+  // For each IDE block: find bucket → start container → run tests → save → stop
+  for (const block of ideBlocks) {
+    const { data: buckets } = await supabase
+      .from("s3_buckets")
+      .select("*")
+      .eq("user_id", submission.student_id)
+      .eq("assignment_id", submission.assignment_id)
+      .eq("block_id", block.id)
+      .eq("status", "active")
+      .or("is_snapshot.is.null,is_snapshot.eq.false")
+      .order("created_at", { ascending: false })
+      .limit(1);
+
+    const bucket = buckets?.[0];
+    if (!bucket) {
+      console.log(`[run-and-grade] No bucket for block ${block.id}, student ${submission.student_id} — skipping`);
+      continue;
+    }
+
+    let containerId: string | null = null;
+    try {
+      console.log(`[run-and-grade] Starting container for block ${block.id}`);
+      const container = await ideStartContainer(
+        bucket.bucket_name,
+        bucket.id,
+        bucket.region || "us-east-1",
+        submission.student_id
+      );
+      containerId = container.id;
+
+      if (container.status !== "running") {
+        console.log(`[run-and-grade] Waiting for container ${containerId}`);
+        await ideWaitForReady(containerId);
+      }
+
+      console.log(`[run-and-grade] Running tests for block ${block.id}`);
+      const testResult = await ideRunTests(container.webServerUrl, block.executableTests);
+
+      const testsPassedCount = testResult.results.filter((r: any) => r.passed).length;
+      const { error: insertError } = await supabase.from("ide_test_runs").insert({
+        assignment_id: submission.assignment_id,
+        student_id: submission.student_id,
+        block_id: block.id,
+        course_id: submission.course_id ?? null,
+        submission_id: submissionId,
+        results: testResult.results,
+        total_points: testResult.totalPoints,
+        points_earned: testResult.pointsEarned,
+        tests_passed: testsPassedCount,
+        tests_total: testResult.results.length,
+        container_id: containerId,
+      });
+      if (insertError) {
+        console.error(`[run-and-grade] Failed to save test run for block ${block.id}:`, insertError);
+      }
+    } catch (err) {
+      console.error(`[run-and-grade] Error for block ${block.id}:`, err);
+    } finally {
+      if (containerId) {
+        console.log(`[run-and-grade] Stopping container ${containerId}`);
+        await ideStopContainer(containerId);
+      }
+    }
+  }
+
+  // Run standard autograder — picks up fresh IDE test runs
+  const result = await autogradeSubmission(submissionId);
+
+  // Emit real-time update so grading panel refreshes automatically
+  try {
+    emitSubmissionUpdate(getIO(), submission.course_id, {
+      assignmentId: submission.assignment_id,
+      studentId: submission.student_id,
+      status: "graded",
+    });
+  } catch {}
+
+  return result;
+}
+
+/**
+ * POST /api/autograder/run-and-grade/:submissionId
+ * Instructor-only: run IDE tests in containers then autograde. Awaited (not background).
+ */
+router.post(
+  "/autograder/run-and-grade/:submissionId",
+  authenticateToken,
+  async (req: Request, res: Response): Promise<void> => {
+    const { submissionId } = req.params;
+    const { id: userId, isAdmin } = req.user!;
+
+    const { data: submission } = await supabase
+      .from("submissions")
+      .select("course_id")
+      .eq("id", submissionId)
+      .single();
+
+    if (!submission) {
+      res.status(404).json({ error: { code: "SUBMISSION_NOT_FOUND", message: "Submission not found" } });
+      return;
+    }
+
+    const permissions = await getCoursePermissions(userId, submission.course_id, isAdmin);
+    if (!permissions.canGrade) {
+      res.status(403).json({ error: { code: "INSUFFICIENT_PERMISSIONS", message: "Grading permission required" } });
+      return;
+    }
+
+    try {
+      const { grader, totalPossiblePoints } = await runIDETestsAndGrade(submissionId);
+      res.json({ success: true, grader, totalPossiblePoints });
+    } catch (err: any) {
+      console.error("[run-and-grade] failed:", err);
+      res.status(500).json({ error: { code: "AUTOGRADE_FAILED", message: err.message ?? "Autograding failed" } });
     }
   }
 );
