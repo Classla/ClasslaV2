@@ -1,7 +1,7 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Course, UserRole } from "../../../types";
-import { Users, Copy, Check, Link, FileText, Sparkles } from "lucide-react";
+import { Users, Copy, Check, Link, FileText, Sparkles, BookOpen } from "lucide-react";
 import { Card } from "../../../components/ui/card";
 import { Button } from "../../../components/ui/button";
 import { useToast } from "../../../hooks/use-toast";
@@ -32,6 +32,19 @@ const CourseSummaryPage: React.FC<CourseSummaryPageProps> = ({
   const { toast } = useToast();
   const [isJoinLinkModalOpen, setIsJoinLinkModalOpen] = useState(false);
   const [isUsingTemplate, setIsUsingTemplate] = useState(false);
+  const [sectionName, setSectionName] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!course?.id) return;
+    apiClient.getCurrentUserEnrollment(course.id).then((res) => {
+      const section = res.data?.data?.sections;
+      if (section?.name) {
+        setSectionName(section.name);
+      }
+    }).catch(() => {
+      // Ignore - enrollment fetch is best-effort for section display
+    });
+  }, [course?.id]);
 
   const handleUseTemplate = async () => {
     if (!course?.id) return;
@@ -78,11 +91,19 @@ const CourseSummaryPage: React.FC<CourseSummaryPageProps> = ({
                   <span className="text-lg font-semibold">Course Template</span>
                 </div>
               ) : (
-                <div className="flex items-center space-x-2">
-                  <Users className="w-5 h-5" />
-                  <span className="text-lg font-semibold">
-                    {course.student_count ?? 0}
-                  </span>
+                <div className="flex items-center gap-4">
+                  <div className="flex items-center space-x-2">
+                    <Users className="w-5 h-5" />
+                    <span className="text-lg font-semibold">
+                      {course.student_count ?? 0}
+                    </span>
+                  </div>
+                  {sectionName && (
+                    <div className="flex items-center space-x-2 bg-white/10 rounded-lg px-3 py-1">
+                      <BookOpen className="w-4 h-4" />
+                      <span className="text-sm font-medium">{sectionName}</span>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
