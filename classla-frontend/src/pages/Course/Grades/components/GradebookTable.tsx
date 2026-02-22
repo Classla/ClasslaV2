@@ -212,7 +212,7 @@ const GradebookTable: React.FC<GradebookTableProps> = React.memo(
                   {assignments.map((assignment) => (
                     <th
                       key={assignment.id}
-                      className="sticky top-0 z-10 bg-muted px-4 py-2 text-center text-sm font-semibold text-foreground border-b-2 border-border min-w-[140px]"
+                      className="sticky top-0 z-10 bg-muted px-4 py-2 text-center text-sm font-semibold text-foreground border-b-2 border-r border-border min-w-[140px] last:border-r-0"
                     >
                       <div className="flex flex-col gap-1 items-center">
                         <button
@@ -246,7 +246,7 @@ const GradebookTable: React.FC<GradebookTableProps> = React.memo(
                     {assignments.map((assignment) => (
                       <td
                         key={`${student.userId}_${assignment.id}`}
-                        className="group relative px-4 py-2 text-center border-b border-border cursor-pointer hover:bg-primary/10 hover:shadow-inner transition-all duration-150"
+                        className="group relative px-4 py-2 text-center border-b border-r border-border cursor-pointer hover:bg-primary/10 hover:shadow-inner transition-all duration-150 last:border-r-0"
                         onClick={() => onCellClick(student.userId, assignment.id)}
                       >
                         {renderCell(student, assignment)}
