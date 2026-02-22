@@ -23,7 +23,7 @@ const GradebookTableSkeleton: React.FC = () => {
               {skeletonColumns.map((col) => (
                 <th
                   key={col}
-                  className="px-4 py-4 text-center border-b-2 border-border min-w-[140px]"
+                  className="px-4 py-4 text-center border-b-2 border-r border-border min-w-[140px] last:border-r-0"
                 >
                   <div className="animate-pulse flex flex-col gap-2 items-center">
                     <div className="h-4 bg-accent rounded w-24"></div>
@@ -47,7 +47,7 @@ const GradebookTableSkeleton: React.FC = () => {
                 {skeletonColumns.map((col) => (
                   <td
                     key={col}
-                    className="px-4 py-4 text-center border-b border-border"
+                    className="px-4 py-4 text-center border-b border-r border-border last:border-r-0"
                   >
                     <div className="animate-pulse flex justify-center">
                       <div className="h-4 bg-accent rounded w-12"></div>
