@@ -65,6 +65,7 @@ export function initializeWebSocket(
       methods: ["GET", "POST"],
     },
     transports: ["websocket", "polling"],
+    maxHttpBufferSize: 30 * 1024 * 1024, // 30MB — supports PDF/image attachments in AI chat
   });
 
   // Authentication middleware for WebSocket connections

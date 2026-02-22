@@ -1322,11 +1322,17 @@ async function executeTool(
   }
 }
 
-// Image attachment sent from the frontend
-interface ChatImage {
-  data: string; // base64-encoded
-  media_type: "image/jpeg" | "image/png" | "image/gif" | "image/webp";
-}
+// Attachment types sent from the frontend
+type ChatAttachment =
+  | { kind: "image"; data: string; media_type: "image/jpeg" | "image/png" | "image/gif" | "image/webp" }
+  | { kind: "pdf"; data: string; fileName: string }
+  | { kind: "text"; textContent: string; fileName: string };
+
+// Size limits (bytes)
+const MAX_IMAGE_SIZE = 20 * 1024 * 1024;   // 20MB
+const MAX_PDF_SIZE = 10 * 1024 * 1024;     // 10MB
+const MAX_TEXT_SIZE = 500 * 1024;           // 500KB
+const MAX_ATTACHMENTS = 10;
 
 // Main chat handler
 export async function handleChatMessage(params: {
@@ -1335,10 +1341,10 @@ export async function handleChatMessage(params: {
   userId: string;
   isAdmin: boolean;
   userMessage: string;
-  images?: ChatImage[];
+  attachments?: ChatAttachment[];
   socket: AuthenticatedSocket;
 }): Promise<void> {
-  const { sessionId, assignmentId, userId, userMessage, images, socket } = params;
+  const { sessionId, assignmentId, userId, userMessage, attachments, socket } = params;
 
   try {
     // Load session
@@ -1415,20 +1421,82 @@ export async function handleChatMessage(params: {
       logger.warn("Discord notification failed (non-fatal)", { error: err.message });
     });
 
+    // Validate attachments
+    if (attachments && attachments.length > MAX_ATTACHMENTS) {
+      socket.emit("chat-error", {
+        message: `Too many attachments (max ${MAX_ATTACHMENTS}).`,
+        sessionId,
+      });
+      return;
+    }
+
+    if (attachments) {
+      for (const att of attachments) {
+        if (att.kind === "image") {
+          const sizeBytes = Buffer.byteLength(att.data, "base64");
+          if (sizeBytes > MAX_IMAGE_SIZE) {
+            socket.emit("chat-error", {
+              message: `Image exceeds 20MB limit.`,
+              sessionId,
+            });
+            return;
+          }
+        } else if (att.kind === "pdf") {
+          const sizeBytes = Buffer.byteLength(att.data, "base64");
+          if (sizeBytes > MAX_PDF_SIZE) {
+            socket.emit("chat-error", {
+              message: `PDF "${att.fileName}" exceeds 10MB limit.`,
+              sessionId,
+            });
+            return;
+          }
+        } else if (att.kind === "text") {
+          if (Buffer.byteLength(att.textContent, "utf-8") > MAX_TEXT_SIZE) {
+            socket.emit("chat-error", {
+              message: `Text file "${att.fileName}" exceeds 500KB limit.`,
+              sessionId,
+            });
+            return;
+          }
+        }
+      }
+    }
+
     // Build message history
-    // Construct user content — text + optional images
+    // Construct user content — text + optional attachments
     let userContent: any;
-    if (images && images.length > 0) {
+    if (attachments && attachments.length > 0) {
       const contentBlocks: any[] = [];
-      for (const img of images) {
-        contentBlocks.push({
-          type: "image",
-          source: {
-            type: "base64",
-            media_type: img.media_type,
-            data: img.data,
-          },
-        });
+      for (const att of attachments) {
+        switch (att.kind) {
+          case "image":
+            contentBlocks.push({
+              type: "image",
+              source: {
+                type: "base64",
+                media_type: att.media_type,
+                data: att.data,
+              },
+            });
+            break;
+          case "pdf":
+            contentBlocks.push({
+              type: "document",
+              source: {
+                type: "base64",
+                media_type: "application/pdf",
+                data: att.data,
+              },
+              title: att.fileName,
+            });
+            break;
+          case "text":
+            contentBlocks.push({
+              type: "text",
+              text: `[Attached file: ${att.fileName}]\n\n${att.textContent}`,
+            });
+            break;
+        }
       }
       contentBlocks.push({ type: "text", text: userMessage });
       userContent = contentBlocks;
