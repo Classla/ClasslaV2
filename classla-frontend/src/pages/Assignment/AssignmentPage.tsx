@@ -67,7 +67,7 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
   const { user } = useAuth();
   const { toast } = useToast();
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const gradingParam = searchParams.get("grading");
   const studentIdParam = searchParams.get("student");
   const { panelMode, activePanelState, closeSidePanel, updatePanelState } = useIDEPanel();
@@ -161,6 +161,14 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
       setActiveSidebarPanel("grader");
     }
   }, [hasInstructionalPrivileges, gradingParam]);
+
+  // Clear gradebook URL params after the initial student is selected,
+  // so they don't cause re-selection loops when navigating back/forth
+  useEffect(() => {
+    if (selectedGradingStudent && studentIdParam) {
+      setSearchParams({}, { replace: true });
+    }
+  }, [selectedGradingStudent, studentIdParam, setSearchParams]);
 
   // Sync preview mode to localStorage when it changes
   useEffect(() => {

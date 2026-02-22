@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useCallback } from "react";
+import React, { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { Assignment } from "../../../../types";
 import { Button } from "../../../../components/ui/button";
 import { Input } from "../../../../components/ui/input";
@@ -196,11 +196,15 @@ const GradingSidebar: React.FC<GradingSidebarProps> = ({
     }
   }, [students, selectedStudent, onStudentSelect]);
 
-  // Auto-select student when arriving via gradebook cell click
+  // Auto-select student when arriving via gradebook cell click (only once)
+  const initialSelectionDone = useRef(false);
   useEffect(() => {
-    if (initialStudentId && students.length > 0 && !selectedStudent) {
+    if (initialStudentId && students.length > 0 && !selectedStudent && !initialSelectionDone.current) {
       const student = students.find((s) => s.userId === initialStudentId);
-      if (student) onStudentSelect(student);
+      if (student) {
+        initialSelectionDone.current = true;
+        onStudentSelect(student);
+      }
     }
   }, [initialStudentId, students, selectedStudent, onStudentSelect]);
 
