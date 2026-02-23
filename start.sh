@@ -43,6 +43,12 @@ fi
 
 DIR="$(cd "$(dirname "$0")" && pwd)"
 
+# --- Worktree setup ---
+if [ -f "$DIR/.git" ]; then
+  echo -e "${YELLOW}Worktree detected — running setup.sh...${NC}"
+  "$DIR/setup.sh"
+fi
+
 # --- Backend ---
 echo -e "${CYAN}Starting backend...${NC}"
 cd "$DIR/classla-backend"
