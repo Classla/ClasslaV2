@@ -181,15 +181,20 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
 
   const isSubmissionBlocked = isPastDue && !allowLateSubmissions;
 
+  // Teacher edit mode: non-student viewing a student's existing submission (not preview)
+  const isTeacherEditMode = !isStudent && !previewMode && !!submissionId;
+
   // Viewer is read-only when:
   // 1. Explicitly locked (viewing submitted work or instructor viewing student work)
   // 2. Past due date and late submissions not allowed
   // 3. Submission is submitted/graded and resubmissions are not allowed
-  const isReadOnly =
-    locked ||
-    isSubmissionBlocked ||
-    (!allowResubmissions &&
-      (submissionStatus === "submitted" || submissionStatus === "graded"));
+  // Exception: Teachers always get edit access when viewing student submissions
+  const isReadOnly = isTeacherEditMode
+    ? false
+    : locked ||
+      isSubmissionBlocked ||
+      (!allowResubmissions &&
+        (submissionStatus === "submitted" || submissionStatus === "graded"));
 
   // Performance optimization: Use refs to avoid unnecessary re-renders
   const editorRef = useRef<any>(null);
@@ -366,7 +371,7 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
   // Auto-save submission values
   const autoSaveSubmission = useCallback(
     async (values: Record<string, string[]>) => {
-      if (!isStudent) return; // Only students can save submissions
+      if (!isStudent && !isTeacherEditMode) return; // Only students and teachers editing can save
       if (isReadOnly) return; // Don't auto-save when read-only
       if (previewMode) return; // Don't auto-save in preview mode
 
@@ -381,8 +386,8 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
           if (submissionId) {
             // Update existing submission
             await apiClient.updateSubmissionValues(submissionId, values);
-          } else {
-            // Create new submission
+          } else if (isStudent) {
+            // Only students can create new submissions
             const response = await apiClient.createOrUpdateSubmission({
               assignment_id: assignment.id,
               values,
@@ -406,6 +411,7 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
     },
     [
       isStudent,
+      isTeacherEditMode,
       isReadOnly,
       previewMode,
       submissionId,
@@ -450,8 +456,8 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
         saveAnswerState(newAnswerState);
         onAnswerChange?.(blockId, selectedOptions);
 
-        // Auto-save to backend if student
-        if (isStudent) {
+        // Auto-save to backend if student or teacher editing
+        if (isStudent || isTeacherEditMode) {
           const submissionValues: Record<string, string[]> = {};
           Object.keys(newAnswerState).forEach((key) => {
             const state = newAnswerState[key];
@@ -479,6 +485,7 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
       saveAnswerState,
       onAnswerChange,
       isStudent,
+      isTeacherEditMode,
       autoSaveSubmission,
     ]
   );
@@ -497,8 +504,8 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
       saveAnswerState(newAnswerState);
       onAnswerChange?.(blockId, answer);
 
-      // Auto-save to backend if student
-      if (isStudent) {
+      // Auto-save to backend if student or teacher editing
+      if (isStudent || isTeacherEditMode) {
         const submissionValues: Record<string, string[]> = {};
         Object.keys(newAnswerState).forEach((key) => {
           const state = newAnswerState[key];
@@ -519,7 +526,7 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
         autoSaveSubmission(submissionValues);
       }
     },
-    [answerState, saveAnswerState, onAnswerChange, isStudent, autoSaveSubmission]
+    [answerState, saveAnswerState, onAnswerChange, isStudent, isTeacherEditMode, autoSaveSubmission]
   );
 
   // Handler for Parsons Problem
@@ -536,7 +543,7 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
       saveAnswerState(newAnswerState);
       onAnswerChange?.(blockId, answer);
 
-      if (isStudent) {
+      if (isStudent || isTeacherEditMode) {
         const submissionValues: Record<string, string[]> = {};
         Object.keys(newAnswerState).forEach((key) => {
           const state = newAnswerState[key];
@@ -557,7 +564,7 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
         autoSaveSubmission(submissionValues);
       }
     },
-    [answerState, saveAnswerState, onAnswerChange, isStudent, autoSaveSubmission]
+    [answerState, saveAnswerState, onAnswerChange, isStudent, isTeacherEditMode, autoSaveSubmission]
   );
 
   // Handler for Clickable Area
@@ -574,7 +581,7 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
       saveAnswerState(newAnswerState);
       onAnswerChange?.(blockId, selectedLines);
 
-      if (isStudent) {
+      if (isStudent || isTeacherEditMode) {
         const submissionValues: Record<string, string[]> = {};
         Object.keys(newAnswerState).forEach((key) => {
           const state = newAnswerState[key];
@@ -595,7 +602,7 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
         autoSaveSubmission(submissionValues);
       }
     },
-    [answerState, saveAnswerState, onAnswerChange, isStudent, autoSaveSubmission]
+    [answerState, saveAnswerState, onAnswerChange, isStudent, isTeacherEditMode, autoSaveSubmission]
   );
 
   // Handler for Drag-Drop Matching
@@ -612,7 +619,7 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
       saveAnswerState(newAnswerState);
       onAnswerChange?.(blockId, answer);
 
-      if (isStudent) {
+      if (isStudent || isTeacherEditMode) {
         const submissionValues: Record<string, string[]> = {};
         Object.keys(newAnswerState).forEach((key) => {
           const state = newAnswerState[key];
@@ -633,7 +640,7 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
         autoSaveSubmission(submissionValues);
       }
     },
-    [answerState, saveAnswerState, onAnswerChange, isStudent, autoSaveSubmission]
+    [answerState, saveAnswerState, onAnswerChange, isStudent, isTeacherEditMode, autoSaveSubmission]
   );
 
   // Handler for Poll
@@ -650,7 +657,7 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
       saveAnswerState(newAnswerState);
       onAnswerChange?.(blockId, answer);
 
-      if (isStudent) {
+      if (isStudent || isTeacherEditMode) {
         const submissionValues: Record<string, string[]> = {};
         Object.keys(newAnswerState).forEach((key) => {
           const state = newAnswerState[key];
@@ -671,7 +678,7 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
         autoSaveSubmission(submissionValues);
       }
     },
-    [answerState, saveAnswerState, onAnswerChange, isStudent, autoSaveSubmission]
+    [answerState, saveAnswerState, onAnswerChange, isStudent, isTeacherEditMode, autoSaveSubmission]
   );
 
   // Handler for Fill-in-the-Blank
@@ -688,7 +695,7 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
       saveAnswerState(newAnswerState);
       onAnswerChange?.(blockId, answers);
 
-      if (isStudent) {
+      if (isStudent || isTeacherEditMode) {
         const submissionValues: Record<string, string[]> = {};
         Object.keys(newAnswerState).forEach((key) => {
           const state = newAnswerState[key];
@@ -709,7 +716,7 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
         autoSaveSubmission(submissionValues);
       }
     },
-    [answerState, saveAnswerState, onAnswerChange, isStudent, autoSaveSubmission]
+    [answerState, saveAnswerState, onAnswerChange, isStudent, isTeacherEditMode, autoSaveSubmission]
   );
 
   // Function to get answer state for a specific block - optimized with ref
@@ -771,6 +778,7 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
   // Teacher/grader: subscribe to live answer updates for the viewed submission
   useEffect(() => {
     if (!locked || isStudent || !submissionId) return;
+    if (isTeacherEditMode) return; // Don't overwrite teacher edits with student data
 
     const socket = io(`${getSocketBaseURL()}/course-tree`, {
       transports: ["websocket", "polling"],
@@ -794,7 +802,7 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
       socket.emit("leave-submission-grading", submissionId);
       socket.disconnect();
     };
-  }, [locked, isStudent, submissionId]);
+  }, [locked, isStudent, submissionId, isTeacherEditMode]);
 
   // ────────────────────────────────────────────────────────────────────────────
 
