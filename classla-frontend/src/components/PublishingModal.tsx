@@ -179,8 +179,8 @@ const PublishingModal: React.FC<PublishingModalProps> = ({
 
       setSections(sectionsWithEnrollments);
 
-      // Expand all sections by default
-      setExpandedSections(new Set(sectionsWithEnrollments.map((s) => s.id)));
+      // Start with all sections collapsed
+      setExpandedSections(new Set());
 
       // Initialize states based on existing data
       if (assignment) {
@@ -800,7 +800,7 @@ const PublishingModal: React.FC<PublishingModalProps> = ({
                       </div>
 
                       {expandedSections.has(section.id) && (
-                        <div className="ml-6 space-y-1">
+                        <div className="ml-10 space-y-1">
                           {section.enrollments.map((enrollment) => (
                             <div
                               key={enrollment.id}
