@@ -72,7 +72,7 @@ interface TreeNodeData {
   folder?: Folder;
 }
 
-const ModuleTree: React.FC<ModuleTreeProps> = ({ courseId, course, userRole, isInstructor }) => {
+const ModuleTree: React.FC<ModuleTreeProps> = ({ courseId, course, userRole, isStudent, isInstructor }) => {
   const navigate = useNavigate();
   const { courseSlug } = useParams<{ courseSlug: string }>();
   const location = useLocation();
@@ -273,6 +273,26 @@ const ModuleTree: React.FC<ModuleTreeProps> = ({ courseId, course, userRole, isI
 
       sortChildren(rootNodes);
 
+      // For students, prune folders that have no visible assignments
+      // (all their assignments were filtered out because they're unpublished)
+      if (isStudent) {
+        const hasVisibleContent = (nodes: TreeNodeData[]): TreeNodeData[] => {
+          return nodes.filter((node) => {
+            if (node.type === "assignment") {
+              // Keep real assignments, remove empty indicators
+              return !node.id.startsWith("empty-");
+            }
+            // For folders, keep only if they have visible descendants
+            if (node.children) {
+              node.children = hasVisibleContent(node.children);
+              return node.children.length > 0;
+            }
+            return false;
+          });
+        };
+        return hasVisibleContent(rootNodes);
+      }
+
       // Add "+ create" node at the root level if user can create
       if (canCreate) {
         rootNodes.push({
@@ -288,7 +308,7 @@ const ModuleTree: React.FC<ModuleTreeProps> = ({ courseId, course, userRole, isI
     };
 
     return buildTree();
-  }, [assignments, folders, canCreate]);
+  }, [assignments, folders, canCreate, isStudent]);
 
   // Update tree height when container size changes
   useEffect(() => {
