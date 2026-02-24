@@ -153,6 +153,17 @@ class OTReceiver {
     this.bufferedEvents = []; // buffer events before registration
     this.buffering = true;
     this.pendingWrites = new Set(); // in-flight disk write promises (for flush)
+    // Per-file timeout handles for syncingFiles cleanup. When multiple rapid
+    // writes happen for the same file (e.g. user typing fast), each new write
+    // must CANCEL the previous timeout and set a fresh one. Without this,
+    // the first timeout's delete fires prematurely and removes the guard
+    // while later writes are still within their 2s window.
+    this.syncingTimeouts = new Map(); // filePath → timeout handle
+    // Secondary echo detection for syncFromBackendOT writes.
+    // Records what syncFromBackendOT wrote so the file watcher can detect
+    // stale flush echoes even if the primary cache was updated by a newer
+    // remote-operation in the meantime.
+    this.lastFlushWriteContent = new Map(); // filePath → content
   }
 
   connect() {
@@ -174,6 +185,14 @@ class OTReceiver {
         // The server removes containers from Socket.IO rooms on disconnect, so we must re-join.
         console.log(`[OTReceiver] Reconnected — re-registering for bucket ${BUCKET_ID}`);
         this.socket.emit("container-register", { bucketId: BUCKET_ID });
+
+        // Bug #5: Sync from backend OT after reconnect to recover any operations
+        // lost while disconnected (Socket.IO has no server-side buffer).
+        this.syncFromBackendOT().then(() => {
+          console.log(`[OTReceiver] Post-reconnect sync complete`);
+        }).catch((err) => {
+          console.error(`[OTReceiver] Post-reconnect sync failed:`, err.message);
+        });
       }
       // On first connect, don't register yet — wait for bulk-content sync to complete.
     });
@@ -290,12 +309,9 @@ class OTReceiver {
 
       // Write to disk — track the promise so flush can wait for it
       const fullPath = path.join(WORKSPACE_PATH, filePath);
-      this.syncingFiles.add(filePath);
+      this.markSyncing(filePath);
       const writePromise = fs.mkdir(path.dirname(fullPath), { recursive: true })
         .then(() => fs.writeFile(fullPath, newContent, "utf-8"))
-        .then(() => {
-          setTimeout(() => this.syncingFiles.delete(filePath), 2000);
-        })
         .catch((err) => {
           this.syncingFiles.delete(filePath);
           console.error(`[OTReceiver] Error writing ${filePath}:`, err.message);
@@ -320,12 +336,9 @@ class OTReceiver {
       // For genuinely new empty files, the fetch returns 404 and we create empty.
       this._fetchAndCreateFile(filePath);
     } else if (action === "delete") {
-      this.syncingFiles.add(filePath);
+      this.markSyncing(filePath);
       this.contentCache.delete(filePath);
       fs.unlink(fullPath)
-        .then(() => {
-          setTimeout(() => this.syncingFiles.delete(filePath), 2000);
-        })
         .catch((err) => {
           this.syncingFiles.delete(filePath);
           if (err.code !== "ENOENT") {
@@ -345,10 +358,9 @@ class OTReceiver {
       if (result && result.content !== undefined && result.encoding !== 'base64') {
         this.contentCache.set(filePath, result.content);
         const fullPath = path.join(WORKSPACE_PATH, filePath);
-        this.syncingFiles.add(filePath);
+        this.markSyncing(filePath);
         await fs.mkdir(path.dirname(fullPath), { recursive: true });
         await fs.writeFile(fullPath, result.content, "utf-8");
-        setTimeout(() => this.syncingFiles.delete(filePath), 2000);
         console.log(`[OTReceiver] Re-fetched and wrote ${filePath}`);
       }
     } catch (err) {
@@ -364,7 +376,7 @@ class OTReceiver {
    */
   async _fetchAndCreateFile(filePath) {
     const fullPath = path.join(WORKSPACE_PATH, filePath);
-    this.syncingFiles.add(filePath);
+    this.markSyncing(filePath);
     try {
       let content = "";
       if (!isBinaryFile(filePath)) {
@@ -378,7 +390,6 @@ class OTReceiver {
       await fs.mkdir(path.dirname(fullPath), { recursive: true });
       await fs.writeFile(fullPath, content, "utf-8");
       this.contentCache.set(filePath, content);
-      setTimeout(() => this.syncingFiles.delete(filePath), 2000);
       if (content.length > 0) {
         console.log(`[OTReceiver] Created ${filePath} with fetched content (${content.length} chars)`);
       } else {
@@ -388,6 +399,21 @@ class OTReceiver {
       this.syncingFiles.delete(filePath);
       console.error(`[OTReceiver] Error creating ${filePath}:`, err.message);
     }
+  }
+
+  /**
+   * Mark a file as "syncing" for the given duration. Cancels any existing
+   * timeout for the same file so rapid writes don't cause premature expiration.
+   */
+  markSyncing(filePath, durationMs = 2000) {
+    this.syncingFiles.add(filePath);
+    if (this.syncingTimeouts.has(filePath)) {
+      clearTimeout(this.syncingTimeouts.get(filePath));
+    }
+    this.syncingTimeouts.set(filePath, setTimeout(() => {
+      this.syncingFiles.delete(filePath);
+      this.syncingTimeouts.delete(filePath);
+    }, durationMs));
   }
 
   /**
@@ -419,21 +445,36 @@ class OTReceiver {
    */
   async syncFromBackendOT() {
     try {
+      // Snapshot cache state BEFORE the async fetch. If a remote-operation
+      // updates the cache between the fetch and the write loop, the snapshot
+      // lets us detect the change and skip the overwrite (the cache is newer).
+      const cacheSnapshot = new Map(this.contentCache);
+
       const url = `${BACKEND_API_URL}/s3buckets/${BUCKET_ID}/files/ot-content`;
       const result = await httpPost(url, null, 5000);
       if (!result || !result.files) return;
 
       let synced = 0;
       for (const file of result.files) {
-        const cached = this.contentCache.get(file.path);
-        if (cached !== file.content) {
-          // Content differs — backend has an operation we haven't received yet
+        const currentCached = this.contentCache.get(file.path);
+        const snapshotCached = cacheSnapshot.get(file.path);
+
+        // Only update if:
+        // 1. Content differs from cache, AND
+        // 2. Cache hasn't been modified since we started the fetch
+        //    (if it was modified, a remote-operation updated it to a newer version)
+        if (currentCached !== file.content && currentCached === snapshotCached) {
           this.contentCache.set(file.path, file.content);
           const fullPath = path.join(WORKSPACE_PATH, file.path);
-          this.syncingFiles.add(file.path);
+          this.markSyncing(file.path);
           await fs.mkdir(path.dirname(fullPath), { recursive: true });
           await fs.writeFile(fullPath, file.content, "utf-8");
-          setTimeout(() => this.syncingFiles.delete(file.path), 2000);
+          // Record what we wrote for secondary echo detection. If chokidar
+          // fires late (after syncingFiles expires) and the cache was updated
+          // by a remote-operation in the meantime, the primary echo detection
+          // (disk === cache) fails. This secondary record catches that case.
+          this.lastFlushWriteContent.set(file.path, file.content);
+          setTimeout(() => this.lastFlushWriteContent.delete(file.path), 30000);
           synced++;
         }
       }
@@ -600,13 +641,12 @@ class ContainerFileSync {
         const fullPath = path.join(WORKSPACE_PATH, file.path);
         await fs.mkdir(path.dirname(fullPath), { recursive: true });
 
-        this.syncingFiles.add(file.path);
+        this.otReceiver.markSyncing(file.path);
         if (file.encoding === 'base64') {
           await fs.writeFile(fullPath, Buffer.from(file.content, 'base64'));
         } else {
           await fs.writeFile(fullPath, file.content, "utf-8");
         }
-        setTimeout(() => this.syncingFiles.delete(file.path), 2000);
       } catch (err) {
         console.error(`[ContainerSync] Error writing ${file.path}:`, err.message);
       }
@@ -728,12 +768,25 @@ class ContainerFileSync {
           } else {
             content = await fs.readFile(fullPath, "utf-8");
             encoding = 'utf-8';
-            // Echo detection: if content matches OT cache, this event is a reflection
-            // of an OT write (either within or after the 2s syncingFiles grace period).
-            // Skip silently to prevent the feedback loop that causes characters to disappear.
+            // Primary echo detection: if content matches OT cache, this event is
+            // a reflection of an OT write. Skip to prevent feedback loops.
             const cached = this.otReceiver.contentCache.get(relativePath);
             if (cached !== undefined && content === cached) {
               console.log(`[ContainerSync] Echo detected for ${relativePath}, skipping`);
+              return;
+            }
+            // Secondary echo detection: if content matches what syncFromBackendOT
+            // wrote during the last flush, this is a delayed chokidar echo. The
+            // primary check above fails when a remote-operation updated the cache
+            // between the flush write and this chokidar fire. Without this check,
+            // stale flush content would be pushed back to the backend, creating a
+            // revert operation that breaks sync for all connected IDEs.
+            // This is critical for Java where rm/javac .class file churn delays
+            // chokidar detection of the .java file write past the syncingFiles guard.
+            const flushContent = this.otReceiver.lastFlushWriteContent.get(relativePath);
+            if (flushContent !== undefined && content === flushContent) {
+              console.log(`[ContainerSync] Flush-echo detected for ${relativePath}, skipping`);
+              this.otReceiver.lastFlushWriteContent.delete(relativePath);
               return;
             }
             // Real external change (e.g. student ran a program that modified the file)

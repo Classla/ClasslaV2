@@ -1549,7 +1549,8 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
       {/* Graded Banner */}
       {isStudent && submissionStatus === "graded" && hasSubmission && (
         <div className="px-4 py-2 border-b border-border">
-          <div className="bg-purple-50 dark:bg-purple-950/40 border border-purple-200 dark:border-purple-800 rounded-lg px-4 py-3 flex items-center justify-center gap-2">
+          {grader?.raw_assignment_score != null && totalPossiblePoints != null ? (
+            <div className="bg-purple-50 dark:bg-purple-950/40 border border-purple-200 dark:border-purple-800 rounded-lg px-4 py-3 flex items-center justify-center gap-2">
               <svg className="w-5 h-5 text-purple-600 dark:text-purple-400 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
                 <path
                   fillRule="evenodd"
@@ -1558,29 +1559,31 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
                 />
               </svg>
               <span className="font-medium flex items-center gap-2 text-purple-800 dark:text-purple-300">
-                {grader?.raw_assignment_score != null && totalPossiblePoints != null ? (
-                  <>
-                    Assignment Graded — Your score: {grader.raw_assignment_score} / {totalPossiblePoints} points
-                    {(!grader.reviewed_at) && (
-                      <TooltipProvider>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <span className="inline-flex items-center px-2 py-0.5 rounded bg-orange-500 text-white text-xs font-semibold cursor-help">
-                              Pending
-                            </span>
-                          </TooltipTrigger>
-                          <TooltipContent className="bg-card border-border text-foreground">
-                            <p>Instructor has not marked as reviewed</p>
-                          </TooltipContent>
-                        </Tooltip>
-                      </TooltipProvider>
-                    )}
-                  </>
-                ) : (
-                  "Assignment Graded — View your results below"
+                Assignment Graded — Your score: {grader.raw_assignment_score} / {totalPossiblePoints} points
+                {(!grader.reviewed_at) && (
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span className="inline-flex items-center px-2 py-0.5 rounded bg-orange-500 text-white text-xs font-semibold cursor-help">
+                          Pending
+                        </span>
+                      </TooltipTrigger>
+                      <TooltipContent className="bg-card border-border text-foreground">
+                        <p>Instructor has not marked as reviewed</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
                 )}
               </span>
-          </div>
+            </div>
+          ) : (
+            <div className="bg-muted border border-border rounded-lg px-4 py-3 flex items-center justify-center gap-2">
+              <Clock className="w-5 h-5 text-muted-foreground flex-shrink-0" />
+              <span className="font-medium text-muted-foreground">
+                Grades have not been released yet
+              </span>
+            </div>
+          )}
         </div>
       )}
 

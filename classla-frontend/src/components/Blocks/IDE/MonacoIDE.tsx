@@ -132,6 +132,7 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
   const instanceIdRef = useRef(`ide_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`); // Unique ID per MonacoIDE instance for local cursor dispatch
   const pendingRenamePathsRef = useRef<Set<string>>(new Set()); // Track paths that were just renamed — suppress content overwrite on reconnect
   const setupOTBindingRef = useRef<((filePath: string) => void) | null>(null); // Ref to setupOTBinding for use in callbacks declared before it
+  const openTabsRef = useRef<string[]>([]); // Stable ref for openTabs — used in unmount cleanup to avoid destroying OT bindings on every tab change
   // Min and max constraints for side panel
   const SIDE_PANEL_MIN = 150;
   const SIDE_PANEL_MAX = 500;
@@ -1429,8 +1430,12 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
             });
         };
         setFiles((prev) => removeFromTree(prev));
-        setOpenTabs((prev) => prev.filter((p) => p !== filePath));
+        setOpenTabs((prev) => {
+          const filtered = prev.filter((p) => p !== filePath);
+          return filtered.length === prev.length ? prev : filtered;
+        });
         setFileContent((prev) => {
+          if (!(filePath in prev)) return prev;
           const next = { ...prev };
           delete next[filePath];
           return next;
@@ -1732,12 +1737,18 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
     };
   }, [bucketId]);
 
-  // Cleanup OT bindings on unmount
+  // Keep openTabsRef in sync so the unmount cleanup always sees the latest tabs
+  openTabsRef.current = openTabs;
+
+  // Cleanup OT bindings on unmount (or bucket change).
+  // IMPORTANT: Do NOT include openTabs in deps — Array.filter() creates a new
+  // reference even when nothing is removed, which would destroy all OT bindings
+  // on every file-tree-change delete event (e.g. .class file cleanup).
   useEffect(() => {
     return () => {
-      // Force save all files before cleanup
+      // Force save all files before cleanup (use ref for latest tabs)
       if (bucketId) {
-        for (const filePath of openTabs) {
+        for (const filePath of openTabsRef.current) {
           const doc = otProvider.getDocument(bucketId, filePath);
           if (doc) {
             apiClient.saveS3File(bucketId, filePath, doc.content).catch((error) => {
@@ -1753,7 +1764,7 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
       });
       otBindingsRef.current = {};
     };
-  }, [bucketId, openTabs]);
+  }, [bucketId]);
 
   const currentContent = selectedFile ? fileContent[selectedFile] || "" : "";
 
