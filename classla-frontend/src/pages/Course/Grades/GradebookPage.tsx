@@ -8,6 +8,7 @@ import {
 } from "../../../hooks/useGradingQueries";
 import GradebookTable from "./components/GradebookTable";
 import GradebookTableSkeleton from "./components/GradebookTableSkeleton";
+import AssignmentFilterTree from "./components/AssignmentFilterTree";
 import {
   Select,
   SelectContent,
@@ -45,6 +46,7 @@ const GradebookPage: React.FC<GradebookPageProps> = ({
   const [selectedSectionId, setSelectedSectionId] = useState<string | null>(
     null
   );
+  const [selectedAssignmentIds, setSelectedAssignmentIds] = useState<Set<string> | null>(null);
 
   // Fetch gradebook data using React Query
   const {
@@ -92,6 +94,13 @@ const GradebookPage: React.FC<GradebookPageProps> = ({
       return (a.firstName || "").localeCompare(b.firstName || "");
     });
   }, [gradebookData, selectedSectionId]);
+
+  // Filter assignments by selected folder/assignment filter
+  const filteredAssignments = useMemo(() => {
+    if (!gradebookData) return [];
+    if (selectedAssignmentIds === null) return gradebookData.assignments;
+    return gradebookData.assignments.filter((a) => selectedAssignmentIds.has(a.id));
+  }, [gradebookData, selectedAssignmentIds]);
 
   // Convert submissions and graders to Maps for efficient lookup (memoized)
   const submissionsMap = useMemo(() => {
@@ -299,15 +308,18 @@ const GradebookPage: React.FC<GradebookPageProps> = ({
             </p>
           </div>
 
-          {/* Section Filter */}
-          {sections.length > 0 && (
-            <div className="flex items-center space-x-3 bg-card px-4 py-3 rounded-lg border border-border shadow-sm">
-              <label
-                htmlFor="section-filter"
-                className="text-sm font-semibold text-foreground"
-              >
-                Filter by section:
-              </label>
+          <div className="flex items-center gap-3 flex-wrap">
+            {/* Assignment/Folder Filter */}
+            {gradebookData && gradebookData.assignments.length > 0 && (
+              <AssignmentFilterTree
+                assignments={gradebookData.assignments}
+                selectedAssignmentIds={selectedAssignmentIds}
+                onSelectionChange={setSelectedAssignmentIds}
+              />
+            )}
+
+            {/* Section Filter */}
+            {sections.length > 0 && (
               <Select
                 value={selectedSectionId || "all"}
                 onValueChange={(value) =>
@@ -316,7 +328,7 @@ const GradebookPage: React.FC<GradebookPageProps> = ({
               >
                 <SelectTrigger
                   id="section-filter"
-                  className="w-[220px] border-border focus:border-primary focus:ring-ring"
+                  className="w-auto gap-2 px-4 py-2 text-sm font-medium bg-card border border-border rounded-lg hover:bg-accent transition-colors text-foreground h-auto"
                 >
                   <SelectValue placeholder="All sections" />
                 </SelectTrigger>
@@ -332,8 +344,8 @@ const GradebookPage: React.FC<GradebookPageProps> = ({
                   )}
                 </SelectContent>
               </Select>
-            </div>
-          )}
+            )}
+          </div>
         </div>
       </div>
 
@@ -371,7 +383,7 @@ const GradebookPage: React.FC<GradebookPageProps> = ({
       ) : (
         <GradebookTable
           students={filteredStudents}
-          assignments={gradebookData.assignments}
+          assignments={filteredAssignments}
           submissions={submissionsMap}
           graders={gradersMap}
           submissionCounts={submissionCountMap}
