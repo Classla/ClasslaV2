@@ -281,6 +281,14 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
   const hasTerminal = !!(containerId && containerTerminalUrl && terminalUrlReady);
   const hasVnc = !!(containerId && containerVncUrl && showDesktop);
 
+  const buildVncUrl = useCallback(() => {
+    if (!containerVncUrl) return '';
+    const urlObj = new URL(containerVncUrl);
+    const vncPath = urlObj.pathname.endsWith('/') ? urlObj.pathname.slice(0, -1) : urlObj.pathname;
+    const websockifyPath = `${vncPath}/websockify`;
+    return `${containerVncUrl}${containerVncUrl.endsWith('/') ? '' : '/'}vnc.html?autoconnect=true&password=vncpassword&resize=scale&path=${encodeURIComponent(websockifyPath)}`;
+  }, [containerVncUrl]);
+
   // Grace period (ms) after container ready — transient 502s are tolerated during this window
   const CONTAINER_GRACE_PERIOD_MS = 15_000;
 
@@ -2321,6 +2329,18 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
                       {showDesktop ? "Hide Desktop" : "View Desktop"}
                     </Button>
                   )}
+                  {/* Desktop pop-out */}
+                  {hasVnc && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => window.open(buildVncUrl(), '_blank')}
+                      title="Open Desktop in New Tab"
+                      className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground"
+                    >
+                      <ExternalLink className="w-3 h-3" />
+                    </Button>
+                  )}
                 </div>
               </div>
               
@@ -2397,13 +2417,7 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
                         style={{ position: 'relative', minHeight: 0 }}
                       >
                         <iframe
-                          src={(() => {
-                            if (!containerVncUrl) return '';
-                            const urlObj = new URL(containerVncUrl);
-                            const vncPath = urlObj.pathname.endsWith('/') ? urlObj.pathname.slice(0, -1) : urlObj.pathname;
-                            const websockifyPath = `${vncPath}/websockify`;
-                            return `${containerVncUrl}${containerVncUrl.endsWith('/') ? '' : '/'}vnc.html?autoconnect=true&password=vncpassword&resize=scale&path=${encodeURIComponent(websockifyPath)}`;
-                          })()}
+                          src={buildVncUrl()}
                           className="w-full h-full border-0"
                           title="Desktop View"
                           allow="clipboard-read; clipboard-write"
@@ -2519,20 +2533,12 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
                         style={{ position: 'relative', minHeight: 0 }}
                       >
                         <iframe
-                          src={(() => {
-                            if (!containerVncUrl) return '';
-                            // Extract the path from the VNC URL (e.g., /vnc/px63ejgn from http://localhost/vnc/px63ejgn)
-                            const urlObj = new URL(containerVncUrl);
-                            const vncPath = urlObj.pathname.endsWith('/') ? urlObj.pathname.slice(0, -1) : urlObj.pathname;
-                            const websockifyPath = `${vncPath}/websockify`;
-                            // Construct the full VNC URL with path parameter
-                            return `${containerVncUrl}${containerVncUrl.endsWith('/') ? '' : '/'}vnc.html?autoconnect=true&password=vncpassword&resize=scale&path=${encodeURIComponent(websockifyPath)}`;
-                          })()}
+                          src={buildVncUrl()}
                           className="w-full h-full border-0"
                           title="Desktop View"
                           allow="clipboard-read; clipboard-write"
-                          style={{ 
-                            pointerEvents: 'auto', 
+                          style={{
+                            pointerEvents: 'auto',
                             outline: 'none',
                             maxWidth: '100%',
                             overflow: 'hidden'
