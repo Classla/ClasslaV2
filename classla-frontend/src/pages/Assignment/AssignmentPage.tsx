@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from "react";
+import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useParams, useNavigate, useLocation, useSearchParams } from "react-router-dom";
 import { useAuth } from "../../contexts/AuthContext";
@@ -82,6 +82,7 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
   }, [user]);
 
   const [assignment, setAssignment] = useState<Assignment | null>(null);
+  const assignmentRef = useRef<Assignment | null>(null);
   const [loading, setLoading] = useState(true);
   const [isUnpublished, setIsUnpublished] = useState(false);
   const [previousAssignmentId, setPreviousAssignmentId] = useState<string | undefined>(undefined);
@@ -140,10 +141,27 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
     }
   }, [courseAssignments, isStudent, assignment?.id]);
 
+  // Keep assignment ref in sync for WebSocket callbacks
+  useEffect(() => {
+    assignmentRef.current = assignment;
+  }, [assignment]);
+
   // Wait for user role to be determined before making API calls
   const effectiveIsStudent = isStudent ?? false;
   const effectiveIsInstructor = isInstructor ?? false;
   const rolesDetermined = isStudent !== undefined && isInstructor !== undefined;
+
+  // When scores aren't shown and grade hasn't been reviewed, students see "submitted"
+  const showScoreAfterSubmission =
+    assignment?.settings?.showScoreAfterSubmission ?? false;
+  const gradeVisibleToStudent =
+    showScoreAfterSubmission || !!studentGrader?.reviewed_at;
+  const effectiveSubmissionStatus =
+    effectiveIsStudent &&
+    submissionStatus === "graded" &&
+    !gradeVisibleToStudent
+      ? "submitted"
+      : submissionStatus;
 
   // Check if TA has canEdit permission
   const canEdit = useMemo(() => {
@@ -407,6 +425,63 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
       (data: { assignmentId: string; studentId: string; status: string }) => {
         if (data.assignmentId === assignmentId && data.studentId === user.id) {
           setSubmissionStatus(data.status);
+        }
+      }
+    );
+
+    // Live grader review update — re-fetch grader when instructor marks reviewed
+    socket.on(
+      "grader-review-update",
+      (data: {
+        assignmentId: string;
+        studentId: string;
+        submissionId: string;
+        reviewed: boolean;
+      }) => {
+        if (
+          data.assignmentId === assignmentId &&
+          data.studentId === user.id
+        ) {
+          apiClient
+            .getGradersBySubmission(data.submissionId)
+            .then((response) => {
+              const graders = response.data;
+              setStudentGrader(graders.length > 0 ? graders[0] : null);
+            })
+            .catch(() => {});
+        }
+      }
+    );
+
+    socket.on(
+      "assignment-settings-update",
+      (data: {
+        assignmentId: string;
+        settings?: Record<string, any>;
+        due_dates_map?: Record<string, string>;
+        due_date_config?: Record<string, any>;
+      }) => {
+        const current = assignmentRef.current;
+        if (!current || data.assignmentId !== assignmentId) return;
+
+        // Convert string dates to Date objects to match the Assignment type
+        const convertedDueDatesMap = data.due_dates_map
+          ? Object.fromEntries(
+              Object.entries(data.due_dates_map).map(([k, v]) => [k, new Date(v)])
+            )
+          : undefined;
+
+        setAssignment({
+          ...current,
+          ...(data.settings && { settings: data.settings }),
+          ...(convertedDueDatesMap && { due_dates_map: convertedDueDatesMap }),
+          ...(data.due_date_config && { due_date_config: data.due_date_config }),
+        });
+
+        // Update user due date if it changed
+        if (data.due_dates_map && user.id) {
+          const newDueDate = data.due_dates_map[user.id];
+          setUserDueDate(newDueDate ? new Date(newDueDate) : null);
         }
       }
     );
@@ -697,17 +772,17 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
                             </span>
                           </div>
                         )}
-                        {submissionStatus && (
+                        {effectiveSubmissionStatus && (
                           <div className="flex items-center space-x-2">
                             <span className="text-sm font-medium">
                               Status:{" "}
-                              {submissionStatus === "in-progress"
+                              {effectiveSubmissionStatus === "in-progress"
                                 ? "In Progress"
-                                : submissionStatus === "submitted"
+                                : effectiveSubmissionStatus === "submitted"
                                 ? "Submitted"
-                                : submissionStatus === "graded"
+                                : effectiveSubmissionStatus === "graded"
                                 ? "Graded"
-                                : submissionStatus}
+                                : effectiveSubmissionStatus}
                             </span>
                           </div>
                         )}

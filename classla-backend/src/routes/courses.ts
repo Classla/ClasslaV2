@@ -1305,11 +1305,12 @@ router.get(
       const { id: courseId } = req.params;
       const { id: userId } = req.user!;
 
-      // Fetch all assignments published to the student
+      // Fetch all non-deleted assignments published to the student
       const { data: assignments, error: assignmentsError } = await supabase
         .from("assignments")
         .select("*")
         .eq("course_id", courseId)
+        .is("deleted_at", null)
         .order("order_index");
 
       if (assignmentsError) {
