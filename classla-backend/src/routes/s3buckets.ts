@@ -30,6 +30,8 @@ import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { Readable } from "stream";
 import { asyncHandler } from "../middleware/errorHandler";
 import { logger } from "../utils/logger";
+import multer from "multer";
+import archiver from "archiver";
 
 const router = express.Router();
 
@@ -1807,6 +1809,325 @@ router.get(
         details: s3Error.message,
       });
     }
+  })
+);
+
+// ─── File Upload & Download Helpers ──────────────────────────────────────────
+
+// Multer config: memory storage, 50MB total limit, max 20 files
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 50 * 1024 * 1024, files: 20 },
+});
+
+/**
+ * Helper: authenticate session and return userId + isAdmin.
+ * Returns null (and sends 401) on failure.
+ */
+async function authenticateSession(req: Request, res: Response): Promise<{ userId: string; isAdmin: boolean } | null> {
+  try {
+    const sessionData = await sessionManagementService.validateSession(req);
+    if (!sessionData) {
+      res.status(401).json({ error: "Valid session is required" });
+      return null;
+    }
+
+    let userId: string | undefined;
+    let isAdmin = false;
+
+    if (sessionData.isManagedStudent) {
+      userId = sessionData.userId;
+    } else {
+      const { data: userData } = await supabase
+        .from("users")
+        .select("id, is_admin")
+        .eq("workos_user_id", sessionData.workosUserId)
+        .single();
+      if (userData) {
+        userId = userData.id;
+        isAdmin = userData.is_admin || false;
+      }
+    }
+
+    if (!userId) {
+      res.status(401).json({ error: "User not found" });
+      return null;
+    }
+
+    return { userId, isAdmin };
+  } catch {
+    res.status(401).json({ error: "Valid session is required" });
+    return null;
+  }
+}
+
+/**
+ * Helper: fetch bucket by ID and verify it exists (not deleted).
+ * Returns null (and sends 404) on failure.
+ */
+async function fetchBucket(bucketId: string, res: Response): Promise<S3Bucket | null> {
+  const { data: bucket, error } = await supabase
+    .from("s3_buckets")
+    .select("*")
+    .eq("id", bucketId)
+    .is("deleted_at", null)
+    .single();
+
+  if (error || !bucket) {
+    res.status(404).json({ error: "Bucket not found" });
+    return null;
+  }
+
+  return bucket as S3Bucket;
+}
+
+/**
+ * Helper: create S3 client for a specific bucket region.
+ */
+function createBucketS3Client(bucket: S3Bucket): S3Client {
+  return new S3Client({
+    region: bucket.region || S3_DEFAULT_REGION,
+    credentials:
+      process.env.IDE_MANAGER_ACCESS_KEY_ID && process.env.IDE_MANAGER_SECRET_ACCESS_KEY
+        ? {
+            accessKeyId: process.env.IDE_MANAGER_ACCESS_KEY_ID,
+            secretAccessKey: process.env.IDE_MANAGER_SECRET_ACCESS_KEY,
+          }
+        : undefined,
+  });
+}
+
+// ─── File Upload & Download Endpoints ────────────────────────────────────────
+// NOTE: These must be defined BEFORE the general /:bucketId/files/* route
+
+/**
+ * POST /api/s3buckets/:bucketId/files/upload
+ * Upload one or more files into the workspace bucket.
+ * Auth: session-based, requires write permission on bucket.
+ * Snapshot buckets are rejected (read-only).
+ */
+router.post(
+  "/:bucketId/files/upload",
+  upload.array("files", 20),
+  asyncHandler(async (req: Request, res: Response) => {
+    const { bucketId } = req.params;
+
+    const auth = await authenticateSession(req, res);
+    if (!auth) return;
+
+    const bucket = await fetchBucket(bucketId, res);
+    if (!bucket) return;
+
+    if (bucket.is_snapshot) {
+      return res.status(403).json({ error: "Snapshot buckets are read-only" });
+    }
+
+    const hasAccess = await canAccessBucket(auth.userId, bucket, auth.isAdmin, "write");
+    if (!hasAccess) {
+      return res.status(403).json({ error: "You do not have permission to modify this bucket" });
+    }
+
+    const files = req.files as Express.Multer.File[];
+    if (!files || files.length === 0) {
+      return res.status(400).json({ error: "No files provided" });
+    }
+
+    const basePath = (req.body.basePath as string || "").replace(/^\/+|\/+$/g, "");
+    const bucketS3Client = createBucketS3Client(bucket);
+
+    const results: { path: string; size: number }[] = [];
+    const errors: { path: string; error: string }[] = [];
+
+    await Promise.all(
+      files.map(async (file) => {
+        const filePath = basePath ? `${basePath}/${file.originalname}` : file.originalname;
+        try {
+          await bucketS3Client.send(
+            new PutObjectCommand({
+              Bucket: bucket.bucket_name,
+              Key: filePath,
+              Body: file.buffer,
+              ContentType: file.mimetype || "application/octet-stream",
+            })
+          );
+          results.push({ path: filePath, size: file.size });
+
+          // Broadcast file change so OT system and containers pick up the new file
+          try {
+            const { broadcastFileChange } = require("../services/fileSyncService");
+            broadcastFileChange({
+              bucketId,
+              filePath,
+              content: isBinaryFile(filePath) ? "" : file.buffer.toString("utf-8"),
+              source: "frontend",
+              userId: auth.userId,
+              timestamp: Date.now(),
+            });
+          } catch {
+            // Non-fatal - log but don't fail the upload
+          }
+        } catch (err: any) {
+          errors.push({ path: filePath, error: err.message });
+        }
+      })
+    );
+
+    return res.json({
+      message: `Uploaded ${results.length} file(s)`,
+      uploaded: results,
+      errors: errors.length > 0 ? errors : undefined,
+    });
+  })
+);
+
+/**
+ * GET /api/s3buckets/:bucketId/files/download/*
+ * Download a single file from the workspace bucket.
+ * Auth: session-based, requires read permission on bucket.
+ * Streams the file directly from S3.
+ * NOTE: Must be defined BEFORE the general /:bucketId/files/* route.
+ */
+router.get(
+  "/:bucketId/files/download/*",
+  asyncHandler(async (req: Request, res: Response) => {
+    const { bucketId } = req.params;
+    const filePath = decodeURIComponent(req.params[0] || "");
+
+    if (!filePath) {
+      return res.status(400).json({ error: "File path is required" });
+    }
+
+    const auth = await authenticateSession(req, res);
+    if (!auth) return;
+
+    const bucket = await fetchBucket(bucketId, res);
+    if (!bucket) return;
+
+    const hasAccess = await canAccessBucket(auth.userId, bucket, auth.isAdmin, "read");
+    if (!hasAccess) {
+      return res.status(403).json({ error: "You do not have permission to access this bucket" });
+    }
+
+    const bucketS3Client = createBucketS3Client(bucket);
+
+    try {
+      const response = await bucketS3Client.send(
+        new GetObjectCommand({
+          Bucket: bucket.bucket_name,
+          Key: filePath,
+        })
+      );
+
+      const fileName = filePath.split("/").pop() || "file";
+      res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(fileName)}"`);
+      res.setHeader("Content-Type", response.ContentType || "application/octet-stream");
+      if (response.ContentLength !== undefined) {
+        res.setHeader("Content-Length", response.ContentLength);
+      }
+
+      const stream = response.Body as Readable;
+      stream.pipe(res);
+      return;
+    } catch (err: any) {
+      if (err.name === "NoSuchKey" || err.$metadata?.httpStatusCode === 404) {
+        return res.status(404).json({ error: "File not found" });
+      }
+      logger.error(`[File Download] Failed to download ${filePath}:`, err);
+      return res.status(500).json({ error: "Failed to download file" });
+    }
+  })
+);
+
+/**
+ * GET /api/s3buckets/:bucketId/download-zip
+ * Download the entire workspace as a .zip archive.
+ * Auth: session-based, requires read permission on bucket.
+ * Streams the zip directly to the response (no temp files).
+ * Excludes .yjs/ directory and .partial files.
+ */
+router.get(
+  "/:bucketId/download-zip",
+  asyncHandler(async (req: Request, res: Response) => {
+    const { bucketId } = req.params;
+
+    const auth = await authenticateSession(req, res);
+    if (!auth) return;
+
+    const bucket = await fetchBucket(bucketId, res);
+    if (!bucket) return;
+
+    const hasAccess = await canAccessBucket(auth.userId, bucket, auth.isAdmin, "read");
+    if (!hasAccess) {
+      return res.status(403).json({ error: "You do not have permission to access this bucket" });
+    }
+
+    const bucketS3Client = createBucketS3Client(bucket);
+
+    // List all objects in the bucket
+    let allKeys: string[] = [];
+    let continuationToken: string | undefined;
+
+    do {
+      const listResponse = await bucketS3Client.send(
+        new ListObjectsV2Command({
+          Bucket: bucket.bucket_name,
+          ContinuationToken: continuationToken,
+        })
+      );
+
+      if (listResponse.Contents) {
+        for (const obj of listResponse.Contents) {
+          if (!obj.Key) continue;
+          // Exclude .yjs/ directory and .partial files
+          if (obj.Key.startsWith(".yjs/") || obj.Key.endsWith(".partial")) continue;
+          allKeys.push(obj.Key);
+        }
+      }
+
+      continuationToken = listResponse.IsTruncated ? listResponse.NextContinuationToken : undefined;
+    } while (continuationToken);
+
+    if (allKeys.length === 0) {
+      return res.status(404).json({ error: "No files found in workspace" });
+    }
+
+    // Set response headers for zip download
+    res.setHeader("Content-Type", "application/zip");
+    res.setHeader("Content-Disposition", `attachment; filename="workspace.zip"`);
+
+    // Create zip archive and pipe to response
+    const archive = archiver("zip", { zlib: { level: 5 } });
+
+    archive.on("error", (err) => {
+      logger.error(`[Zip Download] Archive error for bucket ${bucketId}:`, err);
+      // If headers haven't been sent yet, send error response
+      if (!res.headersSent) {
+        res.status(500).json({ error: "Failed to create zip archive" });
+      }
+    });
+
+    archive.pipe(res);
+
+    // Stream each file from S3 into the archive
+    for (const key of allKeys) {
+      try {
+        const objResponse = await bucketS3Client.send(
+          new GetObjectCommand({
+            Bucket: bucket.bucket_name,
+            Key: key,
+          })
+        );
+
+        if (objResponse.Body) {
+          archive.append(objResponse.Body as Readable, { name: key });
+        }
+      } catch (err: any) {
+        logger.warn(`[Zip Download] Failed to fetch ${key}, skipping:`, err.message);
+      }
+    }
+
+    await archive.finalize();
+    return;
   })
 );
 

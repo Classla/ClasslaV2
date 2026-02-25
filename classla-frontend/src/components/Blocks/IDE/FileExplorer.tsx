@@ -1,6 +1,12 @@
-import React, { useState, useCallback, useMemo } from "react";
-import { File, FileText, Folder, FolderOpen, Plus, Trash2, Edit2, ChevronRight, ChevronDown } from "lucide-react";
+import React, { useState, useCallback, useMemo, useRef } from "react";
+import { File, FileText, Folder, FolderOpen, Plus, Trash2, Edit2, ChevronRight, ChevronDown, Upload, Download, MoreHorizontal } from "lucide-react";
 import { Button } from "../../ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "../../ui/dropdown-menu";
 import {
   Dialog,
   DialogContent,
@@ -11,6 +17,12 @@ import {
 } from "../../ui/dialog";
 import { Input } from "../../ui/input";
 import { Label } from "../../ui/label";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "../../ui/tooltip";
 
 export interface FileNode {
   name: string;
@@ -27,6 +39,9 @@ interface FileExplorerProps {
   onCreateFolder?: (path: string) => void;
   onDeleteFile?: (path: string) => void;
   onRenameFile?: (oldPath: string, newPath: string) => void;
+  onUploadFiles?: (files: File[]) => void;
+  onDownloadFile?: (path: string) => void;
+  onDownloadZip?: () => void;
 }
 
 // Sort file tree: folders first, then files, both alphabetically (case-insensitive)
@@ -91,6 +106,9 @@ const FileExplorer: React.FC<FileExplorerProps> = ({
   onCreateFolder,
   onDeleteFile,
   onRenameFile,
+  onUploadFiles,
+  onDownloadFile,
+  onDownloadZip,
 }) => {
   const sortedFiles = useMemo(() => sortFileTree(files), [files]);
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
@@ -98,6 +116,7 @@ const FileExplorer: React.FC<FileExplorerProps> = ({
   const [editValue, setEditValue] = useState("");
   const [showCreateFileDialog, setShowCreateFileDialog] = useState(false);
   const [newFilePath, setNewFilePath] = useState("");
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const toggleFolder = useCallback((path: string) => {
     setExpandedFolders((prev) => {
@@ -208,40 +227,44 @@ const FileExplorer: React.FC<FileExplorerProps> = ({
             ) : (
               <span className="text-sm flex-1 truncate">{node.name}</span>
             )}
-            {!isEditing && (
-              <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100">
-                {node.type === "file" && (
-                  <>
-                    {onRenameFile && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-6 w-6 p-0"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setEditingPath(node.path);
-                          setEditValue(node.name);
-                        }}
-                      >
-                        <Edit2 className="w-3 h-3" />
-                      </Button>
-                    )}
-                    {onDeleteFile && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-6 w-6 p-0"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onDeleteFile(node.path);
-                        }}
-                      >
-                        <Trash2 className="w-3 h-3" />
-                      </Button>
-                    )}
-                  </>
-                )}
-              </div>
+            {!isEditing && node.type === "file" && (onDownloadFile || onRenameFile || onDeleteFile) && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 w-6 p-0 opacity-0 group-hover:opacity-100"
+                  >
+                    <MoreHorizontal className="w-3 h-3" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-36">
+                  {onDownloadFile && (
+                    <DropdownMenuItem onClick={() => onDownloadFile(node.path)}>
+                      <Download className="w-3.5 h-3.5 mr-2" />
+                      Download
+                    </DropdownMenuItem>
+                  )}
+                  {onRenameFile && (
+                    <DropdownMenuItem onClick={() => {
+                      setEditingPath(node.path);
+                      setEditValue(node.name);
+                    }}>
+                      <Edit2 className="w-3.5 h-3.5 mr-2" />
+                      Rename
+                    </DropdownMenuItem>
+                  )}
+                  {onDeleteFile && (
+                    <DropdownMenuItem
+                      className="text-red-600 dark:text-red-400 focus:text-red-600 dark:focus:text-red-400"
+                      onClick={() => onDeleteFile(node.path)}
+                    >
+                      <Trash2 className="w-3.5 h-3.5 mr-2" />
+                      Delete
+                    </DropdownMenuItem>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
             )}
           </div>
           {node.type === "folder" && isExpanded && node.children && (
@@ -259,6 +282,7 @@ const FileExplorer: React.FC<FileExplorerProps> = ({
       handleContextMenu,
       onDeleteFile,
       onRenameFile,
+      onDownloadFile,
     ]
   );
 
@@ -267,6 +291,56 @@ const FileExplorer: React.FC<FileExplorerProps> = ({
       <div className="p-2 border-b border-border flex items-center justify-between">
         <span className="text-sm font-semibold">Files</span>
         <div className="flex gap-1">
+          {onUploadFiles && (
+            <>
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                className="hidden"
+                onChange={(e) => {
+                  const selectedFiles = e.target.files;
+                  if (selectedFiles && selectedFiles.length > 0) {
+                    onUploadFiles(Array.from(selectedFiles));
+                  }
+                  // Reset so the same file can be re-selected
+                  e.target.value = "";
+                }}
+              />
+              <TooltipProvider delayDuration={300}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 w-6 p-0"
+                      onClick={() => fileInputRef.current?.click()}
+                    >
+                      <Upload className="w-4 h-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">Upload a file</TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            </>
+          )}
+          {onDownloadZip && (
+            <TooltipProvider delayDuration={300}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 w-6 p-0"
+                    onClick={onDownloadZip}
+                  >
+                    <Download className="w-4 h-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">Download as zip</TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )}
           {onCreateFile && (
             <>
             <Button

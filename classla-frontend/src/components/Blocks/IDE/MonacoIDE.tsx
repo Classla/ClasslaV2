@@ -1195,6 +1195,76 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
     [bucketId, files, fileContent, selectedFile, toast, loadFileTree]
   );
 
+  // Handle file upload
+  const handleUploadFiles = useCallback(
+    async (uploadedFiles: File[]) => {
+      if (!bucketId) return;
+
+      try {
+        await apiClient.uploadFiles(bucketId, uploadedFiles);
+        toast({
+          title: "Files uploaded",
+          description: `Successfully uploaded ${uploadedFiles.length} file(s)`,
+        });
+        loadFileTree();
+      } catch (error: any) {
+        toast({
+          title: "Upload failed",
+          description: error?.response?.data?.error || error.message || "Failed to upload files",
+          variant: "destructive",
+        });
+      }
+    },
+    [bucketId, toast, loadFileTree]
+  );
+
+  // Handle single file download
+  const handleDownloadFile = useCallback(
+    async (path: string) => {
+      if (!bucketId) return;
+
+      try {
+        const response = await apiClient.downloadFile(bucketId, path);
+        const blob = new Blob([response.data]);
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = path.split("/").pop() || "file";
+        a.click();
+        URL.revokeObjectURL(url);
+      } catch (error: any) {
+        toast({
+          title: "Download failed",
+          description: error?.response?.data?.error || error.message || "Failed to download file",
+          variant: "destructive",
+        });
+      }
+    },
+    [bucketId, toast]
+  );
+
+  // Handle workspace zip download
+  const handleDownloadZip = useCallback(async () => {
+    if (!bucketId) return;
+
+    try {
+      const response = await apiClient.downloadWorkspaceZip(bucketId);
+      const blob = new Blob([response.data], { type: "application/zip" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "workspace.zip";
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (error: any) {
+      toast({
+        title: "Download failed",
+        description: error?.response?.data?.error || error.message || "Failed to download workspace",
+        variant: "destructive",
+      });
+    }
+  }, [bucketId, toast]);
+
   // Connect to OT provider (singleton — don't disconnect on unmount since other instances may use it)
   useEffect(() => {
     if (!bucketId) return;
@@ -2032,6 +2102,9 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
                     onCreateFile={handleCreateFile}
                     onDeleteFile={handleDeleteFile}
                     onRenameFile={handleRenameFile}
+                    onUploadFiles={readOnlyProp ? undefined : handleUploadFiles}
+                    onDownloadFile={handleDownloadFile}
+                    onDownloadZip={handleDownloadZip}
                   />
                 )}
                 {activePanel === "settings" && (
