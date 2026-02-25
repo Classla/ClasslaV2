@@ -137,6 +137,59 @@ export function emitSubmissionUpdate(
 }
 
 /**
+ * Emit an assignment settings update event to all clients watching a course.
+ * Used to live-push settings/due date changes to students.
+ */
+export function emitAssignmentSettingsUpdate(
+  io: SocketIOServer,
+  courseId: string,
+  data: {
+    assignmentId: string;
+    settings?: Record<string, any>;
+    due_dates_map?: Record<string, string>;
+    due_date_config?: Record<string, any>;
+  }
+): void {
+  try {
+    io.of("/course-tree")
+      .to(`course:${courseId}`)
+      .emit("assignment-settings-update", data);
+  } catch (error) {
+    logger.error("Failed to emit assignment settings update", {
+      courseId,
+      data,
+      error: error instanceof Error ? error.message : "Unknown",
+    });
+  }
+}
+
+/**
+ * Emit a grader review update so students see the grade transition live.
+ */
+export function emitGraderReviewUpdate(
+  io: SocketIOServer,
+  courseId: string,
+  data: {
+    assignmentId: string;
+    studentId: string;
+    submissionId: string;
+    reviewed: boolean;
+  }
+): void {
+  try {
+    io.of("/course-tree")
+      .to(`course:${courseId}`)
+      .emit("grader-review-update", data);
+  } catch (error) {
+    logger.error("Failed to emit grader review update", {
+      courseId,
+      data,
+      error: error instanceof Error ? error.message : "Unknown",
+    });
+  }
+}
+
+/**
  * Emit a tree update event to all clients watching a course.
  */
 export function emitTreeUpdate(

@@ -10,6 +10,8 @@ import {
   CreateGraderWithSubmissionRequest,
   CreateGraderWithSubmissionResponse,
 } from "../types/api";
+import { getIO } from "../services/websocket";
+import { emitGraderReviewUpdate } from "../services/courseTreeSocket";
 
 const router = Router();
 
@@ -485,7 +487,7 @@ router.put(
       // Get the submission to check permissions
       const { data: submission, error: submissionError } = await supabase
         .from("submissions")
-        .select("student_id, course_id")
+        .select("student_id, course_id, assignment_id")
         .eq("id", existingGrader.submission_id)
         .single();
 
@@ -662,7 +664,7 @@ router.put(
       // Get the submission to check permissions
       const { data: submission, error: submissionError } = await supabase
         .from("submissions")
-        .select("student_id, course_id")
+        .select("student_id, course_id, assignment_id")
         .eq("id", existingGrader.submission_id)
         .single();
 
@@ -808,6 +810,16 @@ router.put(
         });
         throw updateError;
       }
+
+      // Emit live update so students see grader changes (score modifier, reviewed, etc.)
+      try {
+        emitGraderReviewUpdate(getIO(), submission.course_id, {
+          assignmentId: submission.assignment_id,
+          studentId: submission.student_id,
+          submissionId: existingGrader.submission_id,
+          reviewed: reviewed === true,
+        });
+      } catch {}
 
       res.json(updatedGrader);
     } catch (error) {

@@ -25,6 +25,7 @@ import {
   RefreshCw,
   Send,
   ChevronDown,
+  ChevronRight,
   Clock,
   Loader2,
 } from "lucide-react";
@@ -161,7 +162,20 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
   // Determine if the viewer should be read-only
   const showResponsesAfterSubmission =
     assignment.settings?.showResponsesAfterSubmission ?? false;
+  const showScoreAfterSubmission =
+    assignment.settings?.showScoreAfterSubmission ?? false;
   const allowResubmissions = assignment.settings?.allowResubmissions ?? false;
+
+  // When scores aren't shown and the grade hasn't been reviewed,
+  // students should see "submitted" instead of "graded"
+  const gradeVisibleToStudent =
+    showScoreAfterSubmission || !!grader?.reviewed_at;
+  const effectiveStatus =
+    isStudent &&
+    submissionStatus === "graded" &&
+    !gradeVisibleToStudent
+      ? "submitted"
+      : submissionStatus;
 
   // True when student is submitting over a previously submitted/graded submission
   const hasPreviousSubmission = useMemo(() => {
@@ -173,13 +187,72 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
   const allowLateSubmissions =
     assignment.settings?.allowLateSubmissions ?? false;
 
-  // Due date enforcement
+  // Due date enforcement — live timer fires at the exact due date moment
+  const [dueDateExpired, setDueDateExpired] = useState(false);
+
+  useEffect(() => {
+    if (!userDueDate || allowLateSubmissions) {
+      setDueDateExpired(false);
+      return;
+    }
+
+    const due = new Date(userDueDate).getTime();
+    const remaining = due - Date.now();
+
+    if (remaining <= 0) {
+      setDueDateExpired(true);
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      setDueDateExpired(true);
+    }, remaining);
+
+    return () => clearTimeout(timer);
+  }, [userDueDate, allowLateSubmissions]);
+
   const isPastDue = useMemo(() => {
     if (!userDueDate) return false;
-    return new Date(userDueDate) < new Date();
-  }, [userDueDate]);
+    return dueDateExpired || new Date(userDueDate) < new Date();
+  }, [userDueDate, dueDateExpired]);
 
   const isSubmissionBlocked = isPastDue && !allowLateSubmissions;
+
+  // ── Due-date countdown (< 5 minutes) ────────────────────────────────────
+  const [timeRemaining, setTimeRemaining] = useState<number | null>(null);
+  const [countdownDismissed, setCountdownDismissed] = useState(false);
+
+  const formatCountdown = (seconds: number): string => {
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    return `${m}:${s.toString().padStart(2, "0")}`;
+  };
+
+  useEffect(() => {
+    if (!userDueDate || !isStudent) {
+      setTimeRemaining(null);
+      return;
+    }
+
+    const due = new Date(userDueDate).getTime();
+
+    const tick = () => {
+      const remaining = Math.floor((due - Date.now()) / 1000);
+      if (remaining <= 0) {
+        setTimeRemaining(null);
+        return;
+      }
+      if (remaining <= 300) {
+        setTimeRemaining(remaining);
+      } else {
+        setTimeRemaining(null);
+      }
+    };
+
+    tick(); // run immediately
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [userDueDate, isStudent]);
 
   // Teacher edit mode: non-student viewing a student's existing submission (not preview)
   const isTeacherEditMode = !isStudent && !previewMode && !!submissionId;
@@ -199,6 +272,75 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
   // Performance optimization: Use refs to avoid unnecessary re-renders
   const editorRef = useRef<any>(null);
   const answerStateRef = useRef<AnswerState>({});
+
+  // ── Lock transition detection ──────────────────────────────────────────────
+  const prevIsReadOnlyRef = useRef(isReadOnly);
+  const justSubmittedRef = useRef(false);
+
+  // Flush pending auto-save immediately
+  const flushAutoSave = useCallback(() => {
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+      saveTimeoutRef.current = null;
+    }
+    // Save current answers immediately
+    if (submissionId && isStudent) {
+      const submissionValues: Record<string, string[]> = {};
+      const currentAnswers = answerStateRef.current;
+      Object.keys(currentAnswers).forEach((key) => {
+        const state = currentAnswers[key];
+        if ('answer' in state && state.answer) {
+          submissionValues[key] = [state.answer];
+        } else if ('selectedOptions' in state && state.selectedOptions) {
+          submissionValues[key] = state.selectedOptions;
+        } else if ('solution' in state && state.solution) {
+          submissionValues[key] = state.solution;
+        } else if ('selectedLines' in state && state.selectedLines) {
+          submissionValues[key] = state.selectedLines.map((n: number) => n.toString());
+        } else if ('matches' in state && state.matches) {
+          submissionValues[key] = [JSON.stringify(state.matches)];
+        } else if ('answers' in state && state.answers) {
+          submissionValues[key] = [JSON.stringify(state.answers)];
+        }
+      });
+      if (Object.keys(submissionValues).length > 0) {
+        apiClient.updateSubmissionValues(submissionId, submissionValues).catch(() => {});
+      }
+    }
+  }, [submissionId, isStudent]);
+
+  useEffect(() => {
+    const wasReadOnly = prevIsReadOnlyRef.current;
+    prevIsReadOnlyRef.current = isReadOnly;
+
+    if (!isStudent) return;
+
+    // Transition: editable → locked
+    if (!wasReadOnly && isReadOnly) {
+      flushAutoSave();
+      // Don't show a destructive toast when the lock is from the student's own submission
+      if (!justSubmittedRef.current && !isSubmitting) {
+        toast({
+          title: "Assignment Locked",
+          description: isSubmissionBlocked
+            ? "The due date has passed. Your progress has been saved."
+            : "Your instructor has updated the assignment settings.",
+          variant: "destructive",
+        });
+      }
+      justSubmittedRef.current = false;
+    }
+
+    // Transition: locked → editable
+    if (wasReadOnly && !isReadOnly) {
+      toast({
+        title: "Assignment Unlocked",
+        description: "Your instructor has re-opened submissions.",
+      });
+    }
+  }, [isReadOnly, isStudent, isSubmitting, isSubmissionBlocked, flushAutoSave, toast]);
+
+  // ────────────────────────────────────────────────────────────────────────────
 
   // Fetch submission data when submissionId changes - always from backend
   useEffect(() => {
@@ -1259,7 +1401,8 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
         autogradeResponse.data.totalPossiblePoints !== undefined
       ) {
         // Score visibility is enabled, show the score
-        const score = autogradeResponse.data.grader.raw_assignment_score;
+        const g = autogradeResponse.data.grader;
+        const score = (Number(g.raw_assignment_score) || 0) + (Number(g.raw_rubric_score) || 0) + (parseFloat(g.score_modifier) || 0);
         const totalPoints = autogradeResponse.data.totalPossiblePoints;
 
         toast({
@@ -1374,6 +1517,7 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
       }
 
       // Step 2: Submit the assignment
+      justSubmittedRef.current = true;
       await apiClient.submitSubmission(submissionId);
       setSubmissionStatus("submitted");
       onSubmissionStatusChange?.("submitted");
@@ -1389,7 +1533,8 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
           autogradeResponse.data.totalPossiblePoints !== undefined
         ) {
           // Score visibility is enabled, show the score
-          const score = autogradeResponse.data.grader.raw_assignment_score;
+          const g2 = autogradeResponse.data.grader;
+          const score = (Number(g2.raw_assignment_score) || 0) + (Number(g2.raw_rubric_score) || 0) + (parseFloat(g2.score_modifier) || 0);
           const totalPoints = autogradeResponse.data.totalPossiblePoints;
 
           toast({
@@ -1469,6 +1614,116 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
     hasPreviousSubmission,
   ]);
 
+  // Shared submission selector popover (used in submitted & graded banners)
+  const submissionSelectorPopover = (
+    <Popover
+      minWidth="auto"
+      trigger={
+        <button className="flex items-center gap-2 text-sm border border-border rounded-md px-3 py-1.5 bg-card hover:border-foreground/30 hover:bg-accent transition-colors">
+          <span>
+            {allSubmissions.findIndex(
+              (s) => s.id === (selectedSubmissionId || submissionId)
+            ) === 0
+              ? "Latest Submission"
+              : `Submission ${
+                  allSubmissions.length -
+                  allSubmissions.findIndex(
+                    (s) => s.id === (selectedSubmissionId || submissionId)
+                  )
+                }`}
+          </span>
+          <ChevronDown className="w-4 h-4 text-muted-foreground" />
+        </button>
+      }
+      content={
+        <div className="w-80 max-h-96 overflow-y-auto">
+          <div className="p-3 border-b border-border bg-muted">
+            <h3 className="font-semibold text-foreground">
+              Submission History
+            </h3>
+            <p className="text-xs text-muted-foreground mt-1">
+              {allSubmissions.length} submission
+              {allSubmissions.length !== 1 ? "s" : ""}
+            </p>
+          </div>
+          <div className="divide-y">
+            {allSubmissions.map((sub, index) => {
+              const isSelected =
+                sub.id === (selectedSubmissionId || submissionId);
+              const label =
+                index === 0
+                  ? "Latest Submission"
+                  : `Submission ${allSubmissions.length - index}`;
+              const timestamp = new Date(sub.timestamp).toLocaleString(
+                "en-US",
+                {
+                  month: "short",
+                  day: "numeric",
+                  year: "numeric",
+                  hour: "numeric",
+                  minute: "2-digit",
+                }
+              );
+
+              return (
+                <button
+                  key={sub.id}
+                  onClick={() => onSubmissionSelect?.(sub.id)}
+                  className={`w-full p-3 text-left hover:bg-accent transition-colors ${
+                    isSelected
+                      ? "bg-primary/10 border-l-4 border-purple-600"
+                      : ""
+                  }`}
+                >
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2">
+                        <Clock className="w-4 h-4 text-muted-foreground" />
+                        <span className="text-sm font-medium text-foreground">
+                          {label}
+                        </span>
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-1 ml-6">
+                        {timestamp}
+                      </p>
+                      {sub.status === "graded" &&
+                        sub.grade !== null &&
+                        sub.grade !== undefined && (
+                          <div className="text-sm font-semibold text-purple-600 mt-1 ml-6">
+                            Grade: {sub.grade}
+                          </div>
+                        )}
+                    </div>
+                    <div>
+                      <span
+                        className={`text-xs px-2 py-1 rounded-full font-medium ${
+                          sub.status === "graded"
+                            ? "bg-purple-100 text-purple-700"
+                            : sub.status === "submitted"
+                            ? "bg-green-100 text-green-700"
+                            : "bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-400"
+                        }`}
+                      >
+                        {sub.status === "in-progress"
+                          ? "In Progress"
+                          : sub.status === "submitted"
+                          ? "Submitted"
+                          : sub.status === "graded"
+                          ? "Graded"
+                          : sub.status}
+                      </span>
+                    </div>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      }
+      className=""
+    />
+  );
+
   return (
     <div className="h-full flex flex-col bg-background relative">
       {/* Preview Mode Banner */}
@@ -1478,6 +1733,28 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
             <span className="font-medium text-amber-800">
               Preview Mode - This is how students will see this assignment. Submissions are disabled.
             </span>
+          </div>
+        </div>
+      )}
+
+      {/* Due Date Countdown Banner */}
+      {isStudent && timeRemaining != null && timeRemaining > 0 && !countdownDismissed && submissionStatus === "in-progress" && (
+        <div className="px-4 py-2 border-b border-border">
+          <div className="bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 rounded-lg px-4 py-3 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Clock className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+              <span className="text-sm font-medium text-amber-800 dark:text-amber-300">
+                Due in {formatCountdown(timeRemaining)}
+              </span>
+            </div>
+            <button
+              onClick={() => setCountdownDismissed(true)}
+              className="flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400 hover:text-amber-800 dark:hover:text-amber-200 transition-colors"
+              aria-label="Hide countdown"
+            >
+              <ChevronRight className="w-3.5 h-3.5" />
+              <span>Hide time</span>
+            </button>
           </div>
         </div>
       )}
@@ -1495,9 +1772,10 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
       )}
 
       {/* Submitted Banner */}
-      {isStudent && submissionStatus === "submitted" && hasSubmission && (
+      {isStudent && effectiveStatus === "submitted" && hasSubmission && (
         <div className="px-4 py-2 border-b border-border">
-          <div className="bg-green-50 dark:bg-green-950/40 border border-green-200 dark:border-green-800 rounded-lg px-4 py-3 flex items-center justify-center gap-2">
+          <div className="bg-green-50 dark:bg-green-950/40 border border-green-200 dark:border-green-800 rounded-lg px-4 py-3 flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
               <svg className="w-5 h-5 text-green-600 dark:text-green-400 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
                 <path
                   fillRule="evenodd"
@@ -1508,7 +1786,7 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
               <span className="font-medium flex items-center gap-2 text-green-800 dark:text-green-300">
                 {grader?.raw_assignment_score != null && totalPossiblePoints != null ? (
                   <>
-                    Assignment Submitted — Your score: {grader.raw_assignment_score} / {totalPossiblePoints} points
+                    Assignment Submitted — Your score: {(Number(grader.raw_assignment_score) || 0) + (Number(grader.raw_rubric_score) || 0) + (parseFloat(grader.score_modifier) || 0)} / {totalPossiblePoints} points
                     {(!grader.reviewed_at) && (
                       <TooltipProvider>
                         <Tooltip>
@@ -1530,6 +1808,13 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
                   "Assignment Submitted — Your answers are locked"
                 )}
               </span>
+            </div>
+            {(allSubmissions?.length ?? 0) > 1 && (
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <span className="text-sm text-green-700 dark:text-green-400">Viewing:</span>
+                {submissionSelectorPopover}
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -1547,34 +1832,42 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
       )}
 
       {/* Graded Banner */}
-      {isStudent && submissionStatus === "graded" && hasSubmission && (
+      {isStudent && effectiveStatus === "graded" && hasSubmission && (
         <div className="px-4 py-2 border-b border-border">
           {grader?.raw_assignment_score != null && totalPossiblePoints != null ? (
-            <div className="bg-purple-50 dark:bg-purple-950/40 border border-purple-200 dark:border-purple-800 rounded-lg px-4 py-3 flex items-center justify-center gap-2">
-              <svg className="w-5 h-5 text-purple-600 dark:text-purple-400 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                <path
-                  fillRule="evenodd"
-                  d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
-                  clipRule="evenodd"
-                />
-              </svg>
-              <span className="font-medium flex items-center gap-2 text-purple-800 dark:text-purple-300">
-                Assignment Graded — Your score: {grader.raw_assignment_score} / {totalPossiblePoints} points
-                {(!grader.reviewed_at) && (
-                  <TooltipProvider>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <span className="inline-flex items-center px-2 py-0.5 rounded bg-orange-500 text-white text-xs font-semibold cursor-help">
-                          Pending
-                        </span>
-                      </TooltipTrigger>
-                      <TooltipContent className="bg-card border-border text-foreground">
-                        <p>Instructor has not marked as reviewed</p>
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
-                )}
-              </span>
+            <div className="bg-purple-50 dark:bg-purple-950/40 border border-purple-200 dark:border-purple-800 rounded-lg px-4 py-3 flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <svg className="w-5 h-5 text-purple-600 dark:text-purple-400 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                  <path
+                    fillRule="evenodd"
+                    d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
+                    clipRule="evenodd"
+                  />
+                </svg>
+                <span className="font-medium flex items-center gap-2 text-purple-800 dark:text-purple-300">
+                  Assignment Graded — Your score: {(Number(grader.raw_assignment_score) || 0) + (Number(grader.raw_rubric_score) || 0) + (parseFloat(grader.score_modifier) || 0)} / {totalPossiblePoints} points
+                  {(!grader.reviewed_at) && (
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span className="inline-flex items-center px-2 py-0.5 rounded bg-orange-500 text-white text-xs font-semibold cursor-help">
+                            Pending
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent className="bg-card border-border text-foreground">
+                          <p>Instructor has not marked as reviewed</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  )}
+                </span>
+              </div>
+              {(allSubmissions?.length ?? 0) > 1 && (
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <span className="text-sm text-purple-700 dark:text-purple-400">Viewing:</span>
+                  {submissionSelectorPopover}
+                </div>
+              )}
             </div>
           ) : (
             <div className="bg-muted border border-border rounded-lg px-4 py-3 flex items-center justify-center gap-2">
@@ -1584,123 +1877,6 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
               </span>
             </div>
           )}
-        </div>
-      )}
-
-      {/* Submission Selector Header */}
-      {hasSubmission && (allSubmissions?.length ?? 0) > 1 && (
-        <div className="bg-muted border-b border-border px-4 py-2">
-          <div className="max-w-4xl mx-auto flex items-center justify-end">
-            <div className="flex items-center gap-2">
-              <span className="text-sm text-muted-foreground">Viewing:</span>
-              <Popover
-                minWidth="auto"
-                trigger={
-                  <button className="flex items-center gap-2 text-sm border border-border rounded-md px-3 py-1.5 bg-card hover:border-foreground/30 hover:bg-accent transition-colors">
-                    <span>
-                      {allSubmissions.findIndex(
-                        (s) => s.id === (selectedSubmissionId || submissionId)
-                      ) === 0
-                        ? "Latest Submission"
-                        : `Submission ${
-                            allSubmissions.length -
-                            allSubmissions.findIndex(
-                              (s) =>
-                                s.id === (selectedSubmissionId || submissionId)
-                            )
-                          }`}
-                    </span>
-                    <ChevronDown className="w-4 h-4 text-muted-foreground" />
-                  </button>
-                }
-                content={
-                  <div className="w-80 max-h-96 overflow-y-auto">
-                    <div className="p-3 border-b border-border bg-muted">
-                      <h3 className="font-semibold text-foreground">
-                        Submission History
-                      </h3>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        {allSubmissions.length} submission
-                        {allSubmissions.length !== 1 ? "s" : ""}
-                      </p>
-                    </div>
-                    <div className="divide-y">
-                      {allSubmissions.map((sub, index) => {
-                        const isSelected =
-                          sub.id === (selectedSubmissionId || submissionId);
-                        const label =
-                          index === 0
-                            ? "Latest Submission"
-                            : `Submission ${allSubmissions.length - index}`;
-                        const timestamp = new Date(
-                          sub.timestamp
-                        ).toLocaleString("en-US", {
-                          month: "short",
-                          day: "numeric",
-                          year: "numeric",
-                          hour: "numeric",
-                          minute: "2-digit",
-                        });
-
-                        return (
-                          <button
-                            key={sub.id}
-                            onClick={() => onSubmissionSelect?.(sub.id)}
-                            className={`w-full p-3 text-left hover:bg-accent transition-colors ${
-                              isSelected
-                                ? "bg-primary/10 border-l-4 border-purple-600"
-                                : ""
-                            }`}
-                          >
-                            <div className="flex items-start justify-between">
-                              <div className="flex-1">
-                                <div className="flex items-center gap-2">
-                                  <Clock className="w-4 h-4 text-muted-foreground" />
-                                  <span className="text-sm font-medium text-foreground">
-                                    {label}
-                                  </span>
-                                </div>
-                                <p className="text-xs text-muted-foreground mt-1 ml-6">
-                                  {timestamp}
-                                </p>
-                                {sub.status === "graded" &&
-                                  sub.grade !== null &&
-                                  sub.grade !== undefined && (
-                                    <div className="text-sm font-semibold text-purple-600 mt-1 ml-6">
-                                      Grade: {sub.grade}
-                                    </div>
-                                  )}
-                              </div>
-                              <div>
-                                <span
-                                  className={`text-xs px-2 py-1 rounded-full font-medium ${
-                                    sub.status === "graded"
-                                      ? "bg-purple-100 text-purple-700"
-                                      : sub.status === "submitted"
-                                      ? "bg-green-100 text-green-700"
-                                      : "bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-400"
-                                  }`}
-                                >
-                                  {sub.status === "in-progress"
-                                    ? "In Progress"
-                                    : sub.status === "submitted"
-                                    ? "Submitted"
-                                    : sub.status === "graded"
-                                    ? "Graded"
-                                    : sub.status}
-                                </span>
-                              </div>
-                            </div>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                }
-                className=""
-              />
-            </div>
-          </div>
         </div>
       )}
 
@@ -1742,7 +1918,7 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
 
       {/* Editor Content or Submission Success Screen */}
       <div className="flex-1 min-h-0 overflow-auto">
-        {submissionStatus === "submitted" && !showResponsesAfterSubmission ? (
+        {effectiveStatus === "submitted" && !showResponsesAfterSubmission ? (
           // Show submission success screen when responses are disabled
           <div className="max-w-2xl mx-auto p-8">
             <div className="bg-card rounded-lg border border-border p-8 text-center">
@@ -1795,6 +1971,16 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
         ) : (
           // Show normal editor content
           <div className="max-w-4xl mx-auto p-8 relative">
+            {/* Collapsed countdown pill */}
+            {isStudent && timeRemaining != null && timeRemaining > 0 && countdownDismissed && submissionStatus === "in-progress" && (
+              <button
+                onClick={() => setCountdownDismissed(false)}
+                className="absolute top-2 right-2 z-10 flex items-center gap-1 rounded-full bg-amber-100 dark:bg-amber-900/60 border border-amber-300 dark:border-amber-700 px-2 py-1 text-amber-700 dark:text-amber-300 hover:bg-amber-200 dark:hover:bg-amber-800/60 transition-colors"
+                aria-label="Show countdown"
+              >
+                <Clock className="w-3.5 h-3.5" />
+              </button>
+            )}
             <div className="relative editor-container">
               <EditorContent
                 editor={editor}
@@ -1810,7 +1996,7 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
         <div className="border-t border-border bg-background shadow-lg z-40">
           <div className="max-w-4xl mx-auto px-6 py-4 flex items-center justify-between">
             <div className="flex items-center gap-4">
-              {submissionStatus === "submitted" && (
+              {effectiveStatus === "submitted" && (
                 <div className="flex items-center gap-2">
                   <span className="text-sm font-medium text-blue-600">
                     ✓ Submitted
@@ -1822,7 +2008,7 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
                   )}
                 </div>
               )}
-              {submissionStatus === "graded" && (
+              {effectiveStatus === "graded" && (
                 <div className="flex items-center gap-2">
                   <span className="text-sm font-medium text-purple-600">
                     ✓ Graded
@@ -1834,7 +2020,7 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
                   )}
                 </div>
               )}
-              {submissionStatus === "in-progress" && !isSubmissionBlocked && (
+              {effectiveStatus === "in-progress" && !isSubmissionBlocked && (
                 <div className="text-sm text-muted-foreground">In Progress</div>
               )}
               {isSubmissionBlocked && (
@@ -1843,13 +2029,13 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
                   <span>Submissions Closed</span>
                 </div>
               )}
-              {isPastDue && allowLateSubmissions && submissionStatus === "in-progress" && (
+              {isPastDue && allowLateSubmissions && effectiveStatus === "in-progress" && (
                 <div className="flex items-center gap-2 text-sm text-amber-600 dark:text-amber-400">
                   <AlertTriangle className="w-4 h-4" />
                   <span>Past Due - Will be marked as late</span>
                 </div>
               )}
-              {autogradingFailed && submissionStatus === "submitted" && (
+              {autogradingFailed && effectiveStatus === "submitted" && (
                 <div className="flex items-center gap-2 text-sm text-amber-600">
                   <AlertTriangle className="w-4 h-4" />
                   <span>Autograding failed</span>
@@ -1857,7 +2043,7 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
               )}
             </div>
             <div className="flex items-center gap-3">
-              {autogradingFailed && submissionStatus === "submitted" && (
+              {autogradingFailed && effectiveStatus === "submitted" && (
                 <Button
                   onClick={handleRetryAutograde}
                   disabled={isRetryingAutograde}
@@ -1878,26 +2064,28 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
                   )}
                 </Button>
               )}
-              {(submissionStatus === "submitted" || submissionStatus === "graded") ? (
-                <Button
-                  onClick={hasPreviousSubmission ? handleResubmit : handleUnsubmit}
-                  disabled={isSubmitting}
-                  variant="outline"
-                  size="lg"
-                  className="border-purple-600 text-purple-600 hover:bg-primary/10 dark:border-purple-400 dark:text-purple-400"
-                >
-                  {isSubmitting ? (
-                    <>
-                      <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
-                      {hasPreviousSubmission ? "Creating..." : "Unsubmitting..."}
-                    </>
-                  ) : (
-                    <>
-                      <RefreshCw className="w-4 h-4 mr-2" />
-                      {hasPreviousSubmission ? "Resubmit" : "Unsubmit"}
-                    </>
-                  )}
-                </Button>
+              {(effectiveStatus === "submitted" || effectiveStatus === "graded") ? (
+                allowResubmissions && !isSubmissionBlocked && (
+                  <Button
+                    onClick={handleUnsubmit}
+                    disabled={isSubmitting}
+                    variant="outline"
+                    size="lg"
+                    className="border-purple-600 text-purple-600 hover:bg-primary/10 dark:border-purple-400 dark:text-purple-400"
+                  >
+                    {isSubmitting ? (
+                      <>
+                        <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                        Unsubmitting...
+                      </>
+                    ) : (
+                      <>
+                        <RefreshCw className="w-4 h-4 mr-2" />
+                        Unsubmit
+                      </>
+                    )}
+                  </Button>
+                )
               ) : (
                 <Button
                   onClick={handleSubmit}

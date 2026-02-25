@@ -13,7 +13,7 @@ import {
 import { UserRole } from "../types/enums";
 import { Assignment } from "../types/entities";
 import { getIO } from "../services/websocket";
-import { emitTreeUpdate } from "../services/courseTreeSocket";
+import { emitTreeUpdate, emitAssignmentSettingsUpdate } from "../services/courseTreeSocket";
 
 const router = Router();
 
@@ -910,6 +910,18 @@ router.put(
 
       // Emit real-time update
       try { emitTreeUpdate(getIO(), context.id, "assignment-updated", { assignmentId: id }); } catch {}
+
+      // Emit settings/due-date update so students get live enforcement
+      if (settings !== undefined || due_dates_map !== undefined || due_date_config !== undefined) {
+        try {
+          emitAssignmentSettingsUpdate(getIO(), context.id, {
+            assignmentId: id,
+            ...(settings !== undefined && { settings: updatedAssignment.settings }),
+            ...(due_dates_map !== undefined && { due_dates_map: updatedAssignment.due_dates_map }),
+            ...(due_date_config !== undefined && { due_date_config: updatedAssignment.due_date_config }),
+          });
+        } catch {}
+      }
     } catch (error) {
       console.error("Error updating assignment:", error);
       res.status(500).json({
