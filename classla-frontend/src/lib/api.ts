@@ -562,6 +562,26 @@ export const apiClient = {
   createS3File: (bucketId: string, filePath: string, content?: string) =>
     api.post(`/s3buckets/${bucketId}/files`, { path: filePath, content: content || "" }),
 
+  // File upload & download
+  uploadFiles: (bucketId: string, files: File[], basePath?: string) => {
+    const formData = new FormData();
+    files.forEach((f) => formData.append("files", f));
+    if (basePath) formData.append("basePath", basePath);
+    return api.post(`/s3buckets/${bucketId}/files/upload`, formData, {
+      headers: { "Content-Type": "multipart/form-data" },
+      timeout: 120000,
+    });
+  },
+  downloadFile: (bucketId: string, filePath: string) =>
+    api.get(`/s3buckets/${bucketId}/files/download/${encodeURIComponent(filePath)}`, {
+      responseType: "blob",
+    }),
+  downloadWorkspaceZip: (bucketId: string) =>
+    api.get(`/s3buckets/${bucketId}/download-zip`, {
+      responseType: "blob",
+      timeout: 120000,
+    }),
+
   // Image block operations
   getImageUploadUrl: (data: { assignmentId: string; filename: string; contentType: string }) =>
     api.post('/s3buckets/image-upload-url', data),

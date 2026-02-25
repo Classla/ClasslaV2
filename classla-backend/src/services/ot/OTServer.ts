@@ -287,8 +287,8 @@ export class OTServer {
         const missedOps = await this.persistence.getOperationsSince(documentId, clientRevision);
 
         if (missedOps.length !== doc.revision - clientRevision) {
-          logger.warn(
-            `[OTServer] Operation log gap for ${documentId}: expected ${doc.revision - clientRevision} ops, got ${missedOps.length}`
+          throw new Error(
+            `Operation log gap for ${documentId}: expected ${doc.revision - clientRevision} ops, got ${missedOps.length}. Client should resync.`
           );
         }
 
@@ -371,6 +371,9 @@ export class OTServer {
       if (!doc) {
         throw new Error(`Document not found: ${documentId}`);
       }
+
+      // Bug #4: Normalize line endings before comparison/diff
+      newContent = this.normalizeContent(newContent);
 
       // No change
       if (doc.content === newContent) {

@@ -193,6 +193,7 @@ const { isDark, toggle } = useTheme();
 
 ## Git Commits
 
+- **Never commit or push code unless explicitly asked to do so.**
 - Do NOT add a `Co-Authored-By` line to commit messages.
 - Every commit must reference a GitHub issue. Include the issue number in the commit message (e.g. `Fix login bug (#42)`).
 - If no relevant issue exists, create one first with `gh issue create` before committing.

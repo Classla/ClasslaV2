@@ -132,6 +132,7 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
   const instanceIdRef = useRef(`ide_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`); // Unique ID per MonacoIDE instance for local cursor dispatch
   const pendingRenamePathsRef = useRef<Set<string>>(new Set()); // Track paths that were just renamed — suppress content overwrite on reconnect
   const setupOTBindingRef = useRef<((filePath: string) => void) | null>(null); // Ref to setupOTBinding for use in callbacks declared before it
+  const openTabsRef = useRef<string[]>([]); // Stable ref for openTabs — used in unmount cleanup to avoid destroying OT bindings on every tab change
   // Min and max constraints for side panel
   const SIDE_PANEL_MIN = 150;
   const SIDE_PANEL_MAX = 500;
@@ -279,6 +280,14 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
   // Auto-show terminal when container is ready and URL probe has passed
   const hasTerminal = !!(containerId && containerTerminalUrl && terminalUrlReady);
   const hasVnc = !!(containerId && containerVncUrl && showDesktop);
+
+  const buildVncUrl = useCallback(() => {
+    if (!containerVncUrl) return '';
+    const urlObj = new URL(containerVncUrl);
+    const vncPath = urlObj.pathname.endsWith('/') ? urlObj.pathname.slice(0, -1) : urlObj.pathname;
+    const websockifyPath = `${vncPath}/websockify`;
+    return `${containerVncUrl}${containerVncUrl.endsWith('/') ? '' : '/'}vnc.html?autoconnect=true&password=vncpassword&resize=scale&path=${encodeURIComponent(websockifyPath)}`;
+  }, [containerVncUrl]);
 
   // Grace period (ms) after container ready — transient 502s are tolerated during this window
   const CONTAINER_GRACE_PERIOD_MS = 15_000;
@@ -1186,6 +1195,76 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
     [bucketId, files, fileContent, selectedFile, toast, loadFileTree]
   );
 
+  // Handle file upload
+  const handleUploadFiles = useCallback(
+    async (uploadedFiles: File[]) => {
+      if (!bucketId) return;
+
+      try {
+        await apiClient.uploadFiles(bucketId, uploadedFiles);
+        toast({
+          title: "Files uploaded",
+          description: `Successfully uploaded ${uploadedFiles.length} file(s)`,
+        });
+        loadFileTree();
+      } catch (error: any) {
+        toast({
+          title: "Upload failed",
+          description: error?.response?.data?.error || error.message || "Failed to upload files",
+          variant: "destructive",
+        });
+      }
+    },
+    [bucketId, toast, loadFileTree]
+  );
+
+  // Handle single file download
+  const handleDownloadFile = useCallback(
+    async (path: string) => {
+      if (!bucketId) return;
+
+      try {
+        const response = await apiClient.downloadFile(bucketId, path);
+        const blob = new Blob([response.data]);
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = path.split("/").pop() || "file";
+        a.click();
+        URL.revokeObjectURL(url);
+      } catch (error: any) {
+        toast({
+          title: "Download failed",
+          description: error?.response?.data?.error || error.message || "Failed to download file",
+          variant: "destructive",
+        });
+      }
+    },
+    [bucketId, toast]
+  );
+
+  // Handle workspace zip download
+  const handleDownloadZip = useCallback(async () => {
+    if (!bucketId) return;
+
+    try {
+      const response = await apiClient.downloadWorkspaceZip(bucketId);
+      const blob = new Blob([response.data], { type: "application/zip" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "workspace.zip";
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (error: any) {
+      toast({
+        title: "Download failed",
+        description: error?.response?.data?.error || error.message || "Failed to download workspace",
+        variant: "destructive",
+      });
+    }
+  }, [bucketId, toast]);
+
   // Connect to OT provider (singleton — don't disconnect on unmount since other instances may use it)
   useEffect(() => {
     if (!bucketId) return;
@@ -1429,8 +1508,12 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
             });
         };
         setFiles((prev) => removeFromTree(prev));
-        setOpenTabs((prev) => prev.filter((p) => p !== filePath));
+        setOpenTabs((prev) => {
+          const filtered = prev.filter((p) => p !== filePath);
+          return filtered.length === prev.length ? prev : filtered;
+        });
         setFileContent((prev) => {
+          if (!(filePath in prev)) return prev;
           const next = { ...prev };
           delete next[filePath];
           return next;
@@ -1732,12 +1815,18 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
     };
   }, [bucketId]);
 
-  // Cleanup OT bindings on unmount
+  // Keep openTabsRef in sync so the unmount cleanup always sees the latest tabs
+  openTabsRef.current = openTabs;
+
+  // Cleanup OT bindings on unmount (or bucket change).
+  // IMPORTANT: Do NOT include openTabs in deps — Array.filter() creates a new
+  // reference even when nothing is removed, which would destroy all OT bindings
+  // on every file-tree-change delete event (e.g. .class file cleanup).
   useEffect(() => {
     return () => {
-      // Force save all files before cleanup
+      // Force save all files before cleanup (use ref for latest tabs)
       if (bucketId) {
-        for (const filePath of openTabs) {
+        for (const filePath of openTabsRef.current) {
           const doc = otProvider.getDocument(bucketId, filePath);
           if (doc) {
             apiClient.saveS3File(bucketId, filePath, doc.content).catch((error) => {
@@ -1753,7 +1842,7 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
       });
       otBindingsRef.current = {};
     };
-  }, [bucketId, openTabs]);
+  }, [bucketId]);
 
   const currentContent = selectedFile ? fileContent[selectedFile] || "" : "";
 
@@ -2013,6 +2102,9 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
                     onCreateFile={handleCreateFile}
                     onDeleteFile={handleDeleteFile}
                     onRenameFile={handleRenameFile}
+                    onUploadFiles={readOnlyProp ? undefined : handleUploadFiles}
+                    onDownloadFile={handleDownloadFile}
+                    onDownloadZip={handleDownloadZip}
                   />
                 )}
                 {activePanel === "settings" && (
@@ -2310,6 +2402,18 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
                       {showDesktop ? "Hide Desktop" : "View Desktop"}
                     </Button>
                   )}
+                  {/* Desktop pop-out */}
+                  {hasVnc && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => window.open(buildVncUrl(), '_blank')}
+                      title="Open Desktop in New Tab"
+                      className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground"
+                    >
+                      <ExternalLink className="w-3 h-3" />
+                    </Button>
+                  )}
                 </div>
               </div>
               
@@ -2386,13 +2490,7 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
                         style={{ position: 'relative', minHeight: 0 }}
                       >
                         <iframe
-                          src={(() => {
-                            if (!containerVncUrl) return '';
-                            const urlObj = new URL(containerVncUrl);
-                            const vncPath = urlObj.pathname.endsWith('/') ? urlObj.pathname.slice(0, -1) : urlObj.pathname;
-                            const websockifyPath = `${vncPath}/websockify`;
-                            return `${containerVncUrl}${containerVncUrl.endsWith('/') ? '' : '/'}vnc.html?autoconnect=true&password=vncpassword&resize=scale&path=${encodeURIComponent(websockifyPath)}`;
-                          })()}
+                          src={buildVncUrl()}
                           className="w-full h-full border-0"
                           title="Desktop View"
                           allow="clipboard-read; clipboard-write"
@@ -2508,20 +2606,12 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
                         style={{ position: 'relative', minHeight: 0 }}
                       >
                         <iframe
-                          src={(() => {
-                            if (!containerVncUrl) return '';
-                            // Extract the path from the VNC URL (e.g., /vnc/px63ejgn from http://localhost/vnc/px63ejgn)
-                            const urlObj = new URL(containerVncUrl);
-                            const vncPath = urlObj.pathname.endsWith('/') ? urlObj.pathname.slice(0, -1) : urlObj.pathname;
-                            const websockifyPath = `${vncPath}/websockify`;
-                            // Construct the full VNC URL with path parameter
-                            return `${containerVncUrl}${containerVncUrl.endsWith('/') ? '' : '/'}vnc.html?autoconnect=true&password=vncpassword&resize=scale&path=${encodeURIComponent(websockifyPath)}`;
-                          })()}
+                          src={buildVncUrl()}
                           className="w-full h-full border-0"
                           title="Desktop View"
                           allow="clipboard-read; clipboard-write"
-                          style={{ 
-                            pointerEvents: 'auto', 
+                          style={{
+                            pointerEvents: 'auto',
                             outline: 'none',
                             maxWidth: '100%',
                             overflow: 'hidden'

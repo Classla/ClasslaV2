@@ -596,7 +596,8 @@ RUN echo '#!/usr/bin/env python3' > /usr/local/bin/run-server.py && \
     echo '            flush_resp = urllib.request.urlopen(flush_req, timeout=30)' >> /usr/local/bin/run-server.py && \
     echo '            print(f"Flushed and pulled files before run: {flush_resp.read().decode()}")' >> /usr/local/bin/run-server.py && \
     echo '        except Exception as e:' >> /usr/local/bin/run-server.py && \
-    echo '            print(f"WARNING: Failed to flush/pull files before run: {e}")' >> /usr/local/bin/run-server.py && \
+    echo '            print(f"ERROR: Failed to flush/pull files before run: {e}")' >> /usr/local/bin/run-server.py && \
+    echo '            return jsonify({"error": f"File sync failed before run. Please try again. ({e})"}), 503' >> /usr/local/bin/run-server.py && \
     echo '        ' >> /usr/local/bin/run-server.py && \
     echo '        # Check file exists after flush (file may have been pulled from backend)' >> /usr/local/bin/run-server.py && \
     echo '        if not os.path.exists(filepath):' >> /usr/local/bin/run-server.py && \
@@ -1062,7 +1063,8 @@ RUN echo '#!/usr/bin/env python3' > /usr/local/bin/run-server.py && \
     echo '            flush_resp = urllib.request.urlopen(flush_req, timeout=30)' >> /usr/local/bin/run-server.py && \
     echo '            print(f"Flushed and pulled files before tests: {flush_resp.read().decode()}")' >> /usr/local/bin/run-server.py && \
     echo '        except Exception as e:' >> /usr/local/bin/run-server.py && \
-    echo '            print(f"WARNING: Failed to flush/pull files before tests: {e}")' >> /usr/local/bin/run-server.py && \
+    echo '            print(f"ERROR: Failed to flush/pull files before tests: {e}")' >> /usr/local/bin/run-server.py && \
+    echo '            return jsonify({"error": f"File sync failed before tests. Please try again. ({e})"}), 503' >> /usr/local/bin/run-server.py && \
     echo '        ' >> /usr/local/bin/run-server.py && \
     echo '        os.makedirs(AUTOGRADER_PATH, exist_ok=True)' >> /usr/local/bin/run-server.py && \
     echo '        ' >> /usr/local/bin/run-server.py && \

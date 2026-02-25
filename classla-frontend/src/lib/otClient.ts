@@ -215,6 +215,15 @@ export class OTDocumentClient {
   content: string;
   onSendOperation: ((revision: number, operation: TextOperation) => void) | null = null;
 
+  // Bug #1: Track pending resync so document-state handler can force-apply
+  _resyncPending = false;
+
+  // Bug #2: Resync cooldown to prevent infinite resync loops
+  _lastResyncTime = 0;
+  _resyncCount = 0;
+  static RESYNC_COOLDOWN_MS = 3000;
+  static MAX_CONSECUTIVE_RESYNCS = 3;
+
   // Listener maps for multi-editor support (same page, two Monaco instances)
   private contentChangedListeners: Map<string, (content: string, operation: TextOperation) => void> = new Map();
   private saveStatusListeners: Map<string, (status: "saving" | "saved" | "error") => void> = new Map();
@@ -343,6 +352,8 @@ export class OTDocumentClient {
    */
   handleAck(revision: number): void {
     this.revision = revision;
+    // Bug #2: Successful ack means OT is healthy, reset resync counter
+    this._resyncCount = 0;
 
     if (this.state.type === "awaitingConfirm") {
       this.state = { type: "synchronized" };
@@ -360,6 +371,21 @@ export class OTDocumentClient {
    * Used when the server rejects an operation — prevents being stuck in awaitingConfirm.
    */
   resetAndResync(): void {
+    // Bug #2: Cooldown to prevent infinite resync loops
+    const now = Date.now();
+    if (now - this._lastResyncTime < OTDocumentClient.RESYNC_COOLDOWN_MS) {
+      console.warn(`[OT] Resync throttled for ${this.documentId} (cooldown)`);
+      return;
+    }
+    if (this._resyncCount >= OTDocumentClient.MAX_CONSECUTIVE_RESYNCS) {
+      console.warn(`[OT] Resync throttled for ${this.documentId} (max ${OTDocumentClient.MAX_CONSECUTIVE_RESYNCS} consecutive resyncs)`);
+      return;
+    }
+    this._resyncCount++;
+    this._lastResyncTime = now;
+
+    // Bug #1: Mark resync pending so document-state handler can force-apply
+    this._resyncPending = true;
     this.state = { type: "synchronized" };
     this.onSaveStatusChanged?.("error");
     this.onResyncNeeded?.();
@@ -371,11 +397,10 @@ export class OTDocumentClient {
    */
   handleRemoteOperation(operation: TextOperation, revision: number): void {
     try {
-      this.revision = revision;
-
       if (this.state.type === "synchronized") {
         // Apply directly
         this.content = operation.apply(this.content);
+        this.revision = revision;
         this.notifyContentChanged(this.content, operation);
       } else if (this.state.type === "awaitingConfirm") {
         // Transform against outstanding
@@ -385,6 +410,7 @@ export class OTDocumentClient {
         );
         this.state = { type: "awaitingConfirm", outstanding: outstandingPrime };
         this.content = oPrime.apply(this.content);
+        this.revision = revision;
         this.notifyContentChanged(this.content, oPrime);
       } else if (this.state.type === "awaitingWithBuffer") {
         // Transform against outstanding, then against buffer
@@ -399,13 +425,14 @@ export class OTDocumentClient {
           buffer: bufferPrime,
         };
         this.content = oPrime2.apply(this.content);
+        this.revision = revision;
         this.notifyContentChanged(this.content, oPrime2);
       }
     } catch (error) {
       console.error(`[OT] Error applying remote operation for ${this.documentId}, requesting resync:`, error);
-      // Reset to synchronized state — the next document-state from server will fix us
-      this.state = { type: "synchronized" };
-      this.notifyResyncNeeded();
+      // Use resetAndResync() so _resyncPending is set — ensures the document-state
+      // response is force-applied even if the user types before it arrives.
+      this.resetAndResync();
     }
   }
 }
@@ -438,6 +465,12 @@ class OTProvider {
     if (!backendApiUrl) return;
 
     if (this.socket?.connected) return;
+
+    // If the socket exists but isn't connected yet (still in CONNECTING state),
+    // do NOT destroy it. Calling disconnect() on a connecting socket is a no-op
+    // in some Socket.IO versions, leaving a zombie socket on the server.
+    // Let Socket.IO handle reconnection automatically.
+    if (this.socket && !this.socket.disconnected) return;
 
     // If we have a disconnected socket, clean it up first
     if (this.socket) {
@@ -563,6 +596,26 @@ class OTProvider {
         if (!doc) {
           doc = new OTDocumentClient(documentId, content, revision);
           this.documents.set(documentId, doc);
+        } else if (doc.state.type !== "synchronized" && doc._resyncPending) {
+          // Bug #1: Resync was requested but user typed before server responded,
+          // pushing state to awaitingConfirm/awaitingWithBuffer. Force-apply the
+          // server's authoritative state to complete the resync.
+          console.log(`[OT] Force-applying document-state for ${documentId} (resync pending, state: ${doc.state.type})`);
+          doc.state = { type: "synchronized" };
+          doc._resyncPending = false;
+          // Bug #2: Successful resync, reset counter
+          doc._resyncCount = 0;
+
+          const oldContent = doc.content;
+          doc.content = content;
+          doc.revision = revision;
+
+          if (oldContent !== content && doc.onContentChanged) {
+            const replaceOp = new TextOperation();
+            if (oldContent.length > 0) replaceOp.delete(oldContent.length);
+            if (content.length > 0) replaceOp.insert(content);
+            doc.onContentChanged(content, replaceOp);
+          }
         } else if (doc.state.type !== "synchronized") {
           // Document still has pending operations (edge case: duplicate subscribe
           // within the same session). Don't reset state or content, and don't
@@ -572,6 +625,7 @@ class OTProvider {
           shouldNotifyContent = false;
         } else {
           // Synchronized state: safe to update content/revision
+          doc._resyncPending = false;
           const oldContent = doc.content;
           doc.content = content;
           doc.revision = revision;
@@ -591,6 +645,7 @@ class OTProvider {
             documentId,
             revision: rev,
             operation: op.toJSON(),
+            opId: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
           });
         };
 

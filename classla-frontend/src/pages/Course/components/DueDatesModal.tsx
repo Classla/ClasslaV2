@@ -121,6 +121,21 @@ const DueDatesModal: React.FC<DueDatesModalProps> = ({
           ),
         }));
 
+      // Add virtual "No Section" group for students not assigned to any section
+      const unsectionedEnrollments = transformedEnrollments.filter(
+        (e) => !e.section_id
+      );
+      if (unsectionedEnrollments.length > 0) {
+        sectionsWithEnrollments.push({
+          id: "__no_section__",
+          course_id: assignment.course_id,
+          name: "No Section",
+          description: "",
+          slug: "",
+          enrollments: unsectionedEnrollments,
+        } as SectionWithEnrollments);
+      }
+
       setSections(sectionsWithEnrollments);
     } catch (error: any) {
       toast({
@@ -492,7 +507,7 @@ const DueDatesModal: React.FC<DueDatesModalProps> = ({
                 </Label>
               </div>
               <div className="space-y-2">
-                {sections.map((section) => (
+                {sections.filter((s) => s.id !== "__no_section__").map((section) => (
                   <div key={section.id} className="flex items-center space-x-2">
                     <Label className="w-32 text-sm">{section.name}:</Label>
                     <Input

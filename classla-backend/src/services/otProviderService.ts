@@ -153,6 +153,34 @@ async function deleteFileFromS3(bucketId: string, filePath: string): Promise<voi
 // Track container sockets: bucketId → socketId
 const containerSockets: Map<string, string> = new Map();
 
+// Bug #7: Operation deduplication — tracks recently processed opIds per document
+// Outer map: documentId → inner map: opId → timestamp
+const recentOpIds: Map<string, Map<string, number>> = new Map();
+const DEDUP_TTL_MS = 30000;
+
+function isDuplicateOp(documentId: string, opId: string | undefined): boolean {
+  if (!opId) return false; // Backward compatible: old clients without opId skip dedup
+
+  let docOps = recentOpIds.get(documentId);
+  if (!docOps) {
+    docOps = new Map();
+    recentOpIds.set(documentId, docOps);
+  }
+
+  // Lazy cleanup when map gets large
+  if (docOps.size > 100) {
+    const now = Date.now();
+    for (const [id, ts] of docOps) {
+      if (now - ts > DEDUP_TTL_MS) docOps.delete(id);
+    }
+  }
+
+  if (docOps.has(opId)) return true;
+
+  docOps.set(opId, Date.now());
+  return false;
+}
+
 export function setupOTWebSocket(io: SocketIOServer): void {
   const otNamespace = io.of("/ot");
 
@@ -415,8 +443,15 @@ export function setupOTWebSocket(io: SocketIOServer): void {
         documentId: string;
         revision: number;
         operation: (number | string)[];
+        opId?: string;
       }) => {
-        const { documentId, revision, operation } = data;
+        const { documentId, revision, operation, opId } = data;
+
+        // Bug #7: Deduplicate operations (Socket.IO can redeliver on reconnect)
+        if (isDuplicateOp(documentId, opId)) {
+          logger.info(`[OT] Duplicate operation skipped for ${documentId} (opId=${opId})`);
+          return;
+        }
 
         try {
           const op = TextOperation.fromJSON(operation);
