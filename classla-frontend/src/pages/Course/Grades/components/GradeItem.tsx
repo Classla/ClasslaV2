@@ -120,7 +120,7 @@ const GradeItem: React.FC<GradeItemProps> = React.memo(
                 variant="default"
                 className="bg-green-600 hover:bg-green-700 text-white font-semibold"
               >
-                ✓ Graded
+                Reviewed
               </Badge>
             )}
           </div>
