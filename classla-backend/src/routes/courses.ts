@@ -1205,11 +1205,12 @@ router.get(
         throw enrollmentsError;
       }
 
-      // Fetch all assignments for the course
+      // Fetch all non-deleted assignments for the course
       const { data: assignments, error: assignmentsError } = await supabase
         .from("assignments")
         .select("*")
         .eq("course_id", courseId)
+        .is("deleted_at", null)
         .order("order_index");
 
       if (assignmentsError) {
