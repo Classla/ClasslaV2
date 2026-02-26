@@ -185,6 +185,8 @@ export const sanitizeMCQData = (data: any): MCQBlockData => {
     points:
       typeof data.points === "number" && data.points >= 0 ? data.points : 1,
     explanation: typeof data.explanation === "string" ? data.explanation : "",
+    allowCheckAnswer:
+      typeof data.allowCheckAnswer === "boolean" ? data.allowCheckAnswer : false,
   };
 
   // Sanitize options array
