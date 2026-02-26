@@ -78,6 +78,7 @@ interface AssignmentViewerProps {
   totalPossiblePoints?: number; // Total possible points for the assignment
   previewMode?: boolean; // If true, this is a teacher preview - disable all submissions
   userDueDate?: Date | string | null; // The student's due date for this assignment
+  timedDeadline?: Date | null; // The student's personal timed deadline (from lockdown_time_map)
   isLateSubmission?: boolean; // Whether the current submission was marked late
 }
 
@@ -117,6 +118,7 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
   totalPossiblePoints,
   previewMode = false,
   userDueDate,
+  timedDeadline,
   isLateSubmission = false,
 }) => {
   const { toast } = useToast();
@@ -186,6 +188,7 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
   }, [allowResubmissions, allSubmissions, submissionId]);
   const allowLateSubmissions =
     assignment.settings?.allowLateSubmissions ?? false;
+  const isTimedAssignment = (assignment.settings?.timeLimitSeconds ?? 0) > 0;
 
   // Due date enforcement — live timer fires at the exact due date moment
   const [dueDateExpired, setDueDateExpired] = useState(false);
@@ -216,25 +219,68 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
     return dueDateExpired || new Date(userDueDate) < new Date();
   }, [userDueDate, dueDateExpired]);
 
-  const isSubmissionBlocked = isPastDue && !allowLateSubmissions;
+  // Timed deadline enforcement — separate from due date
+  const [timedExpired, setTimedExpired] = useState(false);
 
-  // ── Due-date countdown (< 5 minutes) ────────────────────────────────────
+  useEffect(() => {
+    if (!timedDeadline) {
+      setTimedExpired(false);
+      return;
+    }
+
+    const deadline = new Date(timedDeadline).getTime();
+    const remaining = deadline - Date.now();
+
+    if (remaining <= 0) {
+      setTimedExpired(true);
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      setTimedExpired(true);
+    }, remaining);
+
+    return () => clearTimeout(timer);
+  }, [timedDeadline]);
+
+  // Blocked when either the due date passed (and no late submissions) OR timed deadline expired
+  const isSubmissionBlocked = (isPastDue && !allowLateSubmissions) || timedExpired;
+
+  // ── Countdown timer ────────────────────────────────────────────────────
   const [timeRemaining, setTimeRemaining] = useState<number | null>(null);
   const [countdownDismissed, setCountdownDismissed] = useState(false);
 
   const formatCountdown = (seconds: number): string => {
-    const m = Math.floor(seconds / 60);
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
     const s = seconds % 60;
+    if (h > 0) {
+      return `${h}:${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
+    }
     return `${m}:${s.toString().padStart(2, "0")}`;
   };
 
+  // For the countdown, use the earliest effective deadline
+  const countdownTarget = useMemo(() => {
+    if (isTimedAssignment && timedDeadline) {
+      // For timed assignments, count down to min(timedDeadline, userDueDate)
+      if (userDueDate) {
+        const dueTime = new Date(userDueDate).getTime();
+        const timedTime = new Date(timedDeadline).getTime();
+        return new Date(Math.min(dueTime, timedTime));
+      }
+      return timedDeadline;
+    }
+    return userDueDate ? new Date(userDueDate) : null;
+  }, [isTimedAssignment, timedDeadline, userDueDate]);
+
   useEffect(() => {
-    if (!userDueDate || !isStudent) {
+    if (!countdownTarget || !isStudent) {
       setTimeRemaining(null);
       return;
     }
 
-    const due = new Date(userDueDate).getTime();
+    const due = new Date(countdownTarget).getTime();
 
     const tick = () => {
       const remaining = Math.floor((due - Date.now()) / 1000);
@@ -242,7 +288,9 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
         setTimeRemaining(null);
         return;
       }
-      if (remaining <= 300) {
+      // For timed assignments, always show the countdown
+      // For regular assignments, only show in the last 5 minutes
+      if (isTimedAssignment || remaining <= 300) {
         setTimeRemaining(remaining);
       } else {
         setTimeRemaining(null);
@@ -252,7 +300,7 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
     tick(); // run immediately
     const id = setInterval(tick, 1000);
     return () => clearInterval(id);
-  }, [userDueDate, isStudent]);
+  }, [countdownTarget, isStudent, isTimedAssignment]);
 
   // Teacher edit mode: non-student viewing a student's existing submission (not preview)
   const isTeacherEditMode = !isStudent && !previewMode && !!submissionId;
@@ -322,7 +370,9 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
       if (!justSubmittedRef.current && !isSubmitting) {
         toast({
           title: "Assignment Locked",
-          description: isSubmissionBlocked
+          description: timedExpired
+            ? "Your time has expired. Your progress has been saved."
+            : isPastDue && !allowLateSubmissions
             ? "The due date has passed. Your progress has been saved."
             : "Your instructor has updated the assignment settings.",
           variant: "destructive",
@@ -338,7 +388,7 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
         description: "Your instructor has re-opened submissions.",
       });
     }
-  }, [isReadOnly, isStudent, isSubmitting, isSubmissionBlocked, flushAutoSave, toast]);
+  }, [isReadOnly, isStudent, isSubmitting, isSubmissionBlocked, timedExpired, isPastDue, allowLateSubmissions, flushAutoSave, toast]);
 
   // ────────────────────────────────────────────────────────────────────────────
 
@@ -1740,16 +1790,16 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
       {/* Due Date Countdown Banner */}
       {isStudent && timeRemaining != null && timeRemaining > 0 && !countdownDismissed && submissionStatus === "in-progress" && (
         <div className="px-4 py-2 border-b border-border">
-          <div className="bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 rounded-lg px-4 py-3 flex items-center justify-between">
+          <div className={`${timeRemaining < 60 ? "bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800" : "bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800"} rounded-lg px-4 py-3 flex items-center justify-between`}>
             <div className="flex items-center gap-2">
-              <Clock className="w-4 h-4 text-amber-600 dark:text-amber-400" />
-              <span className="text-sm font-medium text-amber-800 dark:text-amber-300">
-                Due in {formatCountdown(timeRemaining)}
+              <Clock className={`w-4 h-4 ${timeRemaining < 60 ? "text-red-600 dark:text-red-400" : "text-amber-600 dark:text-amber-400"}`} />
+              <span className={`text-sm font-medium ${timeRemaining < 60 ? "text-red-800 dark:text-red-300" : "text-amber-800 dark:text-amber-300"}`}>
+                {isTimedAssignment ? `Time remaining: ${formatCountdown(timeRemaining)}` : `Due in ${formatCountdown(timeRemaining)}`}
               </span>
             </div>
             <button
               onClick={() => setCountdownDismissed(true)}
-              className="flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400 hover:text-amber-800 dark:hover:text-amber-200 transition-colors"
+              className={`flex items-center gap-1 text-xs ${timeRemaining < 60 ? "text-red-600 dark:text-red-400 hover:text-red-800 dark:hover:text-red-200" : "text-amber-600 dark:text-amber-400 hover:text-amber-800 dark:hover:text-amber-200"} transition-colors`}
               aria-label="Hide countdown"
             >
               <ChevronRight className="w-3.5 h-3.5" />
@@ -1975,7 +2025,7 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
             {isStudent && timeRemaining != null && timeRemaining > 0 && countdownDismissed && submissionStatus === "in-progress" && (
               <button
                 onClick={() => setCountdownDismissed(false)}
-                className="absolute top-2 right-2 z-10 flex items-center gap-1 rounded-full bg-amber-100 dark:bg-amber-900/60 border border-amber-300 dark:border-amber-700 px-2 py-1 text-amber-700 dark:text-amber-300 hover:bg-amber-200 dark:hover:bg-amber-800/60 transition-colors"
+                className={`absolute top-2 right-2 z-10 flex items-center gap-1 rounded-full px-2 py-1 transition-colors ${timeRemaining < 60 ? "bg-red-100 dark:bg-red-900/60 border border-red-300 dark:border-red-700 text-red-700 dark:text-red-300 hover:bg-red-200 dark:hover:bg-red-800/60" : "bg-amber-100 dark:bg-amber-900/60 border border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-300 hover:bg-amber-200 dark:hover:bg-amber-800/60"}`}
                 aria-label="Show countdown"
               >
                 <Clock className="w-3.5 h-3.5" />
@@ -2026,10 +2076,10 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
               {isSubmissionBlocked && (
                 <div className="flex items-center gap-2 text-sm text-red-600 dark:text-red-400 font-medium">
                   <Clock className="w-4 h-4" />
-                  <span>Submissions Closed</span>
+                  <span>{timedExpired ? "Time Expired" : "Submissions Closed"}</span>
                 </div>
               )}
-              {isPastDue && allowLateSubmissions && effectiveStatus === "in-progress" && (
+              {isPastDue && allowLateSubmissions && !timedExpired && effectiveStatus === "in-progress" && (
                 <div className="flex items-center gap-2 text-sm text-amber-600 dark:text-amber-400">
                   <AlertTriangle className="w-4 h-4" />
                   <span>Past Due - Will be marked as late</span>
@@ -2106,7 +2156,7 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
                   ) : isSubmissionBlocked ? (
                     <>
                       <Clock className="w-4 h-4 mr-2" />
-                      Submissions Closed
+                      {timedExpired ? "Time Expired" : "Submissions Closed"}
                     </>
                   ) : hasPreviousSubmission ? (
                     <>

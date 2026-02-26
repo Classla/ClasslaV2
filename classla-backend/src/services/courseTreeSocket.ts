@@ -148,6 +148,7 @@ export function emitAssignmentSettingsUpdate(
     settings?: Record<string, any>;
     due_dates_map?: Record<string, string>;
     due_date_config?: Record<string, any>;
+    lockdown_time_map?: Record<string, number>;
   }
 ): void {
   try {

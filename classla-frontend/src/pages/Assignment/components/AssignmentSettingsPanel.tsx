@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { HelpCircle, ChevronDown, ChevronRight, Trash2, Copy, ArrowRight } from "lucide-react";
+import { HelpCircle, ChevronDown, ChevronRight, Trash2, Copy, ArrowRight, Clock } from "lucide-react";
 import { Label } from "../../../components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../../components/ui/select";
 import { Assignment, AssignmentSettings, RubricSchema, Course, UserRole } from "../../../types";
 import { apiClient } from "../../../lib/api";
 import { useToast } from "../../../hooks/use-toast";
 import { Button } from "../../../components/ui/button";
+import { Input } from "../../../components/ui/input";
 import {
   Dialog,
   DialogContent,
@@ -50,6 +51,13 @@ const AssignmentSettingsPanel: React.FC<AssignmentSettingsPanelProps> = ({
   const [availableCourses, setAvailableCourses] = useState<any[]>([]);
   const [loadingCourses, setLoadingCourses] = useState(false);
   const [cloneTargetCourseId, setCloneTargetCourseId] = useState("");
+
+  // Time limit state
+  const existingTimeLimitSeconds = assignment.settings?.timeLimitSeconds;
+  const [timeLimitEnabled, setTimeLimitEnabled] = useState(!!existingTimeLimitSeconds && existingTimeLimitSeconds > 0);
+  const [timeLimitHours, setTimeLimitHours] = useState(() => String(Math.floor((existingTimeLimitSeconds || 0) / 3600)));
+  const [timeLimitMinutes, setTimeLimitMinutes] = useState(() => String(Math.floor(((existingTimeLimitSeconds || 0) % 3600) / 60)));
+  const [isSavingTimeLimit, setIsSavingTimeLimit] = useState(false);
 
   // Check if TA has delete permission
   const canDelete = useMemo(() => {
@@ -190,6 +198,52 @@ const AssignmentSettingsPanel: React.FC<AssignmentSettingsPanelProps> = ({
       });
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const handleTimeLimitToggle = async () => {
+    const newEnabled = !timeLimitEnabled;
+    setTimeLimitEnabled(newEnabled);
+
+    if (!newEnabled) {
+      // Disable time limit: save undefined to clear it
+      setTimeLimitHours("0");
+      setTimeLimitMinutes("0");
+      try {
+        setIsSavingTimeLimit(true);
+        const response = await apiClient.updateAssignment(assignment.id, {
+          settings: { ...assignment.settings, timeLimitSeconds: undefined },
+        });
+        onAssignmentUpdated(response.data);
+        toast({ title: "Time limit removed", description: "Assignment is no longer timed." });
+      } catch (error: any) {
+        setTimeLimitEnabled(true); // revert
+        toast({ title: "Error", description: error.message || "Failed to update setting", variant: "destructive" });
+      } finally {
+        setIsSavingTimeLimit(false);
+      }
+    }
+  };
+
+  const handleSaveTimeLimit = async () => {
+    const hours = parseInt(timeLimitHours) || 0;
+    const minutes = parseInt(timeLimitMinutes) || 0;
+    const totalSeconds = hours * 3600 + minutes * 60;
+    // Skip saving if value is 0 (user may still be editing) or unchanged
+    if (totalSeconds <= 0 || totalSeconds === (assignment.settings?.timeLimitSeconds ?? 0)) {
+      return;
+    }
+    try {
+      setIsSavingTimeLimit(true);
+      const response = await apiClient.updateAssignment(assignment.id, {
+        settings: { ...assignment.settings, timeLimitSeconds: totalSeconds },
+      });
+      onAssignmentUpdated(response.data);
+      toast({ title: "Time limit saved", description: `Time limit set to ${hours}h ${minutes}m.` });
+    } catch (error: any) {
+      toast({ title: "Error", description: error.message || "Failed to save time limit", variant: "destructive" });
+    } finally {
+      setIsSavingTimeLimit(false);
     }
   };
 
@@ -415,6 +469,64 @@ const AssignmentSettingsPanel: React.FC<AssignmentSettingsPanelProps> = ({
               }`}
             />
           </button>
+        </div>
+
+        {/* Timed Assignment */}
+        <div className="space-y-2">
+          <div className="flex items-start gap-2">
+            <Clock className="w-4 h-4 text-purple-600 mt-0.5 flex-shrink-0" />
+            <div className="flex-1">
+              <h3 className="text-sm font-medium text-foreground mb-1">
+                Timed Assignment
+              </h3>
+              <p className="text-xs text-muted-foreground mb-2">
+                Set a time limit. Once a student starts, their personal timer begins and cannot be paused.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={handleTimeLimitToggle}
+            className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 ${
+              timeLimitEnabled ? "bg-purple-600" : "bg-accent"
+            }`}
+            role="switch"
+            aria-checked={timeLimitEnabled ? "true" : "false"}
+          >
+            <span
+              className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-card shadow ring-0 transition duration-200 ease-in-out ${
+                timeLimitEnabled ? "translate-x-5" : "translate-x-0"
+              }`}
+            />
+          </button>
+
+          {timeLimitEnabled && (
+            <div className="flex items-end gap-2 mt-2">
+              <div className="flex-1">
+                <Label className="text-xs text-muted-foreground">Hours</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  max={24}
+                  value={timeLimitHours}
+                  onChange={(e) => setTimeLimitHours(e.target.value)}
+                  onBlur={handleSaveTimeLimit}
+                  className="h-8 text-sm"
+                />
+              </div>
+              <div className="flex-1">
+                <Label className="text-xs text-muted-foreground">Minutes</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  max={59}
+                  value={timeLimitMinutes}
+                  onChange={(e) => setTimeLimitMinutes(e.target.value)}
+                  onBlur={handleSaveTimeLimit}
+                  className="h-8 text-sm"
+                />
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Rubric Configuration */}
