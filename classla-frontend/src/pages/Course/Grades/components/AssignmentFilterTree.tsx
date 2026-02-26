@@ -187,21 +187,6 @@ const AssignmentFilterTree: React.FC<AssignmentFilterTreeProps> = ({
 
   const isAllSelected = selectedAssignmentIds === null || selectedIds.size === allIds.size;
 
-  // Expand all folders on first render
-  React.useEffect(() => {
-    const allFolderIds = new Set<string>();
-    const collectFolderIds = (nodes: TreeNode[]) => {
-      for (const node of nodes) {
-        if (node.type === "folder") {
-          allFolderIds.add(node.id);
-          collectFolderIds(node.children);
-        }
-      }
-    };
-    collectFolderIds(tree);
-    setExpandedFolders(allFolderIds);
-  }, [tree]);
-
   const handleToggleExpand = useCallback((folderId: string) => {
     setExpandedFolders((prev) => {
       const next = new Set(prev);
