@@ -76,6 +76,7 @@ export interface AssignmentSettings {
   allowResubmissions?: boolean;
   showResponsesAfterSubmission?: boolean;
   showScoreAfterSubmission?: boolean; // Show autograded score to students after submission
+  timeLimitSeconds?: number; // Time limit in seconds for timed assignments (e.g., 7200 = 2 hours)
   [key: string]: any;
 }
 

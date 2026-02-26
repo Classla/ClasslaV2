@@ -18,7 +18,7 @@ import {
 } from "../types/api";
 import { runIDETestsAndGrade } from "./autograder";
 import { createBucketSnapshot } from "./s3buckets";
-import { emitSubmissionUpdate } from "../services/courseTreeSocket";
+import { emitSubmissionUpdate, emitAssignmentSettingsUpdate } from "../services/courseTreeSocket";
 import { getIO } from "../services/websocket";
 
 const router = Router();
@@ -667,6 +667,25 @@ router.post(
         }
       }
 
+      // Block updates past timed lockdown deadline
+      if (!isAdmin && assignment.is_lockdown && assignment.lockdown_time_map) {
+        const lockdownEndTime = assignment.lockdown_time_map[userId];
+        if (lockdownEndTime) {
+          const nowSeconds = Math.floor(Date.now() / 1000);
+          if (nowSeconds > lockdownEndTime) {
+            res.status(403).json({
+              error: {
+                code: "TIMED_DEADLINE_PASSED",
+                message: "Your time for this assignment has expired",
+                timestamp: new Date().toISOString(),
+                path: req.path,
+              },
+            });
+            return;
+          }
+        }
+      }
+
       // Check if submission already exists for this student and assignment
       const { data: existingSubmissions, error: existingError } = await supabase
         .from("submissions")
@@ -763,6 +782,42 @@ router.post(
         }
 
         submission = newSubmission;
+
+        // For timed assignments: compute and store the personal lockdown deadline
+        const timeLimitSeconds = assignment.settings?.timeLimitSeconds;
+        if (timeLimitSeconds && timeLimitSeconds > 0) {
+          const nowSeconds = Math.floor(Date.now() / 1000);
+          let personalDeadline = nowSeconds + timeLimitSeconds;
+
+          // Cap at due date if one exists
+          const userDueDate = assignment.due_dates_map?.[userId];
+          if (userDueDate) {
+            const dueDateSeconds = Math.floor(new Date(userDueDate).getTime() / 1000);
+            personalDeadline = Math.min(personalDeadline, dueDateSeconds);
+          }
+
+          // Write lockdown_time_map entry and enable lockdown
+          const updatedLockdownMap = { ...(assignment.lockdown_time_map || {}), [userId]: personalDeadline };
+          const { error: lockdownError } = await supabase
+            .from("assignments")
+            .update({ is_lockdown: true, lockdown_time_map: updatedLockdownMap })
+            .eq("id", assignment_id);
+
+          if (lockdownError) {
+            console.error("Failed to set lockdown deadline:", lockdownError);
+          } else {
+            // Broadcast the updated lockdown_time_map via WebSocket
+            try {
+              emitAssignmentSettingsUpdate(getIO(), course_id, {
+                assignmentId: assignment_id,
+                lockdown_time_map: updatedLockdownMap,
+              });
+            } catch {}
+          }
+
+          // Include the deadline in the response
+          (submission as any).timed_deadline = personalDeadline;
+        }
       }
 
       // Emit real-time update for grading panel
@@ -862,7 +917,7 @@ router.put(
       if (existingSubmission.student_id === userId && !isAdmin) {
         const { data: assignment } = await supabase
           .from("assignments")
-          .select("due_dates_map, settings")
+          .select("due_dates_map, settings, is_lockdown, lockdown_time_map")
           .eq("id", existingSubmission.assignment_id)
           .single();
 
@@ -877,6 +932,25 @@ router.put(
                 error: {
                   code: "PAST_DUE_DATE",
                   message: "Cannot update submission after the due date has passed",
+                  timestamp: new Date().toISOString(),
+                  path: req.path,
+                },
+              });
+              return;
+            }
+          }
+        }
+
+        // Check timed lockdown deadline
+        if (assignment?.is_lockdown && assignment.lockdown_time_map) {
+          const lockdownEndTime = assignment.lockdown_time_map[userId];
+          if (lockdownEndTime) {
+            const nowSeconds = Math.floor(Date.now() / 1000);
+            if (nowSeconds > lockdownEndTime) {
+              res.status(403).json({
+                error: {
+                  code: "TIMED_DEADLINE_PASSED",
+                  message: "Your time for this assignment has expired",
                   timestamp: new Date().toISOString(),
                   path: req.path,
                 },
@@ -975,7 +1049,7 @@ router.post(
       // Get assignment settings and content
       const { data: assignment } = await supabase
         .from("assignments")
-        .select("settings, content, due_dates_map")
+        .select("settings, content, due_dates_map, is_lockdown, lockdown_time_map")
         .eq("id", existingSubmission.assignment_id)
         .single();
 
@@ -1005,6 +1079,25 @@ router.post(
               return;
             }
             isLateSubmission = true;
+          }
+        }
+      }
+
+      // Check timed lockdown deadline
+      if (!isAdmin && assignment?.is_lockdown && assignment.lockdown_time_map) {
+        const lockdownEndTime = assignment.lockdown_time_map[userId];
+        if (lockdownEndTime) {
+          const nowSeconds = Math.floor(Date.now() / 1000);
+          if (nowSeconds > lockdownEndTime) {
+            res.status(403).json({
+              error: {
+                code: "TIMED_DEADLINE_PASSED",
+                message: "Your time for this assignment has expired",
+                timestamp: new Date().toISOString(),
+                path: req.path,
+              },
+            });
+            return;
           }
         }
       }

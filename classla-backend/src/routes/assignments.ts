@@ -248,6 +248,14 @@ const checkLockdownAccess = (
     return { canAccess: true };
   }
 
+  // For timed assignments, always allow access to the assignment page.
+  // Students who haven't started yet need to see the start screen.
+  // Students whose time expired need to view their locked work.
+  // The backend enforces write restrictions on submission endpoints (POST/PUT).
+  if (assignment.settings?.timeLimitSeconds > 0) {
+    return { canAccess: true };
+  }
+
   const userLockdownTime = assignment.lockdown_time_map[userId];
 
   if (userLockdownTime === undefined) {
@@ -912,13 +920,14 @@ router.put(
       try { emitTreeUpdate(getIO(), context.id, "assignment-updated", { assignmentId: id }); } catch {}
 
       // Emit settings/due-date update so students get live enforcement
-      if (settings !== undefined || due_dates_map !== undefined || due_date_config !== undefined) {
+      if (settings !== undefined || due_dates_map !== undefined || due_date_config !== undefined || lockdown_time_map !== undefined) {
         try {
           emitAssignmentSettingsUpdate(getIO(), context.id, {
             assignmentId: id,
             ...(settings !== undefined && { settings: updatedAssignment.settings }),
             ...(due_dates_map !== undefined && { due_dates_map: updatedAssignment.due_dates_map }),
             ...(due_date_config !== undefined && { due_date_config: updatedAssignment.due_date_config }),
+            ...(lockdown_time_map !== undefined && { lockdown_time_map: updatedAssignment.lockdown_time_map }),
           });
         } catch {}
       }

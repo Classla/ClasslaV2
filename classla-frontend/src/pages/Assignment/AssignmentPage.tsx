@@ -7,7 +7,7 @@ import { useToast } from "../../hooks/use-toast";
 import { Card } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
-import { Calendar, Users, Eye, Settings, X, MessageSquare } from "lucide-react";
+import { Calendar, Users, Eye, Settings, X, MessageSquare, Clock, AlertTriangle } from "lucide-react";
 import { Assignment, UserRole, RubricSchema, Course, Grader } from "../../types";
 import { hasTAPermission } from "../../lib/taPermissions";
 import PublishingModal from "../../components/PublishingModal";
@@ -89,6 +89,7 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
   const [isEditing, setIsEditing] = useState(false);
   const [editedName, setEditedName] = useState("");
   const [userDueDate, setUserDueDate] = useState<Date | null>(null);
+  const [timedDeadline, setTimedDeadline] = useState<Date | null>(null);
   const [isPublishModalOpen, setIsPublishModalOpen] = useState(false);
   const [isDueDatesModalOpen, setIsDueDatesModalOpen] = useState(false);
   const [activeSidebarPanel, setActiveSidebarPanel] = useState<
@@ -320,11 +321,16 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
         setEditedName(assignmentData.name);
 
         // Get user's due date if it exists
-        if (
-          assignmentData.due_dates_map &&
-          assignmentData.due_dates_map[user.id]
-        ) {
-          setUserDueDate(assignmentData.due_dates_map[user.id]);
+        if (assignmentData.due_dates_map?.[user.id]) {
+          setUserDueDate(new Date(assignmentData.due_dates_map[user.id]));
+        }
+
+        // For timed assignments, set the timed deadline from lockdown_time_map
+        if ((assignmentData.settings?.timeLimitSeconds ?? 0) > 0) {
+          const lockdownDeadline = assignmentData.lockdown_time_map?.[user.id];
+          if (lockdownDeadline) {
+            setTimedDeadline(new Date(lockdownDeadline * 1000));
+          }
         }
 
         // Fetch submission if student
@@ -460,6 +466,7 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
         settings?: Record<string, any>;
         due_dates_map?: Record<string, string>;
         due_date_config?: Record<string, any>;
+        lockdown_time_map?: Record<string, number>;
       }) => {
         const current = assignmentRef.current;
         if (!current || data.assignmentId !== assignmentId) return;
@@ -471,17 +478,27 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
             )
           : undefined;
 
-        setAssignment({
+        const updatedAssignment = {
           ...current,
           ...(data.settings && { settings: data.settings }),
           ...(convertedDueDatesMap && { due_dates_map: convertedDueDatesMap }),
           ...(data.due_date_config && { due_date_config: data.due_date_config }),
-        });
+          ...(data.lockdown_time_map && { lockdown_time_map: data.lockdown_time_map }),
+        };
+        setAssignment(updatedAssignment);
 
         // Update user due date if it changed
         if (data.due_dates_map && user.id) {
           const newDueDate = data.due_dates_map[user.id];
           setUserDueDate(newDueDate ? new Date(newDueDate) : null);
+        }
+
+        // Update timed deadline when lockdown_time_map changes
+        if (data.lockdown_time_map && user.id) {
+          const lockdownDeadline = data.lockdown_time_map[user.id];
+          if (lockdownDeadline) {
+            setTimedDeadline(new Date(lockdownDeadline * 1000));
+          }
         }
       }
     );
@@ -613,6 +630,8 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
   const handleStartAssignment = async () => {
     if (!assignment || !user?.id) return;
 
+    const isTimedAssignment = (assignment.settings?.timeLimitSeconds ?? 0) > 0;
+
     try {
       setIsStarting(true);
       const response = await apiClient.createOrUpdateSubmission({
@@ -628,9 +647,30 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
       // Add to submissions list
       setAllSubmissions([response.data]);
 
+      // For timed assignments, re-fetch assignment to get the updated lockdown_time_map
+      if (isTimedAssignment) {
+        try {
+          const assignmentResponse = effectiveIsStudent
+            ? await apiClient.getAssignmentForStudent(assignment.id)
+            : await apiClient.getAssignment(assignment.id);
+          const updatedAssignment = assignmentResponse.data;
+          setAssignment(updatedAssignment);
+
+          // Set the timed deadline from lockdown map
+          const lockdownDeadline = updatedAssignment.lockdown_time_map?.[user.id];
+          if (lockdownDeadline) {
+            setTimedDeadline(new Date(lockdownDeadline * 1000));
+          }
+        } catch (e) {
+          console.error("Failed to re-fetch assignment after start:", e);
+        }
+      }
+
       toast({
-        title: "Assignment started",
-        description: "You can now begin working on this assignment.",
+        title: isTimedAssignment ? "Timer started" : "Assignment started",
+        description: isTimedAssignment
+          ? "Your timer has started. Good luck!"
+          : "You can now begin working on this assignment.",
       });
     } catch (error: any) {
       console.error("Failed to start assignment:", error);
@@ -920,6 +960,7 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
                         grader={studentGrader}
                         totalPossiblePoints={totalPoints}
                         userDueDate={userDueDate}
+                        timedDeadline={timedDeadline}
                         isLateSubmission={isLateSubmission}
                         locked={
                           submissionStatus === "submitted" ||
@@ -987,28 +1028,78 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
                     ) : (
                       <div className="flex items-center justify-center h-full">
                         <div className="text-center max-w-md">
-                          <h3 className="text-2xl font-semibold text-foreground mb-4">
-                            Assignment Not Started
-                          </h3>
-                          <p className="text-muted-foreground mb-6">
-                            Click the button below to begin working on this
-                            assignment. Your progress will be saved
-                            automatically.
-                          </p>
-                          <Button
-                            onClick={handleStartAssignment}
-                            disabled={isStarting}
-                            className="bg-purple-600 hover:bg-purple-700 text-white px-8 py-3 text-lg"
-                          >
-                            {isStarting ? (
-                              <>
-                                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-2"></div>
-                                Starting...
-                              </>
-                            ) : (
-                              "Start Assignment"
-                            )}
-                          </Button>
+                          {(assignment.settings?.timeLimitSeconds ?? 0) > 0 ? (
+                            <>
+                              <Clock className="w-12 h-12 text-amber-500 mx-auto mb-4" />
+                              <h3 className="text-2xl font-semibold text-foreground mb-4">
+                                Timed Assignment
+                              </h3>
+                              <div className="bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 rounded-lg px-4 py-3 mb-4">
+                                <div className="flex items-center justify-center gap-2 mb-1">
+                                  <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+                                  <span className="text-sm font-medium text-amber-800 dark:text-amber-300">
+                                    Time Limit: {(() => {
+                                      const secs = assignment.settings!.timeLimitSeconds!;
+                                      const h = Math.floor(secs / 3600);
+                                      const m = Math.floor((secs % 3600) / 60);
+                                      const parts = [];
+                                      if (h > 0) parts.push(`${h} hour${h !== 1 ? 's' : ''}`);
+                                      if (m > 0) parts.push(`${m} minute${m !== 1 ? 's' : ''}`);
+                                      return parts.join(' ') || '0 minutes';
+                                    })()}
+                                  </span>
+                                </div>
+                                <p className="text-xs text-amber-700 dark:text-amber-400">
+                                  Once you start, the timer cannot be paused.
+                                </p>
+                              </div>
+                              <p className="text-muted-foreground mb-6 text-sm">
+                                Your progress will be saved automatically. When time expires, your work will be locked.
+                              </p>
+                              <Button
+                                onClick={handleStartAssignment}
+                                disabled={isStarting}
+                                className="bg-purple-600 hover:bg-purple-700 dark:bg-purple-800 dark:hover:bg-purple-900 text-white px-8 py-3 text-lg"
+                              >
+                                {isStarting ? (
+                                  <>
+                                    <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-2"></div>
+                                    Starting...
+                                  </>
+                                ) : (
+                                  <>
+                                    <Clock className="w-5 h-5 mr-2" />
+                                    Start Timer & Begin
+                                  </>
+                                )}
+                              </Button>
+                            </>
+                          ) : (
+                            <>
+                              <h3 className="text-2xl font-semibold text-foreground mb-4">
+                                Assignment Not Started
+                              </h3>
+                              <p className="text-muted-foreground mb-6">
+                                Click the button below to begin working on this
+                                assignment. Your progress will be saved
+                                automatically.
+                              </p>
+                              <Button
+                                onClick={handleStartAssignment}
+                                disabled={isStarting}
+                                className="bg-purple-600 hover:bg-purple-700 text-white px-8 py-3 text-lg"
+                              >
+                                {isStarting ? (
+                                  <>
+                                    <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-2"></div>
+                                    Starting...
+                                  </>
+                                ) : (
+                                  "Start Assignment"
+                                )}
+                              </Button>
+                            </>
+                          )}
                         </div>
                       </div>
                     )}
