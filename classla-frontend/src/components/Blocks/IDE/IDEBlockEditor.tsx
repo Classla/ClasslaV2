@@ -135,6 +135,13 @@ const IDEBlockEditor: React.FC<IDEBlockEditorProps> = memo(
       modelSolution: false,
       autoGrading: false,
     });
+    const [isResetting, setIsResetting] = useState<
+      Record<TabType, boolean>
+    >({
+      template: false,
+      modelSolution: false,
+      autoGrading: false,
+    });
     const [showDesktop, setShowDesktop] = useState<
       Record<TabType, boolean>
     >({
@@ -1203,61 +1210,12 @@ const IDEBlockEditor: React.FC<IDEBlockEditorProps> = memo(
 
     const handleRefreshInstance = useCallback(async (tab: TabType) => {
       const container = containers[tab];
-      
-      // If there's a running container, force sync before refreshing
-      if (container) {
-        try {
-          toast({
-            title: "Syncing workspace",
-            description: "Saving changes to S3 before refreshing...",
-            variant: "default",
-          });
+      const oldContainerId = container?.id;
 
-          const syncResponse = await fetch(
-            `${IDE_API_BASE_URL}/web/${container.id}/sync`,
-            {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-              },
-            }
-          );
-
-          const syncData = await syncResponse.json();
-
-          if (!syncResponse.ok) {
-            console.error("Sync before refresh failed:", syncData);
-            toast({
-              title: "Sync failed",
-              description: syncData.error || "Failed to sync workspace to S3. Refresh cancelled.",
-              variant: "destructive",
-            });
-            return; // Don't refresh if sync failed
-          }
-
-          // Wait a bit more to ensure S3 eventual consistency
-          await new Promise(resolve => setTimeout(resolve, 2000));
-
-          toast({
-            title: "Workspace synced",
-            description: `Changes saved to S3 (${syncData.files_synced || 0} files). Refreshing container...`,
-            variant: "default",
-          });
-        } catch (error: any) {
-          console.error("Failed to sync before refresh:", error);
-          toast({
-            title: "Sync error",
-            description: "Failed to sync workspace. Refresh cancelled to prevent data loss.",
-            variant: "destructive",
-          });
-          return; // Don't refresh if sync failed
-        }
-      }
-
-      // Clear the current container
+      // Clear the UI state and show spinner immediately
       setContainers((prev) => ({ ...prev, [tab]: null }));
-      
-      // Clear container ID from block data
+      setIsStarting((prev) => ({ ...prev, [tab]: true }));
+      setIsResetting((prev) => ({ ...prev, [tab]: true }));
       updateAttributes({
         ideData: {
           ...ideData,
@@ -1268,8 +1226,50 @@ const IDEBlockEditor: React.FC<IDEBlockEditorProps> = memo(
         },
       });
 
-      // Start a new container with the existing S3 bucket
+      // If there was a running container, best-effort sync then stop it
+      if (oldContainerId) {
+        // Best-effort sync with 5s timeout (container may be unresponsive)
+        try {
+          const abortController = new AbortController();
+          const timeout = setTimeout(() => abortController.abort(), 5000);
+
+          try {
+            const syncResponse = await fetch(
+              `${IDE_API_BASE_URL}/web/${oldContainerId}/sync`,
+              {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                signal: abortController.signal,
+              }
+            );
+
+            clearTimeout(timeout);
+            const syncData = await syncResponse.json();
+
+            if (!syncResponse.ok) {
+              console.warn("Sync before reset failed:", syncData);
+            } else {
+              await new Promise(resolve => setTimeout(resolve, 1000));
+            }
+          } catch (syncError: any) {
+            clearTimeout(timeout);
+            console.warn("Sync before reset failed (continuing anyway):", syncError);
+          }
+        } catch (error: any) {
+          console.warn("Unexpected error during pre-reset sync:", error);
+        }
+
+        // Stop the old container so the orchestration service doesn't reuse it
+        try {
+          await apiClient.stopIDEContainer(oldContainerId);
+        } catch (stopError: any) {
+          console.warn("Failed to stop old container (continuing anyway):", stopError);
+        }
+      }
+
+      // Start a fresh container with the existing S3 bucket
       await startContainer(tab);
+      setIsResetting((prev) => ({ ...prev, [tab]: false }));
     }, [containers, ideData, updateAttributes, startContainer, toast, IDE_API_BASE_URL]);
 
     // Push state updates to the side panel for the active tab
@@ -1472,6 +1472,7 @@ const IDEBlockEditor: React.FC<IDEBlockEditorProps> = memo(
                 tab="template"
                 container={containers.template}
                 isStarting={isStarting.template}
+                isResetting={isResetting.template}
                 showDesktop={showDesktop.template}
                 filename={runFilename.template}
                 ideApiBaseUrl={IDE_API_BASE_URL}
@@ -1571,6 +1572,7 @@ const IDEBlockEditor: React.FC<IDEBlockEditorProps> = memo(
                 tab="modelSolution"
                 container={containers.modelSolution}
                 isStarting={isStarting.modelSolution}
+                isResetting={isResetting.modelSolution}
                 showDesktop={showDesktop.modelSolution}
                 filename={runFilename.modelSolution}
                 ideApiBaseUrl={IDE_API_BASE_URL}
@@ -1786,6 +1788,7 @@ interface IDETabContentProps {
   tab: TabType;
   container: ContainerInfo | null;
   isStarting: boolean;
+  isResetting: boolean;
   showDesktop: boolean;
   filename: string;
   ideApiBaseUrl: string;
@@ -1815,6 +1818,7 @@ const IDETabContent: React.FC<IDETabContentProps> = memo(
     tab,
     container,
     isStarting,
+    isResetting,
     showDesktop,
     filename,
     ideApiBaseUrl,
@@ -1903,6 +1907,7 @@ const IDETabContent: React.FC<IDETabContentProps> = memo(
                 runFilename={filename}
                 onFilenameChange={onFilenameChange}
                 isStarting={isStarting}
+                isResetting={isResetting}
                 onRefreshInstance={onRefreshInstance}
                 onToggleDesktop={onToggleDesktop}
                 showDesktop={showDesktop}

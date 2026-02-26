@@ -59,6 +59,7 @@ interface ContainerSyncMessage {
   blockId: string;
   container: ContainerInfo | null;
   isStarting: boolean;
+  isResetting?: boolean;
 }
 
 const IDEFullscreenPage: React.FC = () => {
@@ -69,6 +70,8 @@ const IDEFullscreenPage: React.FC = () => {
 
   const [container, setContainer] = useState<ContainerInfo | null>(null);
   const [isStarting, setIsStarting] = useState(false);
+  const [isResetting, setIsResetting] = useState(false);
+  const isResettingRef = useRef(false);
   const [showDesktop, setShowDesktop] = useState(false);
   const [runFilename, setRunFilename] = useState("main.py");
   const [bucketId, setBucketId] = useState<string | null>(null);
@@ -99,10 +102,11 @@ const IDEFullscreenPage: React.FC = () => {
     channel.onmessage = (event: MessageEvent<ContainerSyncMessage>) => {
       const msg = event.data;
       if (msg.type === "container-update" && msg.blockId === blockId) {
-        if (msg.container) {
-          setContainer(msg.container);
-        }
+        setContainer(msg.container);
         setIsStarting(msg.isStarting);
+        const resetting = msg.isResetting ?? false;
+        setIsResetting(resetting);
+        isResettingRef.current = resetting;
       }
     };
 
@@ -121,6 +125,7 @@ const IDEFullscreenPage: React.FC = () => {
         blockId,
         container: cont,
         isStarting: starting,
+        isResetting: isResettingRef.current,
       };
       try {
         broadcastChannelRef.current.postMessage(msg);
@@ -354,6 +359,61 @@ const IDEFullscreenPage: React.FC = () => {
     }
   }, [container, runFilename, bucketId, ideApiBaseUrl, startContainer, toast]);
 
+  // Handle reset instance: clear UI instantly, best-effort sync, stop old container, start fresh
+  const handleRefreshInstance = useCallback(async () => {
+    if (!container) return;
+
+    const oldContainerId = container.id;
+
+    // Clear the UI state and show spinner immediately
+    setContainer(null);
+    setIsStarting(true);
+    setIsResetting(true);
+    isResettingRef.current = true;
+    broadcastContainerState(null, true);
+
+    // Best-effort sync with 5s timeout (container may be unresponsive)
+    try {
+      const abortController = new AbortController();
+      const timeout = setTimeout(() => abortController.abort(), 5000);
+      try {
+        const syncResponse = await fetch(
+          `${ideApiBaseUrl}/web/${oldContainerId}/sync`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            signal: abortController.signal,
+          }
+        );
+        clearTimeout(timeout);
+        const syncData = await syncResponse.json();
+        if (!syncResponse.ok) {
+          console.warn("Sync before reset failed:", syncData);
+        } else {
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+      } catch (syncError: any) {
+        clearTimeout(timeout);
+        console.warn("Sync before reset failed (continuing anyway):", syncError);
+      }
+    } catch (error: any) {
+      console.warn("Unexpected error during pre-reset sync:", error);
+    }
+
+    // Stop the old container
+    try {
+      await apiClient.stopIDEContainer(oldContainerId);
+    } catch (stopError: any) {
+      console.warn("Failed to stop old container (continuing anyway):", stopError);
+    }
+
+    // Start a fresh container with the existing S3 bucket
+    // startContainer handles broadcasting the new container state
+    isResettingRef.current = false;
+    await startContainer();
+    setIsResetting(false);
+  }, [container, ideApiBaseUrl, startContainer, broadcastContainerState]);
+
   const handleClose = () => {
     if (blockId) {
       localStorage.removeItem(`ide-panel-state-${blockId}`);
@@ -425,6 +485,8 @@ const IDEFullscreenPage: React.FC = () => {
           ideApiBaseUrl={ideApiBaseUrl}
           runFilename={runFilename}
           isStarting={isStarting}
+          isResetting={isResetting}
+          onRefreshInstance={container ? handleRefreshInstance : undefined}
           showDesktop={showDesktop}
           layoutMode="normal"
           readOnly={readOnly}

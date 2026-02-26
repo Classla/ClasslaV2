@@ -245,6 +245,65 @@ router.post(
 );
 
 /**
+ * POST /api/ide-blocks/stop-container/:id
+ * Stop a running container (used before restart to force a fresh container)
+ */
+router.post(
+  "/stop-container/:id",
+  asyncHandler(async (req: Request, res: Response) => {
+    const { id } = req.params;
+
+    if (!id || typeof id !== "string") {
+      return res.status(400).json({
+        error: {
+          code: "INVALID_REQUEST",
+          message: "Container ID is required",
+        },
+      });
+    }
+
+    const ideApiBaseUrl = getIDEApiBaseUrl(req);
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 15000);
+
+      const response = await fetch(`${ideApiBaseUrl}/containers/${id}`, {
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${IDE_API_KEY}`,
+        },
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        console.warn(`[IDE Blocks] Stop container ${id} returned ${response.status}:`, data);
+        // Return success anyway - container may already be stopped
+        return res.status(200).json({
+          message: "Container stop attempted",
+          details: data,
+        });
+      }
+
+      const data = await response.json().catch(() => null);
+      return res.status(200).json({
+        message: "Container stopped",
+        details: data,
+      });
+    } catch (error: any) {
+      console.warn(`[IDE Blocks] Failed to stop container ${id}:`, error.message);
+      // Don't fail the request - the caller will proceed to start a new container anyway
+      return res.status(200).json({
+        message: "Container stop attempted (may have already been stopped)",
+      });
+    }
+  })
+);
+
+/**
  * GET /api/ide-blocks/container/:id
  * Check if container is still running
  */

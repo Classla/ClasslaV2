@@ -19,6 +19,7 @@ export interface IDEPanelState {
   container: ContainerInfo | null;
   bucketId: string | null;
   isStarting: boolean;
+  isResetting?: boolean;
   showDesktop: boolean;
   runFilename: string;
   ideApiBaseUrl: string;

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo } from "react";
 import { useTheme } from "../../../hooks/useTheme";
 import Editor from "@monaco-editor/react";
-import { Terminal as TerminalIcon, ChevronRight, ChevronLeft, RefreshCw, Monitor, Play, Loader2, Files, Power, ExternalLink, PanelLeft, History, Clock, Settings } from "lucide-react";
+import { Terminal as TerminalIcon, ChevronRight, ChevronLeft, RefreshCw, Monitor, Play, Loader2, Files, ExternalLink, PanelLeft, History, Clock, Settings } from "lucide-react";
 import type { FileVersion } from "../../../hooks/useFileHistory";
 import FileExplorer, { FileNode, getFileIcon } from "./FileExplorer";
 import { apiClient } from "../../../lib/api";
@@ -19,6 +19,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "../../ui/select";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "../../ui/tooltip";
 // Custom resize implementation - no Allotment needed
 
 // Binary file detection by extension
@@ -46,6 +52,7 @@ interface MonacoIDEProps {
   runFilename?: string;
   onFilenameChange?: (filename: string) => void;
   isStarting?: boolean;
+  isResetting?: boolean;
   onRefreshInstance?: () => void;
   onToggleDesktop?: () => void;
   showDesktop?: boolean;
@@ -80,6 +87,7 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
   runFilename = "main.py",
   onFilenameChange,
   isStarting = false,
+  isResetting = false,
   onRefreshInstance,
   onToggleDesktop,
   showDesktop = false,
@@ -1868,187 +1876,6 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
         }
       }}
     >
-      {/* Toolbar */}
-      <div className="flex items-center justify-between p-2 border-b border-border bg-muted">
-        {/* Left side - Stop Machine button */}
-        <div className="flex items-center gap-2">
-          {containerId && containerWebServerUrl && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={async () => {
-                if (!confirm("Are you sure you want to stop the machine? This will disconnect the container.")) {
-                  return;
-                }
-                try {
-                  // First verify the web server is reachable
-                  try {
-                    const healthCheck = await fetch(`${containerWebServerUrl}/health`, {
-                      method: "GET",
-                    });
-                    if (!healthCheck.ok) {
-                      console.warn("Web server health check failed, but attempting kill anyway");
-                    }
-                  } catch (healthError) {
-                    console.warn("Could not reach web server for health check:", healthError);
-                    // Continue anyway - the server might be in a bad state but kill might still work
-                  }
-                  
-                  // Make the kill request - use POST without body to minimize CORS issues
-                  const response = await fetch(`${containerWebServerUrl}/kill`, {
-                    method: "POST",
-                    // Explicitly don't set Content-Type to avoid preflight
-                    // Flask-CORS should handle OPTIONS automatically
-                  });
-                  
-                  if (response.ok) {
-                    toast({
-                      title: "Machine stopped",
-                      description: "The container has been shut down.",
-                    });
-                    // Notify parent component that container was killed
-                    onContainerKilled?.();
-                  } else {
-                    // Even if response is not ok, the container might be shutting down
-                    // which could cause the response to fail
-                    console.warn("Kill endpoint returned non-OK status:", response.status);
-                    toast({
-                      title: "Stop request sent",
-                      description: "The container shutdown has been initiated.",
-                    });
-                    onContainerKilled?.();
-                  }
-                } catch (error: any) {
-                  console.error("Failed to kill container:", error);
-                  // Network errors are expected if container shuts down quickly
-                  // Still notify parent - the container will disconnect
-                  toast({
-                    title: "Kill request sent",
-                    description: "The container shutdown has been initiated. It may disconnect shortly.",
-                  });
-                  // Notify parent - container might be dead
-                  onContainerKilled?.();
-                }
-              }}
-              disabled={isStarting}
-              className="h-8 px-3 text-sm text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/30"
-              title="Stop the container machine"
-            >
-              <Power className="w-4 h-4 mr-1" />
-              Stop Machine
-            </Button>
-          )}
-        </div>
-        {/* Right side - Run button */}
-        <div className="flex items-center gap-2">
-          {onRun && (
-            <div className="flex items-center gap-2">
-              <Select
-                value={runFilename}
-                onValueChange={(value) => onFilenameChange?.(value)}
-                disabled={isStarting}
-              >
-                <SelectTrigger className="w-48 h-8 text-sm">
-                  <SelectValue placeholder="Select file to run" />
-                </SelectTrigger>
-                <SelectContent>
-                  {runnableFiles.length > 0 ? (
-                    runnableFiles.map((filePath) => (
-                      <SelectItem key={filePath} value={filePath}>
-                        {filePath}
-                      </SelectItem>
-                    ))
-                  ) : (
-                    <SelectItem value={runFilename} disabled>
-                      No runnable files (.java, .py)
-                    </SelectItem>
-                  )}
-                </SelectContent>
-              </Select>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={async () => {
-                  // Pre-sync: write the currently open file's content directly to the
-                  // container before triggering run. This is a belt-and-suspenders
-                  // guard against OT WebSocket failures where edits appear in Monaco
-                  // locally but never reach the backend or container.
-                  // The flush inside /run still runs; this just guarantees disk has
-                  // the latest content regardless of OT state.
-                  if (containerId && selectedFileRef.current && editorRef.current) {
-                    const content = editorRef.current.getModel()?.getValue();
-                    if (content !== undefined) {
-                      try {
-                        await fetch(`${ideApiBaseUrl}/web/${containerId}/write-file`, {
-                          method: "POST",
-                          headers: { "Content-Type": "application/json" },
-                          body: JSON.stringify({ path: selectedFileRef.current, content }),
-                        });
-                      } catch {
-                        // Non-fatal — proceed with run even if direct write fails
-                      }
-                    }
-                  }
-                  setIsRunning(true);
-                  try {
-                    await onRun?.();
-                  } finally {
-                    setIsRunning(false);
-                  }
-                  // Reload file tree after run to catch container filesystem changes
-                  // (e.g. rm -f *.class, new compiled files). Delay allows the run
-                  // process + container sync to complete.
-                  if (containerId) {
-                    setTimeout(() => loadFileTree(), 5000);
-                  }
-                }}
-                disabled={isStarting || isRunning || historyMode}
-              >
-                {isStarting ? (
-                  <>
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    Starting...
-                  </>
-                ) : containerId ? (
-                  <>
-                    {isRunning ? (
-                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    ) : (
-                      <Play className="w-4 h-4 mr-2" />
-                    )}
-                    Run
-                  </>
-                ) : (
-                  "Start Machine"
-                )}
-              </Button>
-              {showPanelButtons && (
-                <>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={onOpenSidePanel}
-                    className="text-primary hover:text-primary hover:bg-primary/10 w-8 h-8 p-0"
-                    title="Open in Side Panel"
-                  >
-                    <PanelLeft className="w-4 h-4" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={onOpenFullscreen}
-                    className="text-blue-600 hover:text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-950/30 w-8 h-8 p-0"
-                    title="Open in New Tab"
-                  >
-                    <ExternalLink className="w-4 h-4" />
-                  </Button>
-                </>
-              )}
-            </div>
-          )}
-        </div>
-      </div>
-
       {/* Main Content Area */}
       <div className="flex flex-1 overflow-hidden">
         {/* Left Sidebar with Toggle Icons */}
@@ -2116,6 +1943,33 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
                           Show hidden files
                         </Label>
                       </div>
+                      {onRun && (
+                        <div className="flex flex-col gap-1">
+                          <Label className="text-xs text-muted-foreground">Run file</Label>
+                          <Select
+                            value={runFilename}
+                            onValueChange={(value) => onFilenameChange?.(value)}
+                            disabled={isStarting}
+                          >
+                            <SelectTrigger className="h-8 text-sm">
+                              <SelectValue placeholder="Select file to run" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {runnableFiles.length > 0 ? (
+                                runnableFiles.map((filePath) => (
+                                  <SelectItem key={filePath} value={filePath}>
+                                    {filePath}
+                                  </SelectItem>
+                                ))
+                              ) : (
+                                <SelectItem value={runFilename} disabled>
+                                  No runnable files (.java, .py)
+                                </SelectItem>
+                              )}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}
@@ -2133,9 +1987,10 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
           <div className="flex-1 flex flex-col min-w-0 max-w-full overflow-hidden">
             {/* Editor Area */}
             <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
-                  {/* File Tabs */}
-                  {openTabs.length > 0 && (
-                    <div className="flex items-center gap-1 border-b border-border bg-muted overflow-x-auto flex-shrink-0">
+                  {/* File Tabs + Action Buttons (single row) */}
+                  <div className="flex items-center border-b border-border bg-muted flex-shrink-0">
+                    {/* Scrollable tabs area */}
+                    <div className="flex items-center gap-1 overflow-x-auto min-w-0 flex-1">
                       {openTabs.map((filePath) => {
                         const fileName = filePath.split("/").pop() || filePath;
                         const isActive = selectedFile === filePath;
@@ -2148,7 +2003,7 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
                               selectedFileRef.current = filePath;
                               loadFile(filePath, false);
                             }}
-                            className={`flex items-center gap-2 px-3 py-2 cursor-pointer border-b-2 transition-colors ${
+                            className={`flex items-center gap-2 px-3 py-2 cursor-pointer border-b-2 transition-colors flex-shrink-0 ${
                               isActive
                                 ? "bg-background border-purple-500 dark:border-purple-700 text-foreground dark:text-white"
                                 : "border-transparent text-muted-foreground dark:text-gray-400 hover:bg-accent"
@@ -2178,7 +2033,83 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
                         );
                       })}
                     </div>
-                  )}
+                    {/* Right-pinned action buttons */}
+                    {onRun && (
+                      <div className="flex items-center gap-1.5 px-2 flex-shrink-0 border-l border-border">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={async () => {
+                            if (containerId && selectedFileRef.current && editorRef.current) {
+                              const content = editorRef.current.getModel()?.getValue();
+                              if (content !== undefined) {
+                                try {
+                                  await fetch(`${ideApiBaseUrl}/web/${containerId}/write-file`, {
+                                    method: "POST",
+                                    headers: { "Content-Type": "application/json" },
+                                    body: JSON.stringify({ path: selectedFileRef.current, content }),
+                                  });
+                                } catch {
+                                  // Non-fatal
+                                }
+                              }
+                            }
+                            setIsRunning(true);
+                            try {
+                              await onRun?.();
+                            } finally {
+                              setIsRunning(false);
+                            }
+                            if (containerId) {
+                              setTimeout(() => loadFileTree(), 5000);
+                            }
+                          }}
+                          disabled={isStarting || isRunning || historyMode}
+                          className="h-9 px-4 text-sm font-medium"
+                        >
+                          {isStarting ? (
+                            <>
+                              <Loader2 className="w-4 h-4 mr-1.5 animate-spin" />
+                              Starting...
+                            </>
+                          ) : containerId ? (
+                            <>
+                              {isRunning ? (
+                                <Loader2 className="w-4 h-4 mr-1.5 animate-spin" />
+                              ) : (
+                                <Play className="w-4 h-4 mr-1.5" />
+                              )}
+                              Run
+                            </>
+                          ) : (
+                            "Start"
+                          )}
+                        </Button>
+                        {showPanelButtons && (
+                          <>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={onOpenSidePanel}
+                              className="text-primary hover:text-primary hover:bg-primary/10 w-8 h-8 p-0"
+                              title="Open in Side Panel"
+                            >
+                              <PanelLeft className="w-4 h-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={onOpenFullscreen}
+                              className="text-blue-600 hover:text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-950/30 w-8 h-8 p-0"
+                              title="Open in New Tab"
+                            >
+                              <ExternalLink className="w-4 h-4" />
+                            </Button>
+                          </>
+                        )}
+                      </div>
+                    )}
+                  </div>
 
                   {/* History Bar (grading view only) */}
                   {onHistoryToggle && (
@@ -2372,6 +2303,29 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
                   </span>
                 </div>
                 <div className="flex items-center gap-2">
+                  {/* Reset button */}
+                  {onRefreshInstance && (
+                    <TooltipProvider delayDuration={300}>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={onRefreshInstance}
+                            disabled={isStarting}
+                            className="h-6 w-6 p-0 text-red-500 hover:text-red-600 border-red-300 hover:bg-red-50 dark:text-red-400 dark:hover:text-red-300 dark:border-red-800 dark:hover:bg-red-950/30"
+                          >
+                            {isStarting ? (
+                              <Loader2 className="w-3 h-3 animate-spin" />
+                            ) : (
+                              <RefreshCw className="w-3 h-3" />
+                            )}
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent side="top">Reset Instance</TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  )}
                   {/* Terminal toggle - side-panel mode only */}
                   {layoutMode === 'side-panel' && (
                     <Button
@@ -2430,6 +2384,7 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
                           data-terminal-container
                         >
                           <iframe
+                            key={containerId}
                             // NOTE: Do NOT auto-focus terminal on ref, load, or mouseEnter!
                             // This steals focus from Monaco editor and causes typing issues.
                             // Only focus terminal when user explicitly clicks on it.
@@ -2455,12 +2410,21 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
                       ) : (
                         <div className="flex-1 flex items-center justify-center bg-muted">
                           <div className="text-center text-muted-foreground">
-                            <TerminalIcon className="w-8 h-8 mx-auto mb-2 text-muted-foreground" />
-                            <p className="text-sm">
-                              {containerId && containerTerminalUrl
-                                ? 'Connecting to terminal...'
-                                : 'Waiting for machine to start...'}
-                            </p>
+                            {isResetting ? (
+                              <>
+                                <Loader2 className="w-8 h-8 mx-auto mb-2 text-muted-foreground animate-spin" />
+                                <p className="text-sm">Resetting instance...</p>
+                              </>
+                            ) : (
+                              <>
+                                <TerminalIcon className="w-8 h-8 mx-auto mb-2 text-muted-foreground" />
+                                <p className="text-sm">
+                                  {containerId && containerTerminalUrl
+                                    ? 'Connecting to terminal...'
+                                    : 'Waiting for machine to start...'}
+                                </p>
+                              </>
+                            )}
                           </div>
                         </div>
                       )}
@@ -2486,6 +2450,7 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
                         style={{ position: 'relative', minHeight: 0 }}
                       >
                         <iframe
+                          key={containerId}
                           src={buildVncUrl()}
                           className="w-full h-full border-0"
                           title="Desktop View"
@@ -2525,6 +2490,7 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
                         data-terminal-container
                       >
                         <iframe
+                          key={containerId}
                           // NOTE: Do NOT auto-focus terminal on ref, load, or mouseEnter!
                           // This steals focus from Monaco editor and causes typing issues.
                           // Only focus terminal when user explicitly clicks on it.
@@ -2552,12 +2518,21 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
                     ) : (
                       <div className="flex-1 flex items-center justify-center bg-muted">
                         <div className="text-center text-muted-foreground">
-                          <TerminalIcon className="w-8 h-8 mx-auto mb-2 text-muted-foreground" />
-                          <p className="text-sm">
-                            {containerId && containerTerminalUrl
-                              ? 'Connecting to terminal...'
-                              : 'Waiting for machine to start...'}
-                          </p>
+                          {isResetting ? (
+                            <>
+                              <Loader2 className="w-8 h-8 mx-auto mb-2 text-muted-foreground animate-spin" />
+                              <p className="text-sm">Resetting instance...</p>
+                            </>
+                          ) : (
+                            <>
+                              <TerminalIcon className="w-8 h-8 mx-auto mb-2 text-muted-foreground" />
+                              <p className="text-sm">
+                                {containerId && containerTerminalUrl
+                                  ? 'Connecting to terminal...'
+                                  : 'Waiting for machine to start...'}
+                              </p>
+                            </>
+                          )}
                         </div>
                       </div>
                     )}
@@ -2602,6 +2577,7 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
                         style={{ position: 'relative', minHeight: 0 }}
                       >
                         <iframe
+                          key={containerId}
                           src={buildVncUrl()}
                           className="w-full h-full border-0"
                           title="Desktop View"

@@ -520,6 +520,13 @@ export const apiClient = {
     }
     return api.get(`/ide-blocks/container/${containerId}`, { headers });
   },
+  stopIDEContainer: (containerId: string, useLocalIDE?: boolean) => {
+    const headers: Record<string, string> = {};
+    if (useLocalIDE) {
+      headers["X-IDE-Environment"] = "local";
+    }
+    return containerApi.post(`/ide-blocks/stop-container/${containerId}`, {}, { headers });
+  },
   listS3Buckets: (params?: {
     user_id?: string;
     course_id?: string;

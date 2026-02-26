@@ -110,6 +110,7 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
     const [activeTab, setActiveTab] = useState<TabType>("code");
     const [container, setContainer] = useState<ContainerInfo | null>(null);
     const [isStarting, setIsStarting] = useState(false);
+    const [isResetting, setIsResetting] = useState(false);
     const [showDesktop, setShowDesktop] = useState(false);
     const [runFilename, setRunFilename] = useState(
       ideData.settings?.default_run_file || "main.py"
@@ -394,6 +395,7 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
             clearInterval(interval);
             setPollingInterval(null);
             setIsStarting(false);
+            setIsResetting(false);
             pollingAttemptsRef.current = 0;
           }
         }, 2000); // Poll every 2 seconds
@@ -518,6 +520,7 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
             },
           });
           setIsStarting(false);
+          setIsResetting(false);
         } else {
           // Start polling for container readiness
           pollContainerUntilReady(containerId);
@@ -623,11 +626,12 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
       updatePanelState({
         container,
         isStarting,
+        isResetting,
         bucketId: studentBucketId,
         showDesktop,
         runFilename,
       });
-    }, [container, isStarting, studentBucketId, showDesktop, runFilename, panelMode, updatePanelState]);
+    }, [container, isStarting, isResetting, studentBucketId, showDesktop, runFilename, panelMode, updatePanelState]);
 
     // Cross-tab container sync via BroadcastChannel (fullscreen IDE in another tab)
     const broadcastChannelRef = useRef<BroadcastChannel | null>(null);
@@ -641,10 +645,9 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
         const msg = event.data;
         if (msg.type === "container-update" && msg.blockId === ideData.id) {
           isSyncingFromPeerRef.current = true;
-          if (msg.container) {
-            setContainer(msg.container);
-          }
+          setContainer(msg.container);
           setIsStarting(msg.isStarting);
+          setIsResetting(msg.isResetting ?? false);
         }
       };
 
@@ -666,13 +669,73 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
           blockId: ideData.id,
           container,
           isStarting,
+          isResetting,
         });
       } catch {
         // Channel may be closed
       }
-    }, [container, isStarting, ideData.id]);
+    }, [container, isStarting, isResetting, ideData.id]);
 
-    // Listen for side panel actions (start container, run code) via custom events
+    // Handle view desktop toggle
+    const handleToggleDesktop = useCallback(() => {
+      setShowDesktop((prev) => !prev);
+    }, []);
+
+    // Handle reset instance: clear UI instantly, best-effort sync, stop old container, start fresh
+    const handleRefreshInstance = useCallback(async () => {
+      if (!container) return;
+
+      const oldContainerId = container.id;
+
+      // Clear the UI state and show spinner immediately
+      clearContainer();
+      setIsStarting(true);
+      setIsResetting(true);
+
+      // Best-effort sync with 5s timeout (container may be unresponsive)
+      try {
+        const abortController = new AbortController();
+        const timeout = setTimeout(() => abortController.abort(), 5000);
+
+        try {
+          const syncResponse = await fetch(
+            `${IDE_API_BASE_URL}/web/${oldContainerId}/sync`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              signal: abortController.signal,
+            }
+          );
+
+          clearTimeout(timeout);
+          const syncData = await syncResponse.json();
+
+          if (!syncResponse.ok) {
+            console.warn("Sync before reset failed:", syncData);
+          } else {
+            await new Promise(resolve => setTimeout(resolve, 1000));
+          }
+        } catch (syncError: any) {
+          clearTimeout(timeout);
+          console.warn("Sync before reset failed (continuing anyway):", syncError);
+        }
+      } catch (error: any) {
+        console.warn("Unexpected error during pre-reset sync:", error);
+      }
+
+      // Stop the old container so the orchestration service doesn't reuse it
+      try {
+        await apiClient.stopIDEContainer(oldContainerId);
+      } catch (stopError: any) {
+        console.warn("Failed to stop old container (continuing anyway):", stopError);
+      }
+
+      // Start a fresh container with the existing S3 bucket
+      await startContainer();
+      setIsResetting(false);
+    }, [container, clearContainer, startContainer, toast]);
+
+    // Listen for side panel actions (start container, run code, refresh) via custom events
     // This avoids passing function references through React state which can have timing issues
     // stopImmediatePropagation prevents duplicate handlers (React StrictMode / TipTap node views)
     useEffect(() => {
@@ -686,74 +749,17 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
           startContainer();
         } else if (detail.action === 'run') {
           handleRun();
+        } else if (detail.action === 'refresh') {
+          handleRefreshInstance();
+        } else if (detail.action === 'clear-container') {
+          clearContainer();
+          setIsStarting(true);
+          setIsResetting(true);
         }
       };
       window.addEventListener('ide-panel-action', handler);
       return () => window.removeEventListener('ide-panel-action', handler);
-    }, [ideData.id, startContainer, handleRun]);
-
-    // Handle view desktop toggle
-    const handleToggleDesktop = useCallback(() => {
-      setShowDesktop((prev) => !prev);
-    }, []);
-
-    // Handle refresh instance
-    const handleRefreshInstance = useCallback(async () => {
-      if (!container) return;
-
-      try {
-        toast({
-          title: "Syncing workspace",
-          description: "Saving changes to S3 before refreshing...",
-          variant: "default",
-        });
-
-        const syncResponse = await fetch(
-          `${IDE_API_BASE_URL}/web/${container.id}/sync`,
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-          }
-        );
-
-        const syncData = await syncResponse.json();
-
-        if (!syncResponse.ok) {
-          console.error("Sync before refresh failed:", syncData);
-          toast({
-            title: "Sync failed",
-            description: syncData.error || "Failed to sync workspace to S3. Refresh cancelled.",
-            variant: "destructive",
-          });
-          return;
-        }
-
-        // Wait for S3 eventual consistency
-        await new Promise(resolve => setTimeout(resolve, 2000));
-
-        toast({
-          title: "Workspace synced",
-          description: `Changes saved to S3 (${syncData.files_synced || 0} files). Refreshing container...`,
-          variant: "default",
-        });
-      } catch (error: any) {
-        console.error("Failed to sync before refresh:", error);
-        toast({
-          title: "Sync error",
-          description: "Failed to sync workspace. Refresh cancelled to prevent data loss.",
-          variant: "destructive",
-        });
-        return;
-      }
-
-      // Clear the current container
-      clearContainer();
-
-      // Start a new container with the existing S3 bucket
-      await startContainer();
-    }, [container, clearContainer, startContainer, toast]);
+    }, [ideData.id, startContainer, handleRun, handleRefreshInstance]);
 
     // Handle reset to template - delete current bucket and clone fresh from template
     const handleResetToTemplate = useCallback(async () => {
@@ -1039,6 +1045,7 @@ const IDEBlockViewer: React.FC<IDEBlockViewerProps> = memo(
                         runFilename={runFilename}
                         onFilenameChange={setRunFilename}
                         isStarting={isStarting}
+                        isResetting={isResetting}
                         onRefreshInstance={container ? handleRefreshInstance : undefined}
                         onToggleDesktop={handleToggleDesktop}
                         showDesktop={showDesktop}

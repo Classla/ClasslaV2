@@ -1136,6 +1136,7 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
                   ideApiBaseUrl={activePanelState.ideApiBaseUrl}
                   runFilename={activePanelState.runFilename}
                   isStarting={activePanelState.isStarting}
+                  isResetting={activePanelState.isResetting ?? false}
                   showDesktop={activePanelState.showDesktop}
                   layoutMode="side-panel"
                   readOnly={activePanelState.readOnly}
@@ -1160,6 +1161,42 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
                     // Note: This won't sync back to the original block, but that's okay
                     // The side panel has its own ephemeral state
                   }}
+                  onRefreshInstance={activePanelState.container ? async () => {
+                    const ideDataId = activePanelState.ideData?.id;
+                    const oldContainerId = activePanelState.container?.id;
+                    const ideApiBase = activePanelState.ideApiBaseUrl;
+                    if (!oldContainerId) return;
+
+                    // 1. Clear side panel UI immediately
+                    updatePanelState({ container: null, isStarting: true, isResetting: true });
+
+                    // 2. Tell IDEBlockViewer to clear its container (it will sync to BroadcastChannel too)
+                    window.dispatchEvent(new CustomEvent('ide-panel-action', {
+                      detail: { ideDataId, action: 'clear-container' }
+                    }));
+
+                    // 3. Best-effort sync with 5s timeout
+                    try {
+                      const ac = new AbortController();
+                      const t = setTimeout(() => ac.abort(), 5000);
+                      try {
+                        const resp = await fetch(
+                          `${ideApiBase}/web/${oldContainerId}/sync`,
+                          { method: "POST", headers: { "Content-Type": "application/json" }, signal: ac.signal }
+                        );
+                        clearTimeout(t);
+                        if (resp.ok) await new Promise(r => setTimeout(r, 1000));
+                      } catch { clearTimeout(t); }
+                    } catch {}
+
+                    // 4. Stop old container
+                    try { await apiClient.stopIDEContainer(oldContainerId); } catch {}
+
+                    // 5. Ask IDEBlockViewer to start a new container (this action is proven to work)
+                    window.dispatchEvent(new CustomEvent('ide-panel-action', {
+                      detail: { ideDataId, action: 'start' }
+                    }));
+                  } : undefined}
                   onToggleDesktop={() => {
                     updatePanelState({ showDesktop: !activePanelState.showDesktop });
                   }}
