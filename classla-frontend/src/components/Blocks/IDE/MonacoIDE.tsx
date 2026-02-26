@@ -2315,6 +2315,9 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
                       options={{
                         minimap: { enabled: true },
                         fontSize: 14,
+                        tabSize: 4,
+                        insertSpaces: true,
+                        detectIndentation: false,
                         wordWrap: "on",
                         automaticLayout: true,
                         scrollBeyondLastLine: false,
