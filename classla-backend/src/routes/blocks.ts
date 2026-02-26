@@ -21,6 +21,7 @@ interface MCQBlockData {
   allowMultiple: boolean;
   points: number;
   explanation?: string;
+  allowCheckAnswer?: boolean;
 }
 
 /**
@@ -312,6 +313,121 @@ router.get(
           timestamp: new Date().toISOString(),
           path: req.path,
         },
+      });
+    }
+  }
+);
+
+/**
+ * POST /blocks/check-answer/:assignmentId/:blockId
+ * Check a student's MCQ answer without submitting
+ * Only works when the block has allowCheckAnswer enabled
+ */
+router.post(
+  "/blocks/check-answer/:assignmentId/:blockId",
+  authenticateToken,
+  async (req: Request, res: Response): Promise<void> => {
+    try {
+      const { assignmentId, blockId } = req.params;
+      const { selectedOptions } = req.body;
+      const { id: userId, isAdmin } = req.user!;
+
+      // Validate request body
+      if (!selectedOptions || !Array.isArray(selectedOptions)) {
+        res.status(400).json({
+          error: {
+            code: "INVALID_REQUEST",
+            message: "selectedOptions is required and must be an array",
+          },
+          timestamp: new Date().toISOString(),
+          path: req.path,
+        });
+        return;
+      }
+
+      // Get the assignment
+      const { data: assignment, error: assignmentError } = await supabase
+        .from("assignments")
+        .select("*")
+        .eq("id", assignmentId)
+        .single();
+
+      if (assignmentError || !assignment) {
+        res.status(404).json({
+          error: {
+            code: "ASSIGNMENT_NOT_FOUND",
+            message: "Assignment not found",
+          },
+          timestamp: new Date().toISOString(),
+          path: req.path,
+        });
+        return;
+      }
+
+      // Check course permissions - student must be enrolled
+      const permissions = await getCoursePermissions(
+        userId,
+        assignment.course_id,
+        isAdmin
+      );
+
+      if (!permissions.canRead) {
+        res.status(403).json({
+          error: {
+            code: "INSUFFICIENT_PERMISSIONS",
+            message: "Not authorized to access this assignment",
+          },
+          timestamp: new Date().toISOString(),
+          path: req.path,
+        });
+        return;
+      }
+
+      // Extract MCQ blocks from assignment content
+      const mcqBlocks = extractMCQBlocks(assignment.content);
+      const blockData = mcqBlocks.get(blockId);
+
+      if (!blockData) {
+        res.status(404).json({
+          error: {
+            code: "BLOCK_NOT_FOUND",
+            message: "MCQ block not found in assignment",
+          },
+          timestamp: new Date().toISOString(),
+          path: req.path,
+        });
+        return;
+      }
+
+      // Verify allowCheckAnswer is enabled for this block
+      if (!blockData.allowCheckAnswer) {
+        res.status(403).json({
+          error: {
+            code: "CHECK_ANSWER_NOT_ALLOWED",
+            message: "Check answer is not enabled for this block",
+          },
+          timestamp: new Date().toISOString(),
+          path: req.path,
+        });
+        return;
+      }
+
+      // Grade the answer
+      const result = gradeMCQBlock(blockData, selectedOptions);
+
+      res.json({
+        isCorrect: result.isCorrect,
+        feedback: result.feedback,
+      });
+    } catch (error) {
+      console.error("Error checking MCQ answer:", error);
+      res.status(500).json({
+        error: {
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Failed to check answer",
+        },
+        timestamp: new Date().toISOString(),
+        path: req.path,
       });
     }
   }

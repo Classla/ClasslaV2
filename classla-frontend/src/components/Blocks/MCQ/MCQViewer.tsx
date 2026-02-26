@@ -5,9 +5,11 @@ import {
   validateMCQData,
   sanitizeMCQData,
 } from "../../extensions/MCQBlock";
-import { Check, AlertTriangle } from "lucide-react";
+import { Check, AlertTriangle, CheckCircle } from "lucide-react";
 import { useResolvedHtml } from "../../../hooks/useResolvedHtml";
 import ResolvedHtml from "../../ResolvedHtml";
+import { apiClient } from "../../../lib/api";
+import { getAssignmentIdFromUrl } from "../../extensions/blockUtils";
 
 interface MCQViewerProps {
   node: any;
@@ -27,6 +29,8 @@ const MCQViewer: React.FC<MCQViewerProps> = memo(
     const [isAnswerChanged, setIsAnswerChanged] = useState(false);
     const [hasDataError, setHasDataError] = useState(false);
     const [mcqData, setMcqData] = useState<MCQBlockData>(rawMcqData);
+    const [checkResult, setCheckResult] = useState<{ isCorrect: boolean; feedback?: string } | null>(null);
+    const [isChecking, setIsChecking] = useState(false);
 
     // Memoize expensive computations
     const inputType = useMemo(
@@ -144,6 +148,7 @@ const MCQViewer: React.FC<MCQViewerProps> = memo(
         }
 
         setSelectedOptions(newSelection);
+        setCheckResult(null);
         setIsAnswerChanged(true);
 
         // Provide visual feedback by briefly showing the change
@@ -167,6 +172,25 @@ const MCQViewer: React.FC<MCQViewerProps> = memo(
       (optionId: string) => selectedOptions.includes(optionId),
       [selectedOptions]
     );
+
+    const handleCheckAnswer = useCallback(async () => {
+      const assignmentId = getAssignmentIdFromUrl();
+      if (!assignmentId || selectedOptions.length === 0) return;
+
+      setIsChecking(true);
+      try {
+        const response = await apiClient.checkMCQAnswer(
+          assignmentId,
+          mcqData.id,
+          selectedOptions
+        );
+        setCheckResult(response.data);
+      } catch {
+        setCheckResult({ isCorrect: false, feedback: "Failed to check answer" });
+      } finally {
+        setIsChecking(false);
+      }
+    }, [mcqData.id, selectedOptions]);
 
     // Get block score from editor storage (for instructor view)
     // Use blockScoresVersion to trigger re-render when scores change
@@ -337,21 +361,45 @@ const MCQViewer: React.FC<MCQViewerProps> = memo(
                   ? `${selectedCount} selected`
                   : "No selection"}
               </span>
-              {hasScore ? (
-                <span
-                  className={`px-3 py-1 rounded-md font-bold text-white ${
-                    blockScore.awarded === blockScore.possible
-                      ? "bg-green-600"
-                      : blockScore.awarded > 0
-                      ? "bg-yellow-600"
-                      : "bg-red-600"
-                  }`}
-                >
-                  {blockScore.awarded} / {blockScore.possible} pts
-                </span>
-              ) : (
-                <span>{mcqData.points} points</span>
-              )}
+              <div className="flex items-center gap-2">
+                {checkResult && (
+                  <span
+                    className={`px-2 py-0.5 rounded-full text-xs font-medium text-white ${
+                      checkResult.isCorrect ? "bg-green-600" : "bg-red-600"
+                    }`}
+                  >
+                    {checkResult.isCorrect ? "Correct" : "Incorrect"}
+                  </span>
+                )}
+                {mcqData.allowCheckAnswer &&
+                  !(editor?.storage as any)?.isReadOnly &&
+                  !hasScore &&
+                  selectedOptions.length > 0 && (
+                    <button
+                      onClick={handleCheckAnswer}
+                      disabled={isChecking}
+                      className="flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium bg-purple-600 hover:bg-purple-700 dark:bg-purple-800 dark:hover:bg-purple-900 text-white disabled:opacity-50 transition-colors"
+                    >
+                      <CheckCircle className="w-3 h-3" />
+                      {isChecking ? "Checking..." : "Check Answer"}
+                    </button>
+                  )}
+                {hasScore ? (
+                  <span
+                    className={`px-3 py-1 rounded-md font-bold text-white ${
+                      blockScore.awarded === blockScore.possible
+                        ? "bg-green-600"
+                        : blockScore.awarded > 0
+                        ? "bg-yellow-600"
+                        : "bg-red-600"
+                    }`}
+                  >
+                    {blockScore.awarded} / {blockScore.possible} pts
+                  </span>
+                ) : (
+                  <span>{mcqData.points} points</span>
+                )}
+              </div>
             </div>
           </div>
         </div>
