@@ -181,8 +181,16 @@ export class MonacoOTBinding {
     this.disposables.push(selectionDisposable);
 
     // OT -> Monaco: convert TextOperation to Monaco batch edits
+    // CRITICAL: Use model.applyEdits() instead of model.pushEditOperations().
+    // pushEditOperations adds edits to Monaco's undo stack, which means Ctrl+Z
+    // can undo remote changes, initial content loads, and resyncs. A student
+    // pressing Ctrl+Z enough times would undo the initial content insertion,
+    // producing a "delete all" that gets sent through OT and blanks the document
+    // for everyone permanently. applyEdits() skips the undo stack entirely.
+    // See: Monaco #303, y-monaco #7, Tiptap #1786
+    //
     // All edit positions must reference the ORIGINAL (pre-edit) model content,
-    // since pushEditOperations applies all edits as a batch.
+    // since applyEdits applies all edits as a batch.
     // Only retain and delete consume base characters (advance the index).
     // Inserts do NOT advance the index — they add text at the current base position.
     this.document.addContentChangedListener(this.bindingId, (content: string, operation: TextOperation) => {
@@ -227,18 +235,14 @@ export class MonacoOTBinding {
         }
 
         if (edits.length > 0) {
-          model.pushEditOperations([], edits, () => null);
+          model.applyEdits(edits);
         }
 
         // Verify Monaco's model matches the OT content after applying remote op.
         // If Monaco normalized \r\n from the remote op, force-sync to prevent drift.
         if (model.getValue() !== content) {
           console.warn("[OT] Post-apply divergence: forcing Monaco sync with OT content.");
-          model.pushEditOperations(
-            [],
-            [{ range: model.getFullModelRange(), text: content }],
-            () => null
-          );
+          model.applyEdits([{ range: model.getFullModelRange(), text: content }]);
         }
 
         // Re-render all remote cursor decorations at their last stored positions.

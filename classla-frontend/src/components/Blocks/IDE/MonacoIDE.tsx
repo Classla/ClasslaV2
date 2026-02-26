@@ -1320,12 +1320,12 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
         console.log(`[OT] Rename content mismatch for ${filePath} (editor: ${modelContent.length}, server: ${doc.content.length}). Accepting server content.`);
       }
       if (doc.content) {
-        // OT is source of truth — overwrite editor
-        model.pushEditOperations(
-          [],
-          [{ range: model.getFullModelRange(), text: doc.content }],
-          () => null
-        );
+        // OT is source of truth — overwrite editor.
+        // CRITICAL: Use applyEdits() instead of pushEditOperations() to avoid
+        // adding the initial content load to Monaco's undo stack. If the content
+        // load is on the undo stack, Ctrl+Z can undo it, producing a "delete all"
+        // that blanks the editor and propagates through OT to all clients.
+        model.applyEdits([{ range: model.getFullModelRange(), text: doc.content }]);
         // Monaco may normalize \r\n → \n; read back to keep doc.content in sync
         const normalized = model.getValue();
         if (normalized !== doc.content) {
@@ -1424,17 +1424,14 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
     } else if (!historyMode && prevHistoryModeRef.current) {
       // Exiting history mode — re-establish OT binding (stay read-only if prop says so)
       editor.updateOptions({ readOnly: readOnlyProp });
-      // Restore original content from OT before re-binding
+      // Restore original content from OT before re-binding.
+      // Use applyEdits() to avoid polluting the undo stack with a full replacement.
       if (bucketId && selectedFile) {
         const doc = otProvider.getDocument(bucketId, selectedFile);
         if (doc) {
           const model = editor.getModel();
           if (model) {
-            model.pushEditOperations(
-              [],
-              [{ range: model.getFullModelRange(), text: doc.content }],
-              () => null
-            );
+            model.applyEdits([{ range: model.getFullModelRange(), text: doc.content }]);
           }
         }
         setupOTBinding(selectedFile);
@@ -1458,13 +1455,9 @@ const MonacoIDE: React.FC<MonacoIDEProps> = ({
     const editor = editorRef.current;
     const model = editor.getModel();
     if (model) {
-      // Preserve scroll position
+      // Preserve scroll position. Use applyEdits to avoid polluting undo stack.
       const scrollTop = editor.getScrollTop();
-      model.pushEditOperations(
-        [],
-        [{ range: model.getFullModelRange(), text: historyContent }],
-        () => null
-      );
+      model.applyEdits([{ range: model.getFullModelRange(), text: historyContent }]);
       editor.setScrollTop(scrollTop);
     }
   }, [historyMode, historyContent]);
