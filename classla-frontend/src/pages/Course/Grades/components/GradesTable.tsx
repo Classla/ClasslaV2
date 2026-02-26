@@ -107,8 +107,8 @@ const GradesTable: React.FC<GradesTableProps> = ({
       !grader
     ) {
       return (
-        <Badge variant="outline" className="bg-orange-50 dark:bg-orange-950/30 text-orange-700 dark:text-orange-400">
-          Pending
+        <Badge variant="outline" className="bg-blue-50 dark:bg-blue-950/30 text-blue-700 dark:text-blue-400">
+          Submitted
         </Badge>
       );
     }
@@ -122,14 +122,14 @@ const GradesTable: React.FC<GradesTableProps> = ({
       if (isReviewed) {
         return (
           <Badge className="bg-green-600 hover:bg-green-700 text-white">
-            ✓ Graded
+            Reviewed
           </Badge>
         );
       } else {
         // Has a visible grader but not reviewed yet (showScoreAfterSubmission must be on)
         return (
-          <Badge variant="outline" className="bg-orange-50 text-orange-700">
-            Pending
+          <Badge variant="outline" className="bg-blue-50 dark:bg-blue-950/30 text-blue-700 dark:text-blue-400">
+            Submitted
           </Badge>
         );
       }
