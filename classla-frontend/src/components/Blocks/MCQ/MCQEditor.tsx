@@ -371,6 +371,18 @@ const MCQEditor: React.FC<MCQEditorProps> = memo(
                         Allow multiple correct answers
                       </Label>
                     </div>
+                    <div className="flex items-center space-x-2">
+                      <Checkbox
+                        id="allowCheckAnswer"
+                        checked={mcqData.allowCheckAnswer ?? false}
+                        onCheckedChange={(checked) =>
+                          updateMCQData({ allowCheckAnswer: !!checked })
+                        }
+                      />
+                      <Label htmlFor="allowCheckAnswer">
+                        Allow student to check answer
+                      </Label>
+                    </div>
                     <div>
                       <Label htmlFor="explanation">
                         Explanation (optional)

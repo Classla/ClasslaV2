@@ -447,6 +447,8 @@ export const apiClient = {
   ) => api.post(`/blocks/autograde/${assignmentId}`, { submissionValues }),
   extractBlocks: (assignmentId: string) =>
     api.get(`/blocks/extract/${assignmentId}`),
+  checkMCQAnswer: (assignmentId: string, blockId: string, selectedOptions: string[]) =>
+    api.post(`/blocks/check-answer/${assignmentId}/${blockId}`, { selectedOptions }),
 
   // Autograding endpoints
   autogradeSubmission: (

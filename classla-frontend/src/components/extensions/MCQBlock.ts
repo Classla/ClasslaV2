@@ -16,6 +16,7 @@ export interface MCQBlockData {
   allowMultiple: boolean;
   points: number;
   explanation?: string;
+  allowCheckAnswer?: boolean;
 }
 
 // Generate a UUID v4 compatible ID
@@ -38,6 +39,7 @@ const defaultMCQData: MCQBlockData = {
   allowMultiple: false,
   points: 1,
   explanation: "",
+  allowCheckAnswer: false,
 };
 
 // Memoized validation cache for performance optimization
