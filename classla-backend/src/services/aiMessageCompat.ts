@@ -29,6 +29,22 @@ export function anthropicToVercelMessages(
 ): ModelMessage[] {
   const result: ModelMessage[] = [];
 
+  // Build a map of tool_use_id → toolName from assistant messages
+  // so we can restore toolName on tool_result blocks (Anthropic format doesn't store it)
+  const toolNameMap = new Map<string, string>();
+  for (const msg of msgs) {
+    if (msg.role === "assistant") {
+      const content = normalizeContent(msg.content);
+      if (Array.isArray(content)) {
+        for (const block of content) {
+          if (block.type === "tool_use" && block.id && block.name) {
+            toolNameMap.set(block.id, block.name);
+          }
+        }
+      }
+    }
+  }
+
   for (const msg of msgs) {
     if (msg.role === "assistant") {
       result.push(convertAssistantMessage(msg));
@@ -45,8 +61,9 @@ export function anthropicToVercelMessages(
           content: content.map((tr: any) => ({
             type: "tool-result" as const,
             toolCallId: tr.tool_use_id,
-            toolName: "",
+            toolName: tr.tool_name || toolNameMap.get(tr.tool_use_id) || "unknown",
             output: { type: "text" as const, value: typeof tr.content === "string" ? tr.content : JSON.stringify(tr.content) },
+            ...(tr.is_error ? { isError: true } : {}),
           })),
         };
         result.push(toolMessage);
@@ -108,14 +125,14 @@ function convertUserMessage(msg: any): UserModelMessage {
       parts.push({
         type: "image",
         image: block.source?.data,
-        mimeType: block.source?.media_type,
+        mediaType: block.source?.media_type,
       } as any);
     } else if (block.type === "document") {
       // Anthropic PDF: { type: "document", source: { type: "base64", media_type, data }, title }
       parts.push({
         type: "file",
         data: block.source?.data,
-        mimeType: block.source?.media_type || "application/pdf",
+        mediaType: block.source?.media_type || "application/pdf",
       } as any);
     }
   }
@@ -199,7 +216,7 @@ function convertVercelUser(msg: UserModelMessage): any {
         type: "image",
         source: {
           type: "base64",
-          media_type: (part as any).mimeType || "image/jpeg",
+          media_type: (part as any).mediaType || (part as any).mimeType || "image/jpeg",
           data: typeof part.image === "string" ? part.image : "",
         },
       });
@@ -208,7 +225,7 @@ function convertVercelUser(msg: UserModelMessage): any {
         type: "document",
         source: {
           type: "base64",
-          media_type: (part as any).mimeType || "application/pdf",
+          media_type: (part as any).mediaType || (part as any).mimeType || "application/pdf",
           data: (part as any).data || "",
         },
       });
@@ -234,6 +251,7 @@ function convertVercelToolResults(msg: ToolModelMessage): any {
     return {
       type: "tool_result",
       tool_use_id: tr.toolCallId,
+      tool_name: tr.toolName || "",
       content: resultText,
       ...(tr.isError ? { is_error: true } : {}),
     };

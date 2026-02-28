@@ -247,6 +247,26 @@ const setDueDates = tool({
   ),
 });
 
+const listCourseAssignments = tool({
+  description:
+    "List all assignments in the current course, grouped by module path. Shows assignment names and IDs so you can reference them with read_other_assignment. Use this when the instructor wants to reference, compare, or draw inspiration from other assignments in the course.",
+  inputSchema: zodSchema(z.object({})),
+});
+
+const readOtherAssignment = tool({
+  description:
+    "Read the block structure of another assignment in the same course. Returns block summaries (types, content previews) similar to get_assignment_state but for a different assignment. Use this to see how another assignment is structured so you can replicate its style or content patterns. The target assignment must be in the same course.",
+  inputSchema: zodSchema(
+    z.object({
+      assignment_id: z
+        .string()
+        .describe(
+          "The ID of the assignment to read. Get this from list_course_assignments."
+        ),
+    })
+  ),
+});
+
 const webSearchTool = tool({
   description:
     "Search the web for information. Use this when the user asks about a topic you need more context on, pastes a URL and asks about it, or requests web-based content to include in the assignment.",
@@ -290,6 +310,8 @@ export function getChatToolSet(memoryEnabled: boolean): ToolSet {
     update_assignment_title: updateAssignmentTitle,
     update_assignment_settings: updateAssignmentSettings,
     set_due_dates: setDueDates,
+    list_course_assignments: listCourseAssignments,
+    read_other_assignment: readOtherAssignment,
     web_search: webSearchTool,
   };
 

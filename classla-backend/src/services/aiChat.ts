@@ -74,6 +74,7 @@ CAPABILITIES:
 - View and update assignment settings (due dates, late submissions, resubmissions, etc.)
 - Update the assignment title
 - Set due dates at course, section, or individual student level
+- Browse other assignments in this course (read-only) for reference and inspiration
 - Advise on pedagogical best practices
 
 WORKFLOW:
@@ -82,6 +83,7 @@ WORKFLOW:
 - Explain what you're doing conversationally
 - After making changes, briefly confirm what was done
 - You can reasonably generate content for all blocks to fulfill the request.
+- When the instructor references another assignment (e.g. "style this like the quiz from Unit 1"), use list_course_assignments to find it, then read_other_assignment to see its structure. Adapt the style/content for the current assignment.
 
 BLOCK TYPES:
 You can create any of these block types using the create_block tool. Provide the full TipTap JSON node as the "content" parameter.
@@ -347,7 +349,8 @@ ASSIGNMENT SETTINGS RULES (CRITICAL — these settings affect student experience
 10. ASSIGNMENT TITLE vs HEADING BLOCKS: The assignment has a NAME (shown in the sidebar/course tree, e.g. "${assignmentName}") which is SEPARATE from any heading blocks in the content. When the instructor asks to "rename", "retitle", or "change the name of" the assignment, you MUST use the update_assignment_title tool — do NOT edit a heading block. Heading blocks (h1, h2, etc.) are just content within the assignment body. Only use update_assignment_title if (a) the instructor explicitly asks to rename/retitle the assignment, OR (b) the current title is "New Assignment" and you are generating content that warrants a proper name.
 11. DUE DATES & TIMEZONE: Always call get_assignment_settings first before setting due dates so you understand the current configuration. Due dates cascade: course-wide → section overrides → student overrides. When the instructor says "set the due date", they typically mean the course-wide date. Only set section or student overrides when explicitly requested. IMPORTANT: When the instructor gives a time like "tomorrow at 3pm" or "Friday at midnight", interpret it in their local timezone (${userTimezone}) and convert to an ISO 8601 string with the correct UTC offset for that timezone. For example, if the timezone is America/New_York and they say "3pm", that means 3:00 PM Eastern time, so use the appropriate UTC offset (e.g. "2025-03-15T15:00:00-04:00" for EDT or "2025-03-15T15:00:00-05:00" for EST). Use the current date/time shown above to resolve relative dates like "tomorrow", "next Monday", "in 3 days", etc.
 12. SECTIONS AND STUDENTS: The get_assignment_settings tool returns section IDs, names, and enrolled student IDs/names. Use these exact IDs when setting section or student due date overrides. If the instructor refers to a section or student by name, match it to the correct ID from the settings data.
-13. CONFIRM SENSITIVE CHANGES: Before changing settings that directly impact students (like disabling late submissions or reducing time limits), briefly confirm with the instructor what you're about to change.${
+13. CONFIRM SENSITIVE CHANGES: Before changing settings that directly impact students (like disabling late submissions or reducing time limits), briefly confirm with the instructor what you're about to change.
+14. CROSS-ASSIGNMENT REFERENCE: When browsing other assignments with list_course_assignments and read_other_assignment, this access is read-only. You cannot modify other assignments. Use the information to adapt content, style, or structure for the current assignment only.${
     memories && memories.length > 0
       ? `
 
@@ -1325,6 +1328,86 @@ async function handleSetDueDates(
   return `Due dates updated:\n${changes.join("\n")}\n\n${Object.keys(newDueDatesMap).length} student(s) have due dates set.`;
 }
 
+// List all assignments in the course grouped by module path
+async function handleListCourseAssignments(
+  courseId: string,
+  currentAssignmentId: string
+): Promise<string> {
+  const { data: assignments, error } = await supabase
+    .from("assignments")
+    .select("id, name, module_path, order_index")
+    .eq("course_id", courseId)
+    .is("deleted_at", null)
+    .order("module_path")
+    .order("order_index");
+
+  if (error) {
+    throw new Error(`Failed to list assignments: ${error.message}`);
+  }
+
+  if (!assignments || assignments.length === 0) {
+    return "No assignments found in this course.";
+  }
+
+  // Group by module_path
+  const grouped: Record<string, typeof assignments> = {};
+  for (const a of assignments) {
+    const path = a.module_path || "(ungrouped)";
+    if (!grouped[path]) grouped[path] = [];
+    grouped[path].push(a);
+  }
+
+  const lines: string[] = [`Course has ${assignments.length} assignment(s):\n`];
+  for (const [path, items] of Object.entries(grouped)) {
+    lines.push(`${path}/`);
+    for (const item of items) {
+      const marker = item.id === currentAssignmentId ? " ← (current)" : "";
+      lines.push(`  - ${item.name} [id: ${item.id}]${marker}`);
+    }
+  }
+
+  return lines.join("\n");
+}
+
+// Read block summary of another assignment in the same course
+async function handleReadOtherAssignment(
+  targetAssignmentId: string,
+  courseId: string
+): Promise<string> {
+  const { data: assignment, error } = await supabase
+    .from("assignments")
+    .select("id, name, course_id, content")
+    .eq("id", targetAssignmentId)
+    .is("deleted_at", null)
+    .single();
+
+  if (error || !assignment) {
+    return `Assignment not found. Make sure the ID is correct and the assignment hasn't been deleted.`;
+  }
+
+  if (assignment.course_id !== courseId) {
+    return `Access denied: that assignment belongs to a different course. You can only read assignments within the current course.`;
+  }
+
+  let parsed: any;
+  if (!assignment.content || assignment.content === "") {
+    parsed = { type: "doc", content: [] };
+  } else if (typeof assignment.content === "string") {
+    parsed = JSON.parse(assignment.content);
+  } else {
+    parsed = assignment.content;
+  }
+
+  const content = parsed?.content || [];
+
+  if (content.length === 0) {
+    return `Assignment "${assignment.name}" is empty (no blocks).`;
+  }
+
+  const summaries = content.map((block: any, i: number) => summarizeBlock(block, i));
+  return `Assignment "${assignment.name}" has ${content.length} block(s):\n${summaries.join("\n")}`;
+}
+
 // Execute a single tool call
 async function executeTool(
   toolName: string,
@@ -1404,6 +1487,12 @@ async function executeTool(
       const results = await webSearch(toolInput.query, toolInput.max_results || 5);
       return formatSearchResultsForPrompt(results);
     }
+
+    case "list_course_assignments":
+      return handleListCourseAssignments(courseId, assignmentId);
+
+    case "read_other_assignment":
+      return handleReadOtherAssignment(toolInput.assignment_id, courseId);
 
     case "get_assignment_settings":
       return handleGetAssignmentSettings(assignmentId, courseId);
@@ -1598,14 +1687,14 @@ export async function handleChatMessage(params: {
             userContentParts.push({
               type: "image",
               image: att.data,
-              mimeType: att.media_type,
+              mediaType: att.media_type,
             });
             break;
           case "pdf":
             userContentParts.push({
               type: "file",
               data: att.data,
-              mimeType: "application/pdf",
+              mediaType: "application/pdf",
             });
             break;
           case "text":
@@ -1719,9 +1808,8 @@ export async function handleChatMessage(params: {
           type: "tool-result",
           toolCallId: tc.toolCallId,
           toolName: tc.toolName,
-          output: isError
-            ? { type: "error-text", value: toolResultText }
-            : { type: "text", value: toolResultText },
+          output: { type: "text", value: toolResultText },
+          isError,
         });
       }
 
@@ -1761,11 +1849,13 @@ export async function handleChatMessage(params: {
     });
 
     let errorMessage = "An error occurred while processing your message.";
-    if (error.message?.includes("throttl") || error.message?.includes("rate")) {
+    if (error.message?.includes("throttl") || error.message?.includes("rate limit") || error.message?.includes("429") || error.message?.includes("Too Many Requests") || error.message?.includes("RESOURCE_EXHAUSTED")) {
       errorMessage =
         "The AI service is currently busy. Please try again in a moment.";
     } else if (error.message?.includes("Access denied")) {
       errorMessage = "AI service access denied. Please contact support.";
+    } else if (error.message?.includes("No output generated") || error.message?.includes("InvalidPrompt")) {
+      errorMessage = "The AI failed to generate a response. Please try again or rephrase your message.";
     }
 
     socket.emit("chat-error", {

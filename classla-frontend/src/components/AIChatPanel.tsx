@@ -130,6 +130,10 @@ function toolLabel(name: string, input?: any): string {
       return "Updating autograder tests...";
     case "web_search":
       return `Searching "${input?.query || "web"}"...`;
+    case "list_course_assignments":
+      return "Browsing assignments...";
+    case "read_other_assignment":
+      return "Reading other assignment...";
     case "save_memory":
       return "Saving to memory...";
     case "get_assignment_settings":
@@ -169,6 +173,10 @@ function toolCompleteLabel(name: string, input?: any): string {
       return `Set ${input?.tests?.length || ""} autograder tests`;
     case "web_search":
       return `Searched "${input?.query || "web"}"`;
+    case "list_course_assignments":
+      return "Listed course assignments";
+    case "read_other_assignment":
+      return "Read other assignment";
     case "save_memory":
       return "Saved to memory";
     case "get_assignment_settings":
