@@ -1,5 +1,8 @@
-import AnthropicBedrock from "@anthropic-ai/bedrock-sdk";
-import type { Tool, MessageParam, ContentBlock } from "@anthropic-ai/sdk/resources/messages";
+import { streamText } from "ai";
+import { getChatModel } from "./aiProvider";
+import { getChatToolSet } from "./aiTools";
+import { anthropicToVercelMessages, vercelToAnthropicMessages } from "./aiMessageCompat";
+import type { ModelMessage } from "ai";
 import {
   S3Client,
   ListObjectsV2Command,
@@ -30,283 +33,7 @@ const s3Client = new S3Client({
       : undefined,
 });
 
-// Bedrock client (lazy initialized)
-let bedrockClient: AnthropicBedrock | null = null;
-
-function getBedrockClient(): AnthropicBedrock {
-  if (!bedrockClient) {
-    bedrockClient = new AnthropicBedrock({
-      awsAccessKey:
-        process.env.BEDROCK_ACCESS_KEY_ID || process.env.AWS_ACCESS_KEY_ID,
-      awsSecretKey:
-        process.env.BEDROCK_SECRET_ACCESS_KEY ||
-        process.env.AWS_SECRET_ACCESS_KEY,
-      awsRegion: process.env.AWS_REGION || "us-east-1",
-    });
-  }
-  return bedrockClient;
-}
-
-const MODEL_ID = "us.anthropic.claude-sonnet-4-6";
 const MAX_TOOL_ITERATIONS = 15;
-
-// Tool definitions for Claude
-const TOOLS: Tool[] = [
-  {
-    name: "get_assignment_state",
-    description:
-      "Read the current assignment block structure. Returns a summary of all blocks with their types, indices, and content summaries. Call this first when the user asks about or wants to modify existing content.",
-    input_schema: {
-      type: "object" as const,
-      properties: {},
-      required: [],
-    },
-  },
-  {
-    name: "create_block",
-    description:
-      "Insert a new block into the assignment at a specific position. The block will appear at the given index, pushing existing blocks down.",
-    input_schema: {
-      type: "object" as const,
-      properties: {
-        block_type: {
-          type: "string",
-          description:
-            "The type of block to create. One of: paragraph, heading, bulletList, orderedList, codeBlock, blockquote, horizontalRule, mcqBlock, fillInTheBlankBlock, shortAnswerBlock, ideBlock, parsonsProblemBlock, dragDropMatchingBlock, clickableAreaBlock, pollBlock, tabbedContentBlock, revealContentBlock, embedBlock",
-        },
-        position: {
-          type: "number",
-          description:
-            "The 0-based index where the block should be inserted. Use -1 to append at the end.",
-        },
-        content: {
-          type: "object",
-          description:
-            "The full TipTap JSON node for the block (including type and attrs).",
-        },
-      },
-      required: ["block_type", "position", "content"],
-    },
-  },
-  {
-    name: "edit_block",
-    description:
-      "Modify an existing block's content. Replaces the block at the given index with the updated content.",
-    input_schema: {
-      type: "object" as const,
-      properties: {
-        block_index: {
-          type: "number",
-          description: "The 0-based index of the block to edit.",
-        },
-        updated_content: {
-          type: "object",
-          description:
-            "The full updated TipTap JSON node for the block (including type and attrs).",
-        },
-      },
-      required: ["block_index", "updated_content"],
-    },
-  },
-  {
-    name: "delete_block",
-    description: "Remove a block from the assignment at the given index.",
-    input_schema: {
-      type: "object" as const,
-      properties: {
-        block_index: {
-          type: "number",
-          description: "The 0-based index of the block to delete.",
-        },
-      },
-      required: ["block_index"],
-    },
-  },
-  {
-    name: "reorder_blocks",
-    description: "Move a block from one position to another.",
-    input_schema: {
-      type: "object" as const,
-      properties: {
-        from_index: {
-          type: "number",
-          description: "The current 0-based index of the block to move.",
-        },
-        to_index: {
-          type: "number",
-          description: "The target 0-based index to move the block to.",
-        },
-      },
-      required: ["from_index", "to_index"],
-    },
-  },
-  {
-    name: "read_ide_files",
-    description:
-      'List or read files from an IDE block\'s S3 bucket. Use bucket_type "template" for starter code or "modelSolution" for solution code. Omit file_path to list all files, or provide it to read a specific file.',
-    input_schema: {
-      type: "object" as const,
-      properties: {
-        block_index: {
-          type: "number",
-          description: "The 0-based index of the IDE block.",
-        },
-        bucket_type: {
-          type: "string",
-          enum: ["template", "modelSolution"],
-          description:
-            'Which bucket to read from: "template" for starter code or "modelSolution" for solution code.',
-        },
-        file_path: {
-          type: "string",
-          description:
-            "Optional file path to read. If omitted, returns a list of all files in the bucket.",
-        },
-      },
-      required: ["block_index", "bucket_type"],
-    },
-  },
-  {
-    name: "write_ide_files",
-    description:
-      "Create or update a file in an IDE block's S3 bucket. If no bucket exists yet, one will be created automatically.",
-    input_schema: {
-      type: "object" as const,
-      properties: {
-        block_index: {
-          type: "number",
-          description: "The 0-based index of the IDE block.",
-        },
-        bucket_type: {
-          type: "string",
-          enum: ["template", "modelSolution"],
-          description:
-            'Which bucket to write to: "template" for starter code or "modelSolution" for solution code.',
-        },
-        file_path: {
-          type: "string",
-          description: "The file path within the bucket (e.g., 'main.py').",
-        },
-        content: {
-          type: "string",
-          description: "The file content to write.",
-        },
-      },
-      required: ["block_index", "bucket_type", "file_path", "content"],
-    },
-  },
-  {
-    name: "get_autograder_tests",
-    description:
-      "Read the autograder test configuration for an IDE block. Returns all test cases with their types, names, points, and details.",
-    input_schema: {
-      type: "object" as const,
-      properties: {
-        block_index: {
-          type: "number",
-          description: "The 0-based index of the IDE block.",
-        },
-      },
-      required: ["block_index"],
-    },
-  },
-  {
-    name: "set_autograder_tests",
-    description:
-      'Set the autograder test cases for an IDE block. Replaces all existing tests. Each test must have an id (UUID), name, type ("inputOutput", "unitTest", or "manualGrading"), and points. inputOutput tests have input and expectedOutput fields. unitTest tests have a code field and optional framework field ("unittest" or "junit"). manualGrading tests only need name and points.',
-    input_schema: {
-      type: "object" as const,
-      properties: {
-        block_index: {
-          type: "number",
-          description: "The 0-based index of the IDE block.",
-        },
-        tests: {
-          type: "array",
-          description: "Array of test case objects.",
-          items: {
-            type: "object",
-            properties: {
-              id: { type: "string", description: "UUID for this test case." },
-              name: { type: "string", description: "Test case display name." },
-              type: {
-                type: "string",
-                enum: ["inputOutput", "unitTest", "manualGrading"],
-                description: "The type of test case.",
-              },
-              points: {
-                type: "number",
-                description: "Points value for this test.",
-              },
-              input: {
-                type: "string",
-                description:
-                  "stdin input for inputOutput tests (can be empty string).",
-              },
-              expectedOutput: {
-                type: "string",
-                description: "Expected stdout for inputOutput tests.",
-              },
-              code: {
-                type: "string",
-                description: "Test code for unitTest tests.",
-              },
-              framework: {
-                type: "string",
-                enum: ["unittest", "junit"],
-                description:
-                  'Test framework for unitTest tests. Defaults to "unittest".',
-              },
-            },
-            required: ["id", "name", "type", "points"],
-          },
-        },
-        allow_student_check: {
-          type: "boolean",
-          description:
-            "Whether students can check their answers against the autograder. IMPORTANT: Do NOT include this parameter unless the instructor explicitly asks to change it. Omit it to preserve the current value.",
-        },
-      },
-      required: ["block_index", "tests"],
-    },
-  },
-  {
-    name: "web_search",
-    description:
-      "Search the web for information. Use this when the user asks about a topic you need more context on, pastes a URL and asks about it, or requests web-based content to include in the assignment.",
-    input_schema: {
-      type: "object" as const,
-      properties: {
-        query: {
-          type: "string",
-          description: "The search query to look up.",
-        },
-        max_results: {
-          type: "number",
-          description: "Maximum number of results to return (default: 5).",
-        },
-      },
-      required: ["query"],
-    },
-  },
-];
-
-const SAVE_MEMORY_TOOL: Tool = {
-  name: "save_memory",
-  description:
-    'Save important context to course memory that persists across all chat sessions in this course. You MUST call this tool whenever the instructor expresses a persistent preference, rule, or standard — look for phrases like "remember", "always", "never", "from now on", "going forward", "make sure to", "don\'t ever", "I prefer", "I want", "use X instead of Y", or any statement that implies a lasting rule or preference. Each memory should be a concise, self-contained statement (max 500 chars). When in doubt about whether to save, save it.',
-  input_schema: {
-    type: "object" as const,
-    properties: {
-      content: {
-        type: "string",
-        description:
-          "A concise, self-contained statement capturing the preference or rule (max 500 characters). Write it as a directive, e.g. 'Always use Python type hints' not 'The instructor said to use type hints'.",
-      },
-    },
-    required: ["content"],
-  },
-};
 
 const DEFAULT_MAX_CHARS = 5000;
 const MAX_ENTRY_CHARS = 500;
@@ -1464,117 +1191,105 @@ export async function handleChatMessage(params: {
       }
     }
 
-    // Build message history
-    // Construct user content — text + optional attachments
-    let userContent: any;
+    // Build new user content in Vercel format
+    const userContentParts: any[] = [];
     if (attachments && attachments.length > 0) {
-      const contentBlocks: any[] = [];
       for (const att of attachments) {
         switch (att.kind) {
           case "image":
-            contentBlocks.push({
+            userContentParts.push({
               type: "image",
-              source: {
-                type: "base64",
-                media_type: att.media_type,
-                data: att.data,
-              },
+              image: att.data,
+              mimeType: att.media_type,
             });
             break;
           case "pdf":
-            contentBlocks.push({
-              type: "document",
-              source: {
-                type: "base64",
-                media_type: "application/pdf",
-                data: att.data,
-              },
-              title: att.fileName,
+            userContentParts.push({
+              type: "file",
+              data: att.data,
+              mimeType: "application/pdf",
             });
             break;
           case "text":
-            contentBlocks.push({
+            userContentParts.push({
               type: "text",
               text: `[Attached file: ${att.fileName}]\n\n${att.textContent}`,
             });
             break;
         }
       }
-      contentBlocks.push({ type: "text", text: userMessage });
-      userContent = contentBlocks;
-    } else {
-      userContent = userMessage;
+      userContentParts.push({ type: "text", text: userMessage });
     }
 
-    const messages: MessageParam[] = [
-      ...(session.messages || []),
-      { role: "user" as const, content: userContent },
-    ];
+    // Convert stored Anthropic-format messages to Vercel format
+    const historyMessages = anthropicToVercelMessages(session.messages || []);
+
+    // Append the new user message
+    const newUserMessage: ModelMessage = userContentParts.length > 0
+      ? { role: "user", content: userContentParts as any }
+      : { role: "user", content: userMessage };
+
+    const currentMessages: ModelMessage[] = [...historyMessages, newUserMessage];
 
     const systemPrompt = buildSystemPrompt(assignment.name, courseName, memories);
-    const tools = memoryEnabled ? [...TOOLS, SAVE_MEMORY_TOOL] : TOOLS;
-    const client = getBedrockClient();
+    const tools = getChatToolSet(memoryEnabled);
 
     // Agentic loop with streaming
     let iteration = 0;
-    let currentMessages = [...messages];
 
     while (iteration < MAX_TOOL_ITERATIONS) {
       iteration++;
 
-      const stream = client.messages.stream({
-        model: MODEL_ID,
-        max_tokens: 8192,
+      const result = await streamText({
+        model: getChatModel(),
+        maxOutputTokens: 8192,
         system: systemPrompt,
         tools,
         messages: currentMessages,
       });
 
       // Stream text deltas to the frontend in real-time
-      stream.on("text", (textDelta) => {
-        socket.emit("chat-text", {
-          text: textDelta,
-          sessionId,
-        });
-      });
-
-      // Wait for the complete message
-      const response = await stream.finalMessage();
-
-      // Collect tool use blocks from the final message
-      const toolUseBlocks: Array<{ id: string; name: string; input: any }> = [];
-
-      for (const block of response.content) {
-        if (block.type === "tool_use") {
-          toolUseBlocks.push({ id: block.id, name: block.name, input: block.input });
+      for await (const textPart of result.textStream) {
+        if (textPart) {
+          socket.emit("chat-text", {
+            text: textPart,
+            sessionId,
+          });
         }
       }
 
-      // If no tool use, we're done
-      if (toolUseBlocks.length === 0 || response.stop_reason === "end_turn") {
-        currentMessages.push({
-          role: "assistant" as const,
-          content: response.content as any,
-        });
+      // Get the full response text and tool calls
+      const responseText = await result.text;
+      const toolCalls = await result.toolCalls;
+
+      // Use SDK response messages to preserve provider metadata
+      // (e.g., Gemini thought signatures on tool-call parts)
+      const responseMessages = (await result.response).messages;
+      for (const msg of responseMessages) {
+        currentMessages.push(msg);
+      }
+
+      // If no tool calls, we're done
+      if (toolCalls.length === 0) {
         break;
       }
 
       // Execute all tool calls and collect results
-      const toolResults: Array<{ type: "tool_result"; tool_use_id: string; content: string; is_error?: boolean }> = [];
+      const toolResultParts: any[] = [];
 
-      for (const tc of toolUseBlocks) {
+      for (const tc of toolCalls) {
         socket.emit("tool-call-start", {
-          toolName: tc.name,
+          toolName: tc.toolName,
           toolInput: tc.input,
-          toolId: tc.id,
+          toolId: tc.toolCallId,
           sessionId,
         });
 
-        let toolResult: string;
+        let toolResultText: string;
         let isError = false;
         try {
-          toolResult = await executeTool(
-            tc.name,
+          toolResultText = await executeTool(
+            tc.toolName,
             tc.input,
             assignmentId,
             userId,
@@ -1584,40 +1299,38 @@ export async function handleChatMessage(params: {
             memoryMaxChars
           );
         } catch (err: any) {
-          toolResult = `Error: ${err.message}`;
+          toolResultText = `Error: ${err.message}`;
           isError = true;
           logger.error("Tool execution error", {
-            tool: tc.name,
+            tool: tc.toolName,
             error: err.message,
             sessionId,
           });
         }
 
         socket.emit("tool-call-complete", {
-          toolName: tc.name,
-          toolId: tc.id,
-          result: toolResult,
+          toolName: tc.toolName,
+          toolId: tc.toolCallId,
+          result: toolResultText,
           isError,
           sessionId,
         });
 
-        toolResults.push({
-          type: "tool_result" as const,
-          tool_use_id: tc.id,
-          content: toolResult,
-          ...(isError ? { is_error: true } : {}),
+        toolResultParts.push({
+          type: "tool-result",
+          toolCallId: tc.toolCallId,
+          toolName: tc.toolName,
+          output: isError
+            ? { type: "error-text", value: toolResultText }
+            : { type: "text", value: toolResultText },
         });
       }
 
-      // Add assistant response + all tool results to history
+      // Add tool results to history
       currentMessages.push({
-        role: "assistant" as const,
-        content: response.content as any,
-      });
-      currentMessages.push({
-        role: "user" as const,
-        content: toolResults as any,
-      });
+        role: "tool",
+        content: toolResultParts,
+      } as ModelMessage);
     }
 
     if (iteration >= MAX_TOOL_ITERATIONS) {
@@ -1627,12 +1340,8 @@ export async function handleChatMessage(params: {
       });
     }
 
-    // Save updated messages to the session
-    // Simplify messages for storage (convert to a clean format)
-    const storedMessages = currentMessages.map((msg) => ({
-      role: msg.role,
-      content: msg.content,
-    }));
+    // Convert back to Anthropic format for DB storage (backward compat)
+    const storedMessages = vercelToAnthropicMessages(currentMessages);
 
     await supabase
       .from("ai_chat_sessions")
