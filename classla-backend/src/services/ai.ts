@@ -1,7 +1,5 @@
-import {
-  BedrockRuntimeClient,
-  InvokeModelCommand,
-} from "@aws-sdk/client-bedrock-runtime";
+import { generateText } from "ai";
+import { getMainModel, getQuickModel } from "./aiProvider";
 import {
   S3Client,
   CreateBucketCommand,
@@ -185,31 +183,6 @@ async function createBucketWithFiles(
   }
 }
 
-// Tool definitions for Claude
-const TOOLS = [
-  {
-    name: "web_search",
-    description: "Search the web for current information about topics. Use this when you need up-to-date information, facts, or references that may not be in your training data. Good for finding recent examples, current best practices, or specific technical documentation.",
-    input_schema: {
-      type: "object",
-      properties: {
-        query: {
-          type: "string",
-          description: "The search query to find relevant information",
-        },
-      },
-      required: ["query"],
-    },
-  },
-];
-
-// Claude model IDs
-const CLAUDE_SONNET_MODEL_ID = "us.anthropic.claude-sonnet-4-20250514-v1:0";
-const CLAUDE_HAIKU_MODEL_ID = "us.anthropic.claude-3-5-haiku-20241022-v1:0";
-
-// For backwards compatibility
-const CLAUDE_MODEL_ID = CLAUDE_SONNET_MODEL_ID;
-
 // Maximum context window in tokens (200k tokens)
 const MAX_CONTEXT_WINDOW = 200000;
 
@@ -249,13 +222,11 @@ async function shouldUseWebSearch(prompt: string): Promise<boolean> {
     }
   }
 
-  // For edge cases, use Haiku for a quick decision
+  // For edge cases, use a quick model for a fast decision
   try {
-    const client = getBedrockClient();
-
-    const requestBody = {
-      anthropic_version: "bedrock-2023-05-31",
-      max_tokens: 10,
+    const { text } = await generateText({
+      model: getQuickModel(),
+      maxOutputTokens: 10,
       messages: [
         {
           role: "user",
@@ -264,23 +235,13 @@ async function shouldUseWebSearch(prompt: string): Promise<boolean> {
 Request: "${prompt.substring(0, 500)}"`,
         },
       ],
-    };
-
-    const command = new InvokeModelCommand({
-      modelId: CLAUDE_HAIKU_MODEL_ID,
-      contentType: "application/json",
-      accept: "application/json",
-      body: JSON.stringify(requestBody),
     });
 
-    const response = await client.send(command);
-    const responseBody = JSON.parse(new TextDecoder().decode(response.body));
-    const answer = responseBody.content?.[0]?.text?.toLowerCase().trim() || "no";
-
+    const answer = text.toLowerCase().trim();
     return answer.includes("yes");
   } catch (error) {
-    // If Haiku call fails, default to no web search
-    logger.warn("Haiku web search check failed, defaulting to no search", {
+    // If quick model call fails, default to no web search
+    logger.warn("Quick model web search check failed, defaulting to no search", {
       error: error instanceof Error ? error.message : "Unknown",
     });
     return false;
@@ -290,41 +251,6 @@ Request: "${prompt.substring(0, 500)}"`,
 // Estimate tokens by dividing character count by 3.5
 const estimateTokens = (text: string): number => {
   return Math.ceil(text.length / 3.5);
-};
-
-// Initialize Bedrock client
-let bedrockClient: BedrockRuntimeClient | null = null;
-
-const getBedrockClient = (): BedrockRuntimeClient => {
-  if (!bedrockClient) {
-    const region = process.env.AWS_REGION || process.env.BEDROCK_REGION || "us-east-1";
-    
-    const config: any = {
-      region,
-    };
-
-    // In production, prefer IAM role credentials (no explicit credentials needed)
-    // Only use explicit credentials if provided (for local development or special cases)
-    if (process.env.BEDROCK_ACCESS_KEY_ID && process.env.BEDROCK_SECRET_ACCESS_KEY) {
-      config.credentials = {
-        accessKeyId: process.env.BEDROCK_ACCESS_KEY_ID,
-        secretAccessKey: process.env.BEDROCK_SECRET_ACCESS_KEY,
-      };
-      logger.info("Using explicit Bedrock credentials from environment variables");
-    } else if (process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY) {
-      config.credentials = {
-        accessKeyId: process.env.AWS_ACCESS_KEY_ID,
-        secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
-      };
-      logger.info("Using explicit AWS credentials from environment variables");
-    } else {
-      // No explicit credentials - will use IAM role credentials (default AWS SDK behavior)
-      logger.info("Using IAM role credentials for Bedrock (no explicit credentials provided)");
-    }
-    
-    bedrockClient = new BedrockRuntimeClient(config);
-  }
-  return bedrockClient;
 };
 
 // System prompt for TipTap JSON generation
@@ -700,8 +626,6 @@ export const generateContent = async (
   }
 
   try {
-    const client = getBedrockClient();
-
     let userPrompt = prompt;
     if (assignmentContext) {
       if (assignmentContext.name) {
@@ -712,9 +636,13 @@ export const generateContent = async (
       }
     }
 
-    const requestBody = {
-      anthropic_version: "bedrock-2023-05-31",
-      max_tokens: 8192,
+    logger.info("Generating content with AI model", {
+      promptLength: prompt.length,
+    });
+
+    const { text: rawText } = await generateText({
+      model: getMainModel(),
+      maxOutputTokens: 8192,
       system: SYSTEM_PROMPT,
       messages: [
         {
@@ -722,26 +650,11 @@ export const generateContent = async (
           content: userPrompt,
         },
       ],
-    };
-
-    const command = new InvokeModelCommand({
-      modelId: CLAUDE_MODEL_ID,
-      contentType: "application/json",
-      accept: "application/json",
-      body: JSON.stringify(requestBody),
     });
 
-    logger.info("Invoking Bedrock model", {
-      modelId: CLAUDE_MODEL_ID,
-      promptLength: prompt.length,
-    });
+    if (rawText) {
+      let generatedText = rawText.trim();
 
-    const response = await client.send(command);
-    const responseBody = JSON.parse(new TextDecoder().decode(response.body));
-
-    if (responseBody.content && responseBody.content[0]?.text) {
-      let generatedText = responseBody.content[0].text.trim();
-      
       // Remove markdown code blocks if present
       const jsonMatch = generatedText.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
       if (jsonMatch) {
@@ -1020,22 +933,6 @@ Return a JSON object with a files array. Your ENTIRE response must be valid JSON
   }
 
   try {
-    const client = getBedrockClient();
-
-    const requestBody = {
-      anthropic_version: "bedrock-2023-05-31",
-      max_tokens: 8192,
-      system: "You are a coding assistant that generates model solutions for programming exercises. Your response must be ONLY valid JSON. Do NOT include any conversational text, markdown formatting, or code blocks. Your ENTIRE response must start with { and end with }.",
-      messages: [{ role: "user", content: prompt }],
-    };
-
-    const command = new InvokeModelCommand({
-      modelId: CLAUDE_MODEL_ID,
-      contentType: "application/json",
-      accept: "application/json",
-      body: JSON.stringify(requestBody),
-    });
-
     logger.info("Generating model solution", {
       assignmentId,
       ideBlockId,
@@ -1044,14 +941,18 @@ Return a JSON object with a files array. Your ENTIRE response must be valid JSON
       testCount: tests.length,
     });
 
-    const response = await client.send(command);
-    const responseBody = JSON.parse(new TextDecoder().decode(response.body));
+    const { text: rawText } = await generateText({
+      model: getMainModel(),
+      maxOutputTokens: 8192,
+      system: "You are a coding assistant that generates model solutions for programming exercises. Your response must be ONLY valid JSON. Do NOT include any conversational text, markdown formatting, or code blocks. Your ENTIRE response must start with { and end with }.",
+      messages: [{ role: "user", content: prompt }],
+    });
 
-    if (!responseBody.content?.[0]?.text) {
+    if (!rawText) {
       throw new Error("Unexpected response format from AI model");
     }
 
-    let generatedText = responseBody.content[0].text.trim();
+    let generatedText = rawText.trim();
 
     // Remove markdown code blocks if present
     const jsonMatch = generatedText.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
@@ -1336,22 +1237,6 @@ Return a JSON object. Your ENTIRE response must be valid JSON starting with { an
   }
 
   try {
-    const client = getBedrockClient();
-
-    const requestBody = {
-      anthropic_version: "bedrock-2023-05-31",
-      max_tokens: 8192,
-      system: "You are a coding assistant that generates unit tests for programming exercises. Your response must be ONLY valid JSON. Do NOT include any conversational text, markdown formatting, or code blocks. Your ENTIRE response must start with { and end with }.",
-      messages: [{ role: "user", content: prompt }],
-    };
-
-    const command = new InvokeModelCommand({
-      modelId: CLAUDE_MODEL_ID,
-      contentType: "application/json",
-      accept: "application/json",
-      body: JSON.stringify(requestBody),
-    });
-
     logger.info("Generating unit tests", {
       assignmentId,
       ideBlockId,
@@ -1361,14 +1246,18 @@ Return a JSON object. Your ENTIRE response must be valid JSON starting with { an
       existingTestCount: existingTests.length,
     });
 
-    const response = await client.send(command);
-    const responseBody = JSON.parse(new TextDecoder().decode(response.body));
+    const { text: rawText } = await generateText({
+      model: getMainModel(),
+      maxOutputTokens: 8192,
+      system: "You are a coding assistant that generates unit tests for programming exercises. Your response must be ONLY valid JSON. Do NOT include any conversational text, markdown formatting, or code blocks. Your ENTIRE response must start with { and end with }.",
+      messages: [{ role: "user", content: prompt }],
+    });
 
-    if (!responseBody.content?.[0]?.text) {
+    if (!rawText) {
       throw new Error("Unexpected response format from AI model");
     }
 
-    let generatedText = responseBody.content[0].text.trim();
+    let generatedText = rawText.trim();
 
     // Remove markdown code blocks if present
     const jsonMatch = generatedText.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
