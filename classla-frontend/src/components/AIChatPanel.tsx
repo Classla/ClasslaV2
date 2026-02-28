@@ -132,6 +132,14 @@ function toolLabel(name: string, input?: any): string {
       return `Searching "${input?.query || "web"}"...`;
     case "save_memory":
       return "Saving to memory...";
+    case "get_assignment_settings":
+      return "Reading assignment settings...";
+    case "update_assignment_title":
+      return "Updating title...";
+    case "update_assignment_settings":
+      return "Updating settings...";
+    case "set_due_dates":
+      return "Setting due dates...";
     default:
       return `${name}...`;
   }
@@ -163,6 +171,14 @@ function toolCompleteLabel(name: string, input?: any): string {
       return `Searched "${input?.query || "web"}"`;
     case "save_memory":
       return "Saved to memory";
+    case "get_assignment_settings":
+      return "Read assignment settings";
+    case "update_assignment_title":
+      return `Updated title`;
+    case "update_assignment_settings":
+      return "Updated settings";
+    case "set_due_dates":
+      return "Set due dates";
     default:
       return name;
   }
@@ -454,6 +470,14 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
       onBlockMutation?.();
     });
 
+    socket.on("assignment-title-updated", () => {
+      onBlockMutation?.();
+    });
+
+    socket.on("assignment-settings-changed", () => {
+      onBlockMutation?.();
+    });
+
     socket.on("connect_error", (err) => {
       console.error("[AI Chat] Connection error:", err.message);
     });
@@ -579,6 +603,7 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
       sessionId: activeSessionId,
       assignmentId,
       message: userMessage,
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
       attachments: attachmentsToSend?.map((att) => {
         switch (att.kind) {
           case "image":

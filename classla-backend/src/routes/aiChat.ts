@@ -119,6 +119,7 @@ export function setupAIChatWebSocket(io: SocketIOServer): void {
         sessionId: string;
         assignmentId: string;
         message: string;
+        timezone?: string;
         attachments?: Array<
           | { kind: "image"; data: string; media_type: "image/jpeg" | "image/png" | "image/gif" | "image/webp" }
           | { kind: "pdf"; data: string; fileName: string }
@@ -228,6 +229,7 @@ export function setupAIChatWebSocket(io: SocketIOServer): void {
             userId,
             isAdmin,
             userMessage: data.message,
+            timezone: data.timezone,
             attachments,
             socket,
           });

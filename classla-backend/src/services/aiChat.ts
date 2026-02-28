@@ -18,6 +18,7 @@ import { AuthenticatedSocket, getIO } from "./websocket";
 import { applyContainerContent } from "./otProviderService";
 import { notifyAssignmentQuery } from "./discord";
 import { webSearch, formatSearchResultsForPrompt } from "./search";
+import { emitAssignmentSettingsUpdate, emitTreeUpdate } from "./courseTreeSocket";
 
 // S3 client for IDE bucket operations
 const S3_DEFAULT_REGION = "us-east-1";
@@ -42,18 +43,37 @@ const MAX_ENTRY_CHARS = 500;
 function buildSystemPrompt(
   assignmentName: string,
   courseName: string,
+  userTimezone: string,
   memories?: string[]
 ): string {
+  // Format current date/time in the user's timezone
+  const now = new Date();
+  const localDateStr = now.toLocaleString("en-US", {
+    timeZone: userTimezone,
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: true,
+  });
+
   return `You are Classla AI, an assistant helping instructors build educational assignments. You can create, edit, delete, and reorder assignment blocks, and read/write code files in IDE blocks.
 
 CURRENT CONTEXT:
 - Assignment: "${assignmentName}"
 - Course: "${courseName}"
+- Current date/time: ${localDateStr}
+- Instructor's timezone: ${userTimezone}
 
 CAPABILITIES:
 - Create, edit, delete, and reorder assignment blocks
 - Read and write code files in IDE blocks (templates and model solutions)
 - Search the web for information, references, and context
+- View and update assignment settings (due dates, late submissions, resubmissions, etc.)
+- Update the assignment title
+- Set due dates at course, section, or individual student level
 - Advise on pedagogical best practices
 
 WORKFLOW:
@@ -61,7 +81,7 @@ WORKFLOW:
 - When editing IDE code, call read_ide_files first to see current files before modifying
 - Explain what you're doing conversationally
 - After making changes, briefly confirm what was done
-- You can reasonably generate content for all blocks to fulfill the request. 
+- You can reasonably generate content for all blocks to fulfill the request.
 
 BLOCK TYPES:
 You can create any of these block types using the create_block tool. Provide the full TipTap JSON node as the "content" parameter.
@@ -320,7 +340,14 @@ RULES:
 6b. When calling set_autograder_tests, do NOT change the allow_student_check setting unless the instructor explicitly asks you to enable or disable it. Omit the parameter to preserve its current value.
 6c. When editing MCQ blocks, do NOT change the allowCheckAnswer setting unless the instructor explicitly asks you to enable or disable it. Preserve its current value.
 7. Be conversational — explain what you're doing and ask clarifying questions when needed
-8. MEMORY: When the instructor says anything that implies a lasting preference or rule (e.g. "remember...", "always...", "never...", "from now on...", "I prefer...", "make sure to...", "don't ever..."), you MUST call save_memory to persist it. When in doubt, save it.${
+8. MEMORY: When the instructor says anything that implies a lasting preference or rule (e.g. "remember...", "always...", "never...", "from now on...", "I prefer...", "make sure to...", "don't ever..."), you MUST call save_memory to persist it. When in doubt, save it.
+
+ASSIGNMENT SETTINGS RULES (CRITICAL — these settings affect student experience):
+9. PRESERVE EXISTING SETTINGS: When using update_assignment_settings, ONLY include the specific settings the instructor explicitly asked to change. All omitted settings are preserved automatically. Never change settings the instructor didn't mention.
+10. ASSIGNMENT TITLE vs HEADING BLOCKS: The assignment has a NAME (shown in the sidebar/course tree, e.g. "${assignmentName}") which is SEPARATE from any heading blocks in the content. When the instructor asks to "rename", "retitle", or "change the name of" the assignment, you MUST use the update_assignment_title tool — do NOT edit a heading block. Heading blocks (h1, h2, etc.) are just content within the assignment body. Only use update_assignment_title if (a) the instructor explicitly asks to rename/retitle the assignment, OR (b) the current title is "New Assignment" and you are generating content that warrants a proper name.
+11. DUE DATES & TIMEZONE: Always call get_assignment_settings first before setting due dates so you understand the current configuration. Due dates cascade: course-wide → section overrides → student overrides. When the instructor says "set the due date", they typically mean the course-wide date. Only set section or student overrides when explicitly requested. IMPORTANT: When the instructor gives a time like "tomorrow at 3pm" or "Friday at midnight", interpret it in their local timezone (${userTimezone}) and convert to an ISO 8601 string with the correct UTC offset for that timezone. For example, if the timezone is America/New_York and they say "3pm", that means 3:00 PM Eastern time, so use the appropriate UTC offset (e.g. "2025-03-15T15:00:00-04:00" for EDT or "2025-03-15T15:00:00-05:00" for EST). Use the current date/time shown above to resolve relative dates like "tomorrow", "next Monday", "in 3 days", etc.
+12. SECTIONS AND STUDENTS: The get_assignment_settings tool returns section IDs, names, and enrolled student IDs/names. Use these exact IDs when setting section or student due date overrides. If the instructor refers to a section or student by name, match it to the correct ID from the settings data.
+13. CONFIRM SENSITIVE CHANGES: Before changing settings that directly impact students (like disabling late submissions or reducing time limits), briefly confirm with the instructor what you're about to change.${
     memories && memories.length > 0
       ? `
 
@@ -957,6 +984,347 @@ async function handleSaveMemory(
   return `Memory saved: "${content.trim()}"`;
 }
 
+// Fetch full assignment settings and due date info for the AI
+async function handleGetAssignmentSettings(
+  assignmentId: string,
+  courseId: string
+): Promise<string> {
+  // Fetch the assignment
+  const { data: assignment, error } = await supabase
+    .from("assignments")
+    .select("name, settings, due_dates_map, due_date_config, is_lockdown, lockdown_time_map")
+    .eq("id", assignmentId)
+    .single();
+
+  if (error || !assignment) {
+    throw new Error("Assignment not found");
+  }
+
+  // Fetch sections with their enrollments so the AI can reference them
+  const { data: sections } = await supabase
+    .from("sections")
+    .select("id, name, slug")
+    .eq("course_id", courseId)
+    .is("deleted_at", null)
+    .order("name");
+
+  // Fetch enrolled students
+  const { data: enrollments } = await supabase
+    .from("course_enrollments")
+    .select("user_id, section_id, users!inner(id, first_name, last_name, email)")
+    .eq("course_id", courseId)
+    .eq("role", "student");
+
+  const settings = assignment.settings || {};
+  const dueDateConfig = assignment.due_date_config || {};
+  const dueDatesMap = assignment.due_dates_map || {};
+
+  let result = `Assignment: "${assignment.name}"\n\n`;
+
+  // Settings
+  result += "SETTINGS:\n";
+  result += `- allowLateSubmissions: ${settings.allowLateSubmissions ?? false}\n`;
+  result += `- allowResubmissions: ${settings.allowResubmissions ?? false}\n`;
+  result += `- showResponsesAfterSubmission: ${settings.showResponsesAfterSubmission ?? false}\n`;
+  result += `- showScoreAfterSubmission: ${settings.showScoreAfterSubmission ?? false}\n`;
+  result += `- timeLimitSeconds: ${settings.timeLimitSeconds ?? "not set"}\n`;
+  result += `- is_lockdown (timed assignment): ${assignment.is_lockdown ?? false}\n`;
+
+  // Due dates
+  result += "\nDUE DATES:\n";
+  const courseDueDate = dueDateConfig.courseDueDate;
+  if (courseDueDate) {
+    result += `- Course-wide due date: ${courseDueDate}\n`;
+  } else {
+    result += "- Course-wide due date: not set\n";
+  }
+
+  const sectionDueDates = dueDateConfig.sectionDueDates || {};
+  if (Object.keys(sectionDueDates).length > 0) {
+    result += "- Section overrides:\n";
+    for (const [sectionId, date] of Object.entries(sectionDueDates)) {
+      const section = sections?.find((s: any) => s.id === sectionId);
+      result += `    ${section?.name || sectionId}: ${date}\n`;
+    }
+  }
+
+  // Individual student overrides (only those different from inherited)
+  const studentOverrides: string[] = [];
+  for (const [userId, date] of Object.entries(dueDatesMap)) {
+    if (!date) continue;
+    // Find student info
+    const enrollment = enrollments?.find((e: any) => e.user_id === userId);
+    const user = (enrollment as any)?.users;
+    const studentName = user ? `${user.first_name} ${user.last_name}` : userId;
+
+    // Determine inherited date
+    const studentSection = enrollment?.section_id;
+    const inheritedDate = (studentSection && sectionDueDates[studentSection]) || courseDueDate;
+
+    // Only show as override if different from inherited
+    const dateStr = typeof date === "string" ? date : new Date(date as any).toISOString();
+    if (dateStr !== inheritedDate) {
+      studentOverrides.push(`    ${studentName} (${userId}): ${dateStr}`);
+    }
+  }
+
+  if (studentOverrides.length > 0) {
+    result += "- Individual student overrides:\n";
+    result += studentOverrides.join("\n") + "\n";
+  }
+
+  // Sections list
+  if (sections && sections.length > 0) {
+    result += "\nSECTIONS:\n";
+    for (const section of sections) {
+      const sectionEnrollments = enrollments?.filter((e: any) => e.section_id === section.id) || [];
+      result += `- "${section.name}" (id: ${section.id}, code: ${section.slug}, ${sectionEnrollments.length} students)\n`;
+    }
+  }
+
+  // Unsectioned students
+  const unsectioned = enrollments?.filter((e: any) => !e.section_id) || [];
+  if (unsectioned.length > 0) {
+    result += `\nUNSECTIONED STUDENTS: ${unsectioned.length}\n`;
+  }
+
+  // Total enrolled students
+  result += `\nTOTAL ENROLLED STUDENTS: ${enrollments?.length || 0}`;
+
+  return result;
+}
+
+// Update assignment title
+async function handleUpdateAssignmentTitle(
+  assignmentId: string,
+  courseId: string,
+  title: string,
+  socket: AuthenticatedSocket
+): Promise<string> {
+  const { error } = await supabase
+    .from("assignments")
+    .update({ name: title, updated_at: new Date().toISOString() })
+    .eq("id", assignmentId);
+
+  if (error) {
+    throw new Error(`Failed to update assignment title: ${error.message}`);
+  }
+
+  // Emit tree update so sidebar reflects the new name
+  try {
+    emitTreeUpdate(getIO(), courseId, "assignment-updated", { assignmentId });
+  } catch {}
+
+  socket.emit("assignment-title-updated", {
+    assignmentId,
+    title,
+  });
+
+  return `Assignment title updated to "${title}".`;
+}
+
+// Update assignment settings (merge with existing)
+async function handleUpdateAssignmentSettings(
+  assignmentId: string,
+  courseId: string,
+  settingsUpdate: Record<string, any>,
+  socket: AuthenticatedSocket
+): Promise<string> {
+  // Fetch current settings
+  const { data: assignment, error: fetchError } = await supabase
+    .from("assignments")
+    .select("settings")
+    .eq("id", assignmentId)
+    .single();
+
+  if (fetchError || !assignment) {
+    throw new Error("Assignment not found");
+  }
+
+  // Merge: only the provided keys overwrite existing
+  const currentSettings = assignment.settings || {};
+  const mergedSettings = { ...currentSettings };
+
+  const changedFields: string[] = [];
+  for (const [key, value] of Object.entries(settingsUpdate)) {
+    if (value !== undefined) {
+      mergedSettings[key] = value;
+      changedFields.push(`${key}: ${value}`);
+    }
+  }
+
+  const { error: updateError } = await supabase
+    .from("assignments")
+    .update({ settings: mergedSettings, updated_at: new Date().toISOString() })
+    .eq("id", assignmentId);
+
+  if (updateError) {
+    throw new Error(`Failed to update settings: ${updateError.message}`);
+  }
+
+  // Emit real-time settings update
+  try {
+    emitAssignmentSettingsUpdate(getIO(), courseId, {
+      assignmentId,
+      settings: mergedSettings,
+    });
+  } catch {}
+
+  socket.emit("assignment-settings-changed", {
+    assignmentId,
+    settings: mergedSettings,
+  });
+
+  return `Assignment settings updated: ${changedFields.join(", ")}.`;
+}
+
+// Set due dates at course, section, or student level
+async function handleSetDueDates(
+  assignmentId: string,
+  courseId: string,
+  courseDueDate: string | null | undefined,
+  sectionDueDates: Record<string, string | null> | undefined,
+  studentDueDates: Record<string, string | null> | undefined,
+  socket: AuthenticatedSocket
+): Promise<string> {
+  // Fetch current assignment state
+  const { data: assignment, error: fetchError } = await supabase
+    .from("assignments")
+    .select("due_dates_map, due_date_config")
+    .eq("id", assignmentId)
+    .single();
+
+  if (fetchError || !assignment) {
+    throw new Error("Assignment not found");
+  }
+
+  const currentDueDatesMap: Record<string, string> = assignment.due_dates_map || {};
+  const currentConfig: { courseDueDate?: string; sectionDueDates?: Record<string, string> } =
+    assignment.due_date_config || {};
+
+  // Update due_date_config
+  const newConfig = { ...currentConfig };
+
+  if (courseDueDate !== undefined) {
+    if (courseDueDate === null) {
+      delete newConfig.courseDueDate;
+    } else {
+      newConfig.courseDueDate = courseDueDate;
+    }
+  }
+
+  if (sectionDueDates) {
+    const currentSectionDates = { ...(newConfig.sectionDueDates || {}) };
+    for (const [sectionId, date] of Object.entries(sectionDueDates)) {
+      if (date === null) {
+        delete currentSectionDates[sectionId];
+      } else {
+        currentSectionDates[sectionId] = date;
+      }
+    }
+    newConfig.sectionDueDates = currentSectionDates;
+  }
+
+  // Now expand the cascade into per-student due_dates_map
+  // Fetch enrollments so we know which students are in which sections
+  const { data: enrollments } = await supabase
+    .from("course_enrollments")
+    .select("user_id, section_id")
+    .eq("course_id", courseId)
+    .eq("role", "student");
+
+  const newDueDatesMap: Record<string, string> = {};
+  const effectiveCourseDueDate = newConfig.courseDueDate || null;
+  const effectiveSectionDates = newConfig.sectionDueDates || {};
+
+  // For each enrolled student, compute their effective due date
+  for (const enrollment of (enrollments || [])) {
+    const userId = enrollment.user_id;
+
+    // Check for explicit student override from input
+    if (studentDueDates && studentDueDates[userId] !== undefined) {
+      if (studentDueDates[userId] !== null) {
+        newDueDatesMap[userId] = studentDueDates[userId] as string;
+        continue;
+      }
+      // null means clear override, fall through to inherited
+    } else if (currentDueDatesMap[userId]) {
+      // Check if this was a student-level override (not just inherited)
+      const sectionDate = enrollment.section_id ? effectiveSectionDates[enrollment.section_id] : null;
+      const inheritedDate = sectionDate || effectiveCourseDueDate;
+      if (currentDueDatesMap[userId] !== inheritedDate) {
+        // Preserve existing student-level override
+        newDueDatesMap[userId] = currentDueDatesMap[userId];
+        continue;
+      }
+    }
+
+    // Compute inherited date
+    const sectionDate = enrollment.section_id ? effectiveSectionDates[enrollment.section_id] : null;
+    const effectiveDate = sectionDate || effectiveCourseDueDate;
+
+    if (effectiveDate) {
+      newDueDatesMap[userId] = effectiveDate;
+    }
+  }
+
+  // Also handle any explicit student overrides for students we haven't processed
+  if (studentDueDates) {
+    for (const [userId, date] of Object.entries(studentDueDates)) {
+      if (date !== null && date !== undefined && !newDueDatesMap[userId]) {
+        newDueDatesMap[userId] = date;
+      }
+    }
+  }
+
+  // Save to DB
+  const { error: updateError } = await supabase
+    .from("assignments")
+    .update({
+      due_dates_map: newDueDatesMap,
+      due_date_config: newConfig,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", assignmentId);
+
+  if (updateError) {
+    throw new Error(`Failed to update due dates: ${updateError.message}`);
+  }
+
+  // Emit real-time update
+  try {
+    emitAssignmentSettingsUpdate(getIO(), courseId, {
+      assignmentId,
+      due_dates_map: newDueDatesMap,
+      due_date_config: newConfig,
+    });
+  } catch {}
+
+  socket.emit("assignment-settings-changed", {
+    assignmentId,
+    due_dates_map: newDueDatesMap,
+    due_date_config: newConfig,
+  });
+
+  // Build confirmation message
+  const changes: string[] = [];
+  if (courseDueDate !== undefined) {
+    changes.push(courseDueDate ? `Course-wide due date: ${courseDueDate}` : "Course-wide due date cleared");
+  }
+  if (sectionDueDates) {
+    for (const [sectionId, date] of Object.entries(sectionDueDates)) {
+      changes.push(date ? `Section ${sectionId}: ${date}` : `Section ${sectionId}: override cleared`);
+    }
+  }
+  if (studentDueDates) {
+    for (const [userId, date] of Object.entries(studentDueDates)) {
+      changes.push(date ? `Student ${userId}: ${date}` : `Student ${userId}: override cleared`);
+    }
+  }
+
+  return `Due dates updated:\n${changes.join("\n")}\n\n${Object.keys(newDueDatesMap).length} student(s) have due dates set.`;
+}
+
 // Execute a single tool call
 async function executeTool(
   toolName: string,
@@ -1037,6 +1405,35 @@ async function executeTool(
       return formatSearchResultsForPrompt(results);
     }
 
+    case "get_assignment_settings":
+      return handleGetAssignmentSettings(assignmentId, courseId);
+
+    case "update_assignment_title":
+      return handleUpdateAssignmentTitle(
+        assignmentId,
+        courseId,
+        toolInput.title,
+        socket
+      );
+
+    case "update_assignment_settings":
+      return handleUpdateAssignmentSettings(
+        assignmentId,
+        courseId,
+        toolInput,
+        socket
+      );
+
+    case "set_due_dates":
+      return handleSetDueDates(
+        assignmentId,
+        courseId,
+        toolInput.course_due_date,
+        toolInput.section_due_dates,
+        toolInput.student_due_dates,
+        socket
+      );
+
     case "save_memory":
       return handleSaveMemory(
         courseId,
@@ -1070,10 +1467,11 @@ export async function handleChatMessage(params: {
   userId: string;
   isAdmin: boolean;
   userMessage: string;
+  timezone?: string;
   attachments?: ChatAttachment[];
   socket: AuthenticatedSocket;
 }): Promise<void> {
-  const { sessionId, assignmentId, userId, userMessage, attachments, socket } = params;
+  const { sessionId, assignmentId, userId, userMessage, timezone, attachments, socket } = params;
 
   try {
     // Load session
@@ -1091,10 +1489,10 @@ export async function handleChatMessage(params: {
       return;
     }
 
-    // Load assignment metadata
+    // Load assignment metadata (including settings for the new settings tools)
     const { data: assignment, error: assignmentError } = await supabase
       .from("assignments")
-      .select("name, course_id, courses!inner(name)")
+      .select("name, course_id, settings, due_dates_map, due_date_config, is_lockdown, lockdown_time_map, courses!inner(name)")
       .eq("id", assignmentId)
       .single();
 
@@ -1231,7 +1629,8 @@ export async function handleChatMessage(params: {
 
     const currentMessages: ModelMessage[] = [...historyMessages, newUserMessage];
 
-    const systemPrompt = buildSystemPrompt(assignment.name, courseName, memories);
+    const userTimezone = timezone || "America/New_York";
+    const systemPrompt = buildSystemPrompt(assignment.name, courseName, userTimezone, memories);
     const tools = getChatToolSet(memoryEnabled);
 
     // Agentic loop with streaming

@@ -177,6 +177,76 @@ const setAutograderTests = tool({
   ),
 });
 
+const getAssignmentSettings = tool({
+  description:
+    "Read the current assignment settings, title, and due date configuration. Returns the assignment name, settings (allowLateSubmissions, allowResubmissions, showResponsesAfterSubmission, showScoreAfterSubmission, timeLimitSeconds), and due date config (course-wide and section-level due dates). Call this before modifying any settings to see current values.",
+  inputSchema: zodSchema(z.object({})),
+});
+
+const updateAssignmentTitle = tool({
+  description:
+    'Update the assignment title/name. IMPORTANT: Only call this if the instructor explicitly asks to change the title, OR if the current title is "New Assignment" and you are giving it a proper name based on the content being created.',
+  inputSchema: zodSchema(
+    z.object({
+      title: z
+        .string()
+        .describe("The new assignment title."),
+    })
+  ),
+});
+
+const updateAssignmentSettings = tool({
+  description:
+    "Update assignment settings like allowLateSubmissions, allowResubmissions, showResponsesAfterSubmission, showScoreAfterSubmission, and timeLimitSeconds. CRITICAL: Only include the specific settings the instructor asked to change. Omitted settings will be preserved as-is. Always call get_assignment_settings first to see current values before making changes.",
+  inputSchema: zodSchema(
+    z.object({
+      allowLateSubmissions: z
+        .boolean()
+        .optional()
+        .describe("Whether students can submit after the due date. Only include if the instructor asked to change this."),
+      allowResubmissions: z
+        .boolean()
+        .optional()
+        .describe("Whether students can submit multiple times. Only include if the instructor asked to change this."),
+      showResponsesAfterSubmission: z
+        .boolean()
+        .optional()
+        .describe("Whether to show correct answers after submission. Only include if the instructor asked to change this."),
+      showScoreAfterSubmission: z
+        .boolean()
+        .optional()
+        .describe("Whether to show the autograded score immediately after submission. Only include if the instructor asked to change this."),
+      timeLimitSeconds: z
+        .number()
+        .nullable()
+        .optional()
+        .describe("Time limit in seconds for timed assignments (e.g. 3600 = 1 hour). Set to null to remove the time limit. Only include if the instructor asked to change this."),
+    })
+  ),
+});
+
+const setDueDates = tool({
+  description:
+    'Set due dates at the course-wide, section, or individual student level. Due dates cascade: course-wide is the default, section overrides course for that section\'s students, and student-level overrides everything. IMPORTANT: Only set what the instructor asks for. For example, if they say "due date is Friday at midnight", set the course-wide date. If they say "Section A gets an extension until Monday", set a section override. Use get_assignment_settings first to see current due dates.',
+  inputSchema: zodSchema(
+    z.object({
+      course_due_date: z
+        .string()
+        .nullable()
+        .optional()
+        .describe("Course-wide due date as ISO 8601 string (e.g. '2025-03-15T23:59:00Z'). Set to null to clear. This applies to all students unless overridden by section or individual dates."),
+      section_due_dates: z
+        .record(z.string(), z.string().nullable())
+        .optional()
+        .describe("Section-level due date overrides. Map of section_id → ISO 8601 date string. Set a section to null to clear its override. Only include sections the instructor mentioned."),
+      student_due_dates: z
+        .record(z.string(), z.string().nullable())
+        .optional()
+        .describe("Individual student due date overrides. Map of user_id → ISO 8601 date string. Set a student to null to clear their override. Only include students the instructor mentioned."),
+    })
+  ),
+});
+
 const webSearchTool = tool({
   description:
     "Search the web for information. Use this when the user asks about a topic you need more context on, pastes a URL and asks about it, or requests web-based content to include in the assignment.",
@@ -216,6 +286,10 @@ export function getChatToolSet(memoryEnabled: boolean): ToolSet {
     write_ide_files: writeIdeFiles,
     get_autograder_tests: getAutograderTests,
     set_autograder_tests: setAutograderTests,
+    get_assignment_settings: getAssignmentSettings,
+    update_assignment_title: updateAssignmentTitle,
+    update_assignment_settings: updateAssignmentSettings,
+    set_due_dates: setDueDates,
     web_search: webSearchTool,
   };
 
