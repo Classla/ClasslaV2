@@ -168,13 +168,35 @@ router.get(
       const isTemplate = !templateError && template !== null;
 
       // Get student count for this course (only if not a template)
+      // For students with a section, show only their section's count
       let studentCount = 0;
       if (!isTemplate) {
-        const { count, error: countError } = await supabase
+        // Check if the current user is a student in this course with a section
+        const userRole = await getUserCourseRole(userId, course.id);
+        let userSectionId: string | null = null;
+
+        if (userRole === UserRole.STUDENT) {
+          const { data: userEnrollment } = await supabase
+            .from("course_enrollments")
+            .select("section_id")
+            .eq("user_id", userId)
+            .eq("course_id", course.id)
+            .single();
+          userSectionId = userEnrollment?.section_id || null;
+        }
+
+        let query = supabase
           .from("course_enrollments")
           .select("*", { count: "exact", head: true })
           .eq("course_id", course.id)
           .eq("role", UserRole.STUDENT);
+
+        // If the user is a student with a section (and not a system admin), only count students in their section
+        if (!isAdmin && userRole === UserRole.STUDENT && userSectionId) {
+          query = query.eq("section_id", userSectionId);
+        }
+
+        const { count, error: countError } = await query;
 
         if (countError) {
           console.error("Error counting students:", countError);

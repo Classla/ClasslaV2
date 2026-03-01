@@ -89,6 +89,7 @@ router.get(
           `
           role,
           enrolled_at,
+          section_id,
           courses (
             id,
             name,
@@ -124,6 +125,19 @@ router.get(
             enrolled_at: enrollment.enrolled_at,
           })) || [];
 
+      // Build a map of section_id per course for the current user (students only)
+      // System admins always see full counts
+      const isAdmin = req.user?.isAdmin === true;
+      const userSectionMap: Record<string, string | null> = {};
+      if (!isAdmin) {
+        enrollments?.forEach((enrollment) => {
+          const course = enrollment.courses as any;
+          if (course && enrollment.role === UserRole.STUDENT) {
+            userSectionMap[course.id] = enrollment.section_id || null;
+          }
+        });
+      }
+
       // Get student counts for each course
       const courseIds = coursesWithRoles.map((course: any) => course.id);
       const studentCounts: Record<string, number> = {};
@@ -132,15 +146,27 @@ router.get(
         // Count students (role = 'student') for each course
         const { data: studentEnrollments, error: countError } = await supabase
           .from("course_enrollments")
-          .select("course_id")
+          .select("course_id, section_id")
           .in("course_id", courseIds)
           .eq("role", UserRole.STUDENT);
 
         if (!countError && studentEnrollments) {
           // Count students per course
+          // For courses where the user is a student with a section,
+          // only count students in that same section
           studentEnrollments.forEach((enrollment) => {
             const courseId = enrollment.course_id;
-            studentCounts[courseId] = (studentCounts[courseId] || 0) + 1;
+            const userSection = userSectionMap[courseId];
+
+            if (userSection) {
+              // User is a student with a section — only count same-section students
+              if (enrollment.section_id === userSection) {
+                studentCounts[courseId] = (studentCounts[courseId] || 0) + 1;
+              }
+            } else {
+              // User is not a student, or is a student without a section — count all
+              studentCounts[courseId] = (studentCounts[courseId] || 0) + 1;
+            }
           });
         }
       }

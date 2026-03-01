@@ -221,7 +221,9 @@ const GradingSidebar: React.FC<GradingSidebarProps> = ({
       });
     }
 
-    if (selectedSectionId) {
+    if (selectedSectionId === "no-section") {
+      filtered = filtered.filter((student) => !student.sectionId);
+    } else if (selectedSectionId) {
       filtered = filtered.filter(
         (student) => student.sectionId === selectedSectionId
       );
@@ -594,6 +596,9 @@ const GradingSidebar: React.FC<GradingSidebarProps> = ({
                 {section.name}
               </SelectItem>
             ))}
+            {students.some((s) => !s.sectionId) && (
+              <SelectItem value="no-section">No section</SelectItem>
+            )}
           </SelectContent>
         </Select>
         <div className="flex gap-2">
