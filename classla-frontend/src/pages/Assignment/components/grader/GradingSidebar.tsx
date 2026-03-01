@@ -335,12 +335,6 @@ const GradingSidebar: React.FC<GradingSidebarProps> = ({
         graderId: activeGrader.id,
         updates,
       });
-
-      toast({
-        title: "Saved",
-        description: "Grading changes saved successfully",
-        duration: 2000,
-      });
     } catch (error: any) {
       console.error("Failed to update grader:", error);
       toast({

@@ -40,6 +40,8 @@ export const GradingControls: React.FC<GradingControlsProps> = React.memo(
     const [rubricSchema, setRubricSchema] = useState<RubricSchema | null>(null);
     const [rubric, setRubric] = useState<Rubric | null>(null);
     const [isLoadingRubric, setIsLoadingRubric] = useState(true);
+    // Local rubric score for immediate UI feedback (before server round-trip)
+    const [localRubricScore, setLocalRubricScore] = useState<number | null>(null);
 
     // Use the ensureGrader hook - don't auto-create submissions/graders
     const { grader, isCreating, ensureGrader } = useEnsureGrader(
@@ -72,6 +74,8 @@ export const GradingControls: React.FC<GradingControlsProps> = React.memo(
     useEffect(() => {
       setScoreModifier(grader?.score_modifier || "0");
       setFeedback(grader?.feedback || "");
+      // Clear local override once server data arrives
+      setLocalRubricScore(null);
     }, [grader]);
 
     // Stable refs so the load effect doesn't re-run when grader/onUpdate change
@@ -154,12 +158,12 @@ export const GradingControls: React.FC<GradingControlsProps> = React.memo(
     const calculateFinalGrade = useCallback(
       (modifier: string): number => {
         const rawAssignmentScore = grader?.raw_assignment_score || 0;
-        const rawRubricScore = grader?.raw_rubric_score || 0;
-        const baseScore = rawAssignmentScore + rawRubricScore;
+        const rawRubricScore = localRubricScore ?? grader?.raw_rubric_score ?? 0;
+        const baseScore = rawAssignmentScore + Number(rawRubricScore);
         const modifierValue = parseFloat(modifier) || 0;
         return baseScore + modifierValue;
       },
-      [grader]
+      [grader, localRubricScore]
     );
 
     const finalGrade = calculateFinalGrade(scoreModifier);
@@ -228,10 +232,21 @@ export const GradingControls: React.FC<GradingControlsProps> = React.memo(
     };
 
     const handleRubricUpdate = async (values: number[]) => {
-      if (!rubricSchema || !submissionId) return;
+      if (!rubricSchema) return;
 
       try {
         const rubricScore = calculateRubricScore(values);
+        // Update local score immediately for live UI feedback
+        setLocalRubricScore(rubricScore);
+
+        // Ensure grader (and submission) exist before saving rubric
+        let activeGrader = grader;
+        let activeSubmissionId = submissionId;
+        const graderWasCreated = !activeGrader || !activeSubmissionId;
+        if (graderWasCreated) {
+          activeGrader = await ensureGrader();
+          activeSubmissionId = activeGrader.submission_id;
+        }
 
         if (rubric) {
           // Update existing rubric
@@ -241,7 +256,7 @@ export const GradingControls: React.FC<GradingControlsProps> = React.memo(
         } else {
           // Create new rubric
           const response = await apiClient.createRubric({
-            submission_id: submissionId,
+            submission_id: activeSubmissionId!,
             rubric_schema_id: rubricSchema.id,
             values,
           });
@@ -249,11 +264,15 @@ export const GradingControls: React.FC<GradingControlsProps> = React.memo(
         }
 
         // Update grader's raw_rubric_score
-        if (grader) {
+        if (graderWasCreated) {
+          // Grader was just created — sidebar's selectedStudent is stale, so save directly
+          await apiClient.autoSaveGrader(activeGrader!.id, { raw_rubric_score: rubricScore });
+        } else {
           await onUpdate({ raw_rubric_score: rubricScore });
         }
       } catch (error) {
         console.error("Error updating rubric:", error);
+        setLocalRubricScore(null);
         toast({
           title: "Error",
           description: "Failed to update rubric scores",
@@ -374,7 +393,9 @@ export const GradingControls: React.FC<GradingControlsProps> = React.memo(
               Raw Rubric Score
             </Label>
             <div className="flex h-10 w-full rounded-md border border-border bg-muted px-3 py-2 text-sm text-foreground font-medium">
-              {grader?.raw_rubric_score !== undefined
+              {localRubricScore !== null
+                ? `${localRubricScore}`
+                : grader?.raw_rubric_score !== undefined
                 ? `${grader.raw_rubric_score}`
                 : "-"}
             </div>
