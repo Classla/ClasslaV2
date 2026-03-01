@@ -66,7 +66,7 @@ import {
   Search,
   ArrowUpDown,
 } from "lucide-react";
-import type { ManagedStudentWithEnrollments } from "@/types";
+import { UserRole, type ManagedStudentWithEnrollments } from "@/types";
 import { useDebounce } from "@/hooks/useDebounce";
 
 interface Course {
@@ -149,6 +149,7 @@ const ManagedStudentsPage: React.FC = () => {
   const [newLastName, setNewLastName] = useState("");
   const [newCourseId, setNewCourseId] = useState<string>("");
   const [selectedCourseId, setSelectedCourseId] = useState<string>("");
+  const [selectedRole, setSelectedRole] = useState<string>(UserRole.STUDENT);
   const [creating, setCreating] = useState(false);
 
   // Username availability state
@@ -451,13 +452,14 @@ const ManagedStudentsPage: React.FC = () => {
     if (!selectedStudent || !selectedCourseId) return;
 
     try {
-      await apiClient.enrollManagedStudent(selectedStudent.id, selectedCourseId);
+      await apiClient.enrollManagedStudent(selectedStudent.id, selectedCourseId, selectedRole);
       toast({
         title: "Success",
         description: "Student enrolled in course successfully.",
       });
       setEnrollDialogOpen(false);
       setSelectedCourseId("");
+      setSelectedRole(UserRole.STUDENT);
       fetchData();
     } catch (error: any) {
       console.error("Failed to enroll student:", error);
@@ -482,6 +484,24 @@ const ManagedStudentsPage: React.FC = () => {
       toast({
         title: "Error",
         description: "Failed to unenroll student.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleUpdateEnrollmentRole = async (enrollmentId: string, newRole: string) => {
+    try {
+      await apiClient.updateEnrollment(enrollmentId, { role: newRole });
+      toast({
+        title: "Success",
+        description: "Role updated successfully.",
+      });
+      fetchData();
+    } catch (error: any) {
+      console.error("Failed to update role:", error);
+      toast({
+        title: "Error",
+        description: error?.response?.data?.error || "Failed to update role.",
         variant: "destructive",
       });
     }
@@ -1326,26 +1346,41 @@ const ManagedStudentsPage: React.FC = () => {
               </CardHeader>
               {student.enrollments.length > 0 && (
                 <CardContent className="pt-0">
-                  <div className="flex flex-wrap gap-2">
+                  <div className="flex flex-col gap-2">
                     {student.enrollments.map((enrollment) => (
-                      <Badge
+                      <div
                         key={enrollment.id}
-                        variant="secondary"
-                        className="flex items-center gap-1"
+                        className="flex items-center gap-2 text-sm"
                       >
-                        {enrollment.course_name}
+                        <span className="font-medium">{enrollment.course_name}</span>
                         {enrollment.section_name && (
-                          <span className="text-muted-foreground font-normal"> ({enrollment.section_name})</span>
+                          <span className="text-muted-foreground">({enrollment.section_name})</span>
                         )}
+                        <Select
+                          value={enrollment.role}
+                          onValueChange={(value) =>
+                            handleUpdateEnrollmentRole(enrollment.id, value)
+                          }
+                        >
+                          <SelectTrigger className="h-7 w-28 text-xs">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value={UserRole.STUDENT}>Student</SelectItem>
+                            <SelectItem value={UserRole.TEACHING_ASSISTANT}>TA</SelectItem>
+                            <SelectItem value={UserRole.INSTRUCTOR}>Instructor</SelectItem>
+                            <SelectItem value={UserRole.AUDIT}>Audit</SelectItem>
+                          </SelectContent>
+                        </Select>
                         <button
                           onClick={() =>
                             handleUnenrollStudent(student.id, enrollment.course_id)
                           }
-                          className="ml-1 hover:text-destructive"
+                          className="text-muted-foreground hover:text-destructive"
                         >
-                          <X className="h-3 w-3" />
+                          <X className="h-3.5 w-3.5" />
                         </button>
-                      </Badge>
+                      </div>
                     ))}
                   </div>
                 </CardContent>
@@ -1393,42 +1428,65 @@ const ManagedStudentsPage: React.FC = () => {
       </Dialog>
 
       {/* Enroll Student Dialog */}
-      <Dialog open={enrollDialogOpen} onOpenChange={setEnrollDialogOpen}>
+      <Dialog open={enrollDialogOpen} onOpenChange={(open) => {
+        setEnrollDialogOpen(open);
+        if (!open) {
+          setSelectedCourseId("");
+          setSelectedRole(UserRole.STUDENT);
+        }
+      }}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Enroll in Course</DialogTitle>
             <DialogDescription>
-              Select a course to enroll {selectedStudent?.username} in.
+              Select a course and role to enroll {selectedStudent?.username} in.
             </DialogDescription>
           </DialogHeader>
-          <div className="py-4">
-            <Select value={selectedCourseId} onValueChange={setSelectedCourseId}>
-              <SelectTrigger>
-                <SelectValue placeholder="Select a course..." />
-              </SelectTrigger>
-              <SelectContent>
-                {courses
-                  .filter(
-                    (course) =>
-                      !selectedStudent?.enrollments.some(
-                        (e) => e.course_id === course.id
-                      )
-                  )
-                  .map((course) => (
-                    <SelectItem key={course.id} value={course.id}>
-                      {course.name}
-                    </SelectItem>
-                  ))}
-              </SelectContent>
-            </Select>
-            {courses.filter(
-              (course) =>
-                !selectedStudent?.enrollments.some((e) => e.course_id === course.id)
-            ).length === 0 && (
-              <p className="text-sm text-muted-foreground mt-2">
-                This student is already enrolled in all your courses.
-              </p>
-            )}
+          <div className="py-4 space-y-4">
+            <div className="space-y-2">
+              <Label>Course</Label>
+              <Select value={selectedCourseId} onValueChange={setSelectedCourseId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select a course..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {courses
+                    .filter(
+                      (course) =>
+                        !selectedStudent?.enrollments.some(
+                          (e) => e.course_id === course.id
+                        )
+                    )
+                    .map((course) => (
+                      <SelectItem key={course.id} value={course.id}>
+                        {course.name}
+                      </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
+              {courses.filter(
+                (course) =>
+                  !selectedStudent?.enrollments.some((e) => e.course_id === course.id)
+              ).length === 0 && (
+                <p className="text-sm text-muted-foreground mt-2">
+                  This student is already enrolled in all your courses.
+                </p>
+              )}
+            </div>
+            <div className="space-y-2">
+              <Label>Role</Label>
+              <Select value={selectedRole} onValueChange={setSelectedRole}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={UserRole.STUDENT}>Student</SelectItem>
+                  <SelectItem value={UserRole.TEACHING_ASSISTANT}>TA</SelectItem>
+                  <SelectItem value={UserRole.INSTRUCTOR}>Instructor</SelectItem>
+                  <SelectItem value={UserRole.AUDIT}>Audit</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setEnrollDialogOpen(false)}>
