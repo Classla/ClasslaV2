@@ -695,28 +695,33 @@ router.post(
       // Compute next order_index if not provided
       let computedOrderIndex = order_index;
       if (computedOrderIndex === undefined || computedOrderIndex === null) {
-        const effectiveModulePath = module_path || [];
-        let siblingsQuery = supabase
+        let assignmentsQuery = supabase
           .from("assignments")
           .select("order_index")
           .is("deleted_at", null);
 
+        let foldersQuery = supabase
+          .from("folders")
+          .select("order_index")
+          .is("deleted_at", null);
+
         if (access.isTemplate) {
-          siblingsQuery = siblingsQuery.eq("template_id", course_id);
+          assignmentsQuery = assignmentsQuery.eq("template_id", course_id);
+          foldersQuery = foldersQuery.eq("template_id", course_id);
         } else {
-          siblingsQuery = siblingsQuery.eq("course_id", course_id);
+          assignmentsQuery = assignmentsQuery.eq("course_id", course_id);
+          foldersQuery = foldersQuery.eq("course_id", course_id);
         }
 
-        const { data: siblings } = await siblingsQuery;
-        // Filter siblings at same module_path level
-        const sameLevelSiblings = (siblings || []).filter((s: any) => {
-          // We can't filter JSONB arrays directly, so we fetch all and filter in-memory
-          return true;
-        });
-        const maxIndex = sameLevelSiblings.reduce(
-          (max: number, s: any) => Math.max(max, s.order_index || 0),
-          -1
-        );
+        const [{ data: assignmentSiblings }, { data: folderSiblings }] =
+          await Promise.all([assignmentsQuery, foldersQuery]);
+
+        const allIndices = [
+          ...(assignmentSiblings || []).map((s: any) => s.order_index || 0),
+          ...(folderSiblings || []).map((s: any) => s.order_index || 0),
+        ];
+        const maxIndex =
+          allIndices.length > 0 ? Math.max(...allIndices) : -1;
         computedOrderIndex = maxIndex + 1;
       }
 
