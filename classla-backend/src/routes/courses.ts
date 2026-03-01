@@ -12,6 +12,7 @@ import {
 import { UserRole } from "../types/enums";
 import { Course } from "../types/entities";
 import { GradebookData, StudentGradesData } from "../types/api";
+import { fetchAllPages } from "../utils/supabasePaginate";
 
 /**
  * Generate a unique 6-character alphanumeric join code
@@ -1188,22 +1189,21 @@ router.get(
       }
 
       // Fetch all students enrolled in the course with section information
-      const { data: enrollments, error: enrollmentsError } = await supabase
-        .from("course_enrollments")
-        .select(
+      // Uses pagination to avoid PostgREST's 1000-row silent cap
+      const enrollments = await fetchAllPages(() =>
+        supabase
+          .from("course_enrollments")
+          .select(
+            `
+            user_id,
+            section_id,
+            users!course_enrollments_user_id_fkey(id, first_name, last_name, email),
+            sections(id, name, slug)
           `
-          user_id,
-          section_id,
-          users!course_enrollments_user_id_fkey(id, first_name, last_name, email),
-          sections(id, name, slug)
-        `
-        )
-        .eq("course_id", courseId)
-        .eq("role", UserRole.STUDENT);
-
-      if (enrollmentsError) {
-        throw enrollmentsError;
-      }
+          )
+          .eq("course_id", courseId)
+          .eq("role", UserRole.STUDENT)
+      );
 
       // Fetch all non-deleted assignments for the course
       const { data: assignments, error: assignmentsError } = await supabase
@@ -1218,18 +1218,17 @@ router.get(
       }
 
       // Fetch all submissions for the course
-      const { data: submissions, error: submissionsError } = await supabase
-        .from("submissions")
-        .select("*")
-        .eq("course_id", courseId);
-
-      if (submissionsError) {
-        throw submissionsError;
-      }
+      // Uses pagination to avoid PostgREST's 1000-row silent cap
+      const submissions = await fetchAllPages(() =>
+        supabase
+          .from("submissions")
+          .select("*")
+          .eq("course_id", courseId)
+      );
 
       // Fetch all graders for those submissions via direct query (avoids nested join issues)
       // Batch in chunks of 100 to avoid URL length limits on large courses
-      const submissionIds = (submissions || []).map((s: any) => s.id);
+      const submissionIds = submissions.map((s: any) => s.id);
       const BATCH_SIZE = 100;
       const allGraders: any[] = [];
       for (let i = 0; i < submissionIds.length; i += BATCH_SIZE) {
@@ -1243,7 +1242,7 @@ router.get(
       }
 
       // Format students data
-      const students = (enrollments || []).map((enrollment: any) => ({
+      const students = enrollments.map((enrollment: any) => ({
         userId: enrollment.users?.id,
         firstName: enrollment.users?.first_name,
         lastName: enrollment.users?.last_name,
@@ -1254,21 +1253,19 @@ router.get(
       }));
 
       // Format submissions data
-      const formattedSubmissions = (submissions || []).map(
-        (submission: any) => ({
-          id: submission.id,
-          assignment_id: submission.assignment_id,
-          timestamp: submission.timestamp,
-          values: submission.values,
-          course_id: submission.course_id,
-          student_id: submission.student_id,
-          grader_id: submission.grader_id,
-          grade: submission.grade,
-          status: submission.status,
-          created_at: submission.created_at,
-          updated_at: submission.updated_at,
-        })
-      );
+      const formattedSubmissions = submissions.map((submission: any) => ({
+        id: submission.id,
+        assignment_id: submission.assignment_id,
+        timestamp: submission.timestamp,
+        values: submission.values,
+        course_id: submission.course_id,
+        student_id: submission.student_id,
+        grader_id: submission.grader_id,
+        grade: submission.grade,
+        status: submission.status,
+        created_at: submission.created_at,
+        updated_at: submission.updated_at,
+      }));
 
       const graders = allGraders;
 

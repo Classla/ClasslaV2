@@ -1028,7 +1028,17 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
                     ) : (
                       <div className="flex items-center justify-center h-full">
                         <div className="text-center max-w-md">
-                          {(assignment.settings?.timeLimitSeconds ?? 0) > 0 ? (
+                          {userDueDate && new Date(userDueDate) < new Date() && !(assignment.settings?.allowLateSubmissions) ? (
+                            <>
+                              <AlertTriangle className="w-12 h-12 text-red-500 mx-auto mb-4" />
+                              <h3 className="text-2xl font-semibold text-foreground mb-4">
+                                Assignment Past Due
+                              </h3>
+                              <p className="text-muted-foreground mb-4">
+                                This assignment was due {formatDueDate(userDueDate)}. Late submissions are not enabled for this assignment.
+                              </p>
+                            </>
+                          ) : (assignment.settings?.timeLimitSeconds ?? 0) > 0 ? (
                             <>
                               <Clock className="w-12 h-12 text-amber-500 mx-auto mb-4" />
                               <h3 className="text-2xl font-semibold text-foreground mb-4">

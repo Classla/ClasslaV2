@@ -5,6 +5,7 @@ import { useToast } from "../../../hooks/use-toast";
 import {
   useCourseGradebook,
   useCourseSections,
+  useGradebookUpdates,
 } from "../../../hooks/useGradingQueries";
 import GradebookTable from "./components/GradebookTable";
 import GradebookTableSkeleton from "./components/GradebookTableSkeleton";
@@ -57,6 +58,9 @@ const GradebookPage: React.FC<GradebookPageProps> = ({
 
   // Fetch sections using React Query
   const { data: sectionsData } = useCourseSections(course?.id || "");
+
+  // Subscribe to real-time gradebook updates via WebSocket
+  useGradebookUpdates(course?.id || "");
 
   const sections: Section[] = sectionsData || [];
   const isLoading = isLoadingGradebook;
