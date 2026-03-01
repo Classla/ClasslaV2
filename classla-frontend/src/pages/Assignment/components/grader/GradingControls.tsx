@@ -74,13 +74,21 @@ export const GradingControls: React.FC<GradingControlsProps> = React.memo(
       setFeedback(grader?.feedback || "");
     }, [grader]);
 
-    // Load rubric schema and rubric instance
+    // Stable refs so the load effect doesn't re-run when grader/onUpdate change
+    const graderRef = useRef(grader);
+    graderRef.current = grader;
+    const onUpdateRef = useRef(onUpdate);
+    onUpdateRef.current = onUpdate;
+
+    // Load rubric schema and rubric instance (only when assignment/submission changes)
     useEffect(() => {
+      let cancelled = false;
       const loadRubric = async () => {
         try {
           setIsLoadingRubric(true);
           // Load rubric schema
           const schemaResponse = await apiClient.getRubricSchema(assignmentId);
+          if (cancelled) return;
           const schema = schemaResponse.data || null;
           setRubricSchema(schema);
 
@@ -88,18 +96,20 @@ export const GradingControls: React.FC<GradingControlsProps> = React.memo(
           if (schema && submissionId) {
             try {
               const rubricResponse = await apiClient.getRubric(submissionId);
+              if (cancelled) return;
               const rubricData = rubricResponse.data;
               setRubric(rubricData);
 
               // Calculate and update raw_rubric_score if grader exists
-              if (grader && rubricData.values) {
+              const currentGrader = graderRef.current;
+              if (currentGrader && rubricData.values) {
                 const rubricScore = rubricData.values.reduce(
                   (sum: number, val: number) => sum + val,
                   0
                 );
-                // Only update if the score is different
-                if (grader.raw_rubric_score !== rubricScore) {
-                  await onUpdate({ raw_rubric_score: rubricScore });
+                // Only update if the score is different (use Number() to avoid string/number mismatch)
+                if (Number(currentGrader.raw_rubric_score) !== rubricScore) {
+                  await onUpdateRef.current({ raw_rubric_score: rubricScore });
                 }
               }
             } catch (error: any) {
@@ -112,12 +122,15 @@ export const GradingControls: React.FC<GradingControlsProps> = React.memo(
         } catch (error: any) {
           console.error("Failed to load rubric schema:", error);
         } finally {
-          setIsLoadingRubric(false);
+          if (!cancelled) {
+            setIsLoadingRubric(false);
+          }
         }
       };
 
       loadRubric();
-    }, [assignmentId, submissionId, grader, onUpdate]);
+      return () => { cancelled = true; };
+    }, [assignmentId, submissionId]);
 
     // Cleanup timeout on unmount
     useEffect(() => {
@@ -223,6 +236,8 @@ export const GradingControls: React.FC<GradingControlsProps> = React.memo(
         if (rubric) {
           // Update existing rubric
           await apiClient.updateRubric(rubric.id, { values });
+          // Optimistically update local rubric state so we don't need to reload
+          setRubric({ ...rubric, values });
         } else {
           // Create new rubric
           const response = await apiClient.createRubric({
