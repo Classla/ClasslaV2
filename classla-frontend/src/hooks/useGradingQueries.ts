@@ -89,6 +89,41 @@ export function useCourseGradebook(courseId: string, enabled: boolean = true) {
 }
 
 /**
+ * Subscribe to real-time gradebook updates for a course.
+ * Invalidates the gradebook query when submissions or grader reviews change.
+ */
+export function useGradebookUpdates(courseId: string) {
+  const queryClient = useQueryClient();
+
+  useEffect(() => {
+    if (!courseId) return;
+
+    const socket = io(`${getBaseURL()}/course-tree`, {
+      transports: ["websocket", "polling"],
+      withCredentials: true,
+    });
+
+    socket.on("connect", () => {
+      socket.emit("join-course", courseId);
+    });
+
+    const invalidateGradebook = () => {
+      queryClient.invalidateQueries({
+        queryKey: ["gradebook", courseId],
+      });
+    };
+
+    socket.on("submission-update", invalidateGradebook);
+    socket.on("grader-review-update", invalidateGradebook);
+
+    return () => {
+      socket.emit("leave-course", courseId);
+      socket.disconnect();
+    };
+  }, [courseId, queryClient]);
+}
+
+/**
  * Hook to fetch student grades
  */
 export function useStudentGrades(courseId: string) {
