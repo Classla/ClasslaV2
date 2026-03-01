@@ -1118,7 +1118,16 @@ export const generateUnitTests = async (options: {
 
   // Get existing tests and language
   const existingTests = ideData.autograder?.tests || [];
-  const language = ideData.settings?.language || "python";
+
+  // Infer language from template/model solution file extensions
+  const allFiles = [...templateFiles, ...modelSolutionFiles];
+  const hasJava = allFiles.some((f) => f.path.endsWith(".java"));
+  const hasPython = allFiles.some((f) => f.path.endsWith(".py"));
+  const language = hasJava ? "java" : hasPython ? "python" : "python";
+  logger.info("Inferred language from file extensions", {
+    language,
+    filePaths: allFiles.map((f) => f.path),
+  });
 
   // Extract assignment instructions
   let instructions = "";
