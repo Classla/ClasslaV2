@@ -581,6 +581,37 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
     }
   }, [assignmentId, effectiveIsInstructor]);
 
+  // Listen for tree-update events (e.g. assignment renamed from the sidebar)
+  useEffect(() => {
+    if (!assignmentId || !courseId) return;
+
+    const apiUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000/api";
+    const baseURL = apiUrl.replace(/\/api$/, "") || "http://localhost:8000";
+
+    const socket = io(`${baseURL}/course-tree`, {
+      transports: ["websocket", "polling"],
+      withCredentials: true,
+    });
+
+    socket.on("connect", () => {
+      socket.emit("join-course", courseId);
+    });
+
+    socket.on("tree-update", (payload: { event: string; data?: { assignmentId?: string } }) => {
+      if (
+        payload.event === "assignment-updated" &&
+        payload.data?.assignmentId === assignmentId
+      ) {
+        refetchAssignment();
+      }
+    });
+
+    return () => {
+      socket.emit("leave-course", courseId);
+      socket.disconnect();
+    };
+  }, [assignmentId, courseId, refetchAssignment]);
+
   const handleAssignmentUpdated = (updatedAssignment: Assignment) => {
     setAssignment(updatedAssignment);
 
