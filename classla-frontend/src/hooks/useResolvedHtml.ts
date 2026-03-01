@@ -59,7 +59,7 @@ export function useResolvedHtml(html: string): string {
     if (toFetch.length > 0) {
       const results = await Promise.allSettled(
         toFetch.map(({ key, assignmentId }) =>
-          apiClient.getImageUrl(assignmentId, key)
+          apiClient.getImageUrl(key, { assignmentId })
         )
       );
 

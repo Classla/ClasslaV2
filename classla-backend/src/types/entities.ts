@@ -15,6 +15,15 @@ export interface Course {
   created_by_id: string; // user_id of creator
   created_at: Date;
   deleted_at?: Date;
+  is_official?: boolean;
+}
+
+// System setting entity
+export interface SystemSetting {
+  key: string;
+  value: any;
+  updated_at: Date;
+  updated_by_id?: string;
 }
 
 // Section entity

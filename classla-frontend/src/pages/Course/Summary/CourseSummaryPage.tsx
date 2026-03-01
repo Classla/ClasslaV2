@@ -1,11 +1,21 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Course, UserRole } from "../../../types";
-import { Users, Copy, Check, Link, FileText, Sparkles, BookOpen } from "lucide-react";
+import { Users, Copy, Check, Link, FileText, Sparkles, BookOpen, LogOut } from "lucide-react";
 import { Card } from "../../../components/ui/card";
 import { Button } from "../../../components/ui/button";
 import { useToast } from "../../../hooks/use-toast";
 import { apiClient } from "../../../lib/api";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "../../../components/ui/alert-dialog";
 import CourseEditor from "../components/CourseEditor";
 import CreateJoinLinkModal from "../components/CreateJoinLinkModal";
 import CourseSummarySkeleton from "./CourseSummarySkeleton";
@@ -33,6 +43,8 @@ const CourseSummaryPage: React.FC<CourseSummaryPageProps> = ({
   const [isJoinLinkModalOpen, setIsJoinLinkModalOpen] = useState(false);
   const [isUsingTemplate, setIsUsingTemplate] = useState(false);
   const [sectionName, setSectionName] = useState<string | null>(null);
+  const [showLeaveConfirm, setShowLeaveConfirm] = useState(false);
+  const [isLeaving, setIsLeaving] = useState(false);
 
   useEffect(() => {
     if (!course?.id) return;
@@ -68,6 +80,28 @@ const CourseSummaryPage: React.FC<CourseSummaryPageProps> = ({
       setIsUsingTemplate(false);
     }
   };
+  const handleLeaveCourse = async () => {
+    if (!course?.id) return;
+    setIsLeaving(true);
+    try {
+      await apiClient.leaveCourse(course.id);
+      toast({
+        title: "Left course",
+        description: `You have been unenrolled from ${course.name}.`,
+      });
+      navigate("/");
+    } catch (error: any) {
+      toast({
+        title: "Failed to leave course",
+        description: error.message || "An error occurred",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLeaving(false);
+      setShowLeaveConfirm(false);
+    }
+  };
+
   // If props are not provided, show loading or error state
   if (!course || !setCourse) {
     return <CourseSummarySkeleton />;
@@ -80,8 +114,9 @@ const CourseSummaryPage: React.FC<CourseSummaryPageProps> = ({
   return (
     <div className="h-full flex flex-col">
       {/* Course Header */}
-      <Card className="bg-purple-600 dark:bg-purple-900 text-white border-0 rounded-3xl mx-6 mt-6 flex-shrink-0">
-        <div className="p-6">
+      <div className="w-full bg-muted/50 flex-shrink-0 z-10">
+        <Card className="bg-purple-600 dark:bg-purple-900 text-white border-0 rounded-2xl max-w-4xl mx-auto mt-4">
+          <div className="p-6">
           <div className="flex justify-between items-start">
             <div className="space-y-4">
               <h1 className="text-3xl font-bold">{course.name}</h1>
@@ -90,7 +125,7 @@ const CourseSummaryPage: React.FC<CourseSummaryPageProps> = ({
                   <FileText className="w-5 h-5" />
                   <span className="text-lg font-semibold">Course Template</span>
                 </div>
-              ) : (
+              ) : !course.is_official ? (
                 <div className="flex items-center gap-4">
                   <div className="flex items-center space-x-2">
                     <Users className="w-5 h-5" />
@@ -105,7 +140,7 @@ const CourseSummaryPage: React.FC<CourseSummaryPageProps> = ({
                     </div>
                   )}
                 </div>
-              )}
+              ) : null}
             </div>
 
             {course.is_template && effectiveIsInstructor ? (
@@ -146,16 +181,54 @@ const CourseSummaryPage: React.FC<CourseSummaryPageProps> = ({
             )}
           </div>
         </div>
-      </Card>
+        </Card>
+      </div>
 
       {/* Course Editor */}
-      <div className="flex-1 mx-6 mb-6">
+      <div className="flex-1 min-h-0">
         <CourseEditor
           course={course}
           setCourse={setCourse}
           isReadOnly={effectiveIsStudent}
         />
       </div>
+
+      {/* Leave Course Button (non-instructors only) */}
+      {!effectiveIsInstructor && (
+        <div className="max-w-4xl mx-auto py-4 flex-shrink-0">
+          <Button
+            variant="outline"
+            onClick={() => setShowLeaveConfirm(true)}
+            disabled={isLeaving}
+            className="text-red-600 border-red-300 hover:bg-red-50 dark:text-red-400 dark:border-red-800 dark:hover:bg-red-900/20"
+          >
+            <LogOut className="w-4 h-4 mr-2" />
+            Leave Course
+          </Button>
+        </div>
+      )}
+
+      {/* Leave Course Confirmation */}
+      <AlertDialog open={showLeaveConfirm} onOpenChange={setShowLeaveConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Leave Course</AlertDialogTitle>
+            <AlertDialogDescription>
+              You will be unenrolled from {course.name}. You can rejoin later
+              using the course code.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleLeaveCourse}
+              className="bg-red-600 hover:bg-red-700 text-white"
+            >
+              Leave Course
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Join Link Modal */}
       <CreateJoinLinkModal

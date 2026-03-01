@@ -1623,7 +1623,7 @@ const AssignmentEditor: React.FC<AssignmentEditorProps> = ({
   }
 
   return (
-    <div className="h-full flex flex-col bg-background relative">
+    <div className="h-full flex flex-col bg-muted/50 relative">
       {/* Save status, preview toggle, and performance info - floating */}
       {!isReadOnly && (
         <div className="absolute top-4 right-4 z-10 space-y-2">
@@ -1680,7 +1680,7 @@ const AssignmentEditor: React.FC<AssignmentEditorProps> = ({
 
       {/* Editor Content */}
       <div className="flex-1 overflow-auto" ref={scrollContainerRef}>
-        <div className="max-w-4xl mx-auto p-8 relative">
+        <div className="max-w-4xl mx-auto mt-4 p-8 relative bg-card rounded-t-lg shadow-md border border-border/50 border-b-0 min-h-[calc(100%-1rem)]">
           <div
             className={`relative editor-container group${isDraggingState ? ' is-dragging' : ''}`}
             onMouseMove={(e) => {

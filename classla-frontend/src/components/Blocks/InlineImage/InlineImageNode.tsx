@@ -31,7 +31,7 @@ const InlineImageNode: React.FC<InlineImageNodeProps> = ({
     }
     try {
       setError(false);
-      const response = await apiClient.getImageUrl(assignmentId, s3Key);
+      const response = await apiClient.getImageUrl(s3Key, { assignmentId });
       setImageUrl(response.data.url);
     } catch (err) {
       console.error("[InlineImage] Failed to fetch image URL:", err);

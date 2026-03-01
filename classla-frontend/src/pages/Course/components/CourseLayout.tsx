@@ -160,10 +160,11 @@ const CourseLayoutInner: React.FC<CourseLayoutProps> = ({ children }) => {
   }, [isInstructor, userRole, course, user?.id]);
 
   const isTemplate = course?.is_template === true;
+  const isOfficial = course?.is_official === true;
 
   const navigationTabs = [
     { id: "summary", label: "Summary", icon: BookOpen, path: "summary" },
-    ...(!isTemplate
+    ...(!isTemplate && !isOfficial
       ? [
           {
             id: "students",

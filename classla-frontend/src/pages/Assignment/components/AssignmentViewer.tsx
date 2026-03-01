@@ -1775,7 +1775,7 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
   );
 
   return (
-    <div className="h-full flex flex-col bg-background relative">
+    <div className="h-full flex flex-col bg-muted/50 relative">
       {/* Preview Mode Banner */}
       {previewMode && (
         <div className="bg-amber-100 border-b border-amber-300 px-4 py-3">
@@ -2020,7 +2020,7 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
           <AssignmentContentSkeleton />
         ) : (
           // Show normal editor content
-          <div className="max-w-4xl mx-auto p-8 relative">
+          <div className="max-w-4xl mx-auto mt-4 p-8 relative bg-card rounded-t-lg shadow-md border border-border/50 border-b-0 min-h-[calc(100%-1rem)]">
             {/* Collapsed countdown pill */}
             {isStudent && timeRemaining != null && timeRemaining > 0 && countdownDismissed && submissionStatus === "in-progress" && (
               <button

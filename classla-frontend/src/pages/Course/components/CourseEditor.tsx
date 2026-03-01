@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
@@ -11,6 +11,19 @@ import { TableHeader } from "@tiptap/extension-table-header";
 import { TableCell } from "@tiptap/extension-table-cell";
 import Dropcursor from "@tiptap/extension-dropcursor";
 import Gapcursor from "@tiptap/extension-gapcursor";
+
+// Non-graded block extensions (editor)
+import { ImageBlock } from "../../../components/extensions/ImageBlock";
+import { TabbedContentBlock } from "../../../components/extensions/TabbedContentBlock";
+import { RevealContentBlock } from "../../../components/extensions/RevealContentBlock";
+import { EmbedBlock } from "../../../components/extensions/EmbedBlock";
+// Non-graded block extensions (viewer)
+import { ImageBlockViewer } from "../../../components/extensions/ImageBlockViewer";
+import { TabbedContentBlockViewer } from "../../../components/extensions/TabbedContentBlockViewer";
+import { RevealContentBlockViewer } from "../../../components/extensions/RevealContentBlockViewer";
+import { EmbedBlockViewer } from "../../../components/extensions/EmbedBlockViewer";
+
+import { generateUUID } from "../../../components/extensions/blockUtils";
 
 import { apiClient } from "../../../lib/api";
 import { useToast } from "../../../hooks/use-toast";
@@ -34,6 +47,10 @@ import {
   Underline as UnderlineIcon,
   Link as LinkIcon,
   Strikethrough,
+  Image as ImageLucideIcon,
+  ChevronDown,
+  Columns,
+  Play,
 } from "lucide-react";
 
 interface CourseEditorProps {
@@ -112,6 +129,7 @@ const CourseEditor: React.FC<CourseEditorProps> = ({
   const { toast } = useToast();
   const [isSaving, setIsSaving] = useState(false);
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
+  const isSelfSaveRef = useRef(false);
   const [showSlashMenu, setShowSlashMenu] = useState(false);
   const [slashMenuPosition, setSlashMenuPosition] = useState({ x: 0, y: 0 });
   const [slashMenuQuery, setSlashMenuQuery] = useState("");
@@ -216,11 +234,95 @@ const CourseEditor: React.FC<CourseEditorProps> = ({
         editor.chain().focus().setHorizontalRule().run();
       },
     },
+    {
+      title: "Image",
+      description: "Add an image (supports GIFs).",
+      icon: <ImageLucideIcon className="w-4 h-4" />,
+      command: (editor) => {
+        editor.chain().focus().insertContent({
+          type: "imageBlock",
+          attrs: {
+            imageData: {
+              id: generateUUID(),
+              s3Key: "",
+              assignmentId: "",
+              alt: "",
+              width: 0,
+              alignment: "center",
+              courseId: course.id,
+            },
+          },
+        }).run();
+      },
+    },
+    {
+      title: "Tabbed Content",
+      description: "Add a tabbed content block.",
+      icon: <Columns className="w-4 h-4" />,
+      command: (editor) => {
+        editor.chain().focus().insertContent({
+          type: "tabbedContentBlock",
+          attrs: {
+            tabbedContentData: {
+              id: generateUUID(),
+              tabs: [],
+              tabPosition: "top",
+            },
+          },
+        }).run();
+      },
+    },
+    {
+      title: "Reveal/Collapsible",
+      description: "Add a collapsible content section.",
+      icon: <ChevronDown className="w-4 h-4" />,
+      command: (editor) => {
+        editor.chain().focus().insertContent({
+          type: "revealContentBlock",
+          attrs: {
+            revealContentData: {
+              id: generateUUID(),
+              buttonText: "Show Hint",
+              content: "",
+              initiallyVisible: false,
+              showHideButton: true,
+              buttonStyle: "default",
+            },
+          },
+        }).run();
+      },
+    },
+    {
+      title: "Embed",
+      description: "Add a video or iframe embed.",
+      icon: <Play className="w-4 h-4" />,
+      command: (editor) => {
+        editor.chain().focus().insertContent({
+          type: "embedBlock",
+          attrs: {
+            embedData: {
+              id: generateUUID(),
+              embedType: "iframe",
+              url: "",
+              allowFullscreen: true,
+            },
+          },
+        }).run();
+      },
+    },
   ];
 
   const filteredCommands = slashCommands.filter((command) =>
     command.title.toLowerCase().includes(slashMenuQuery.toLowerCase())
   );
+
+  // Use editor extensions when editable, viewer extensions when read-only
+  const blockExtensions = useMemo(() => {
+    if (isReadOnly) {
+      return [ImageBlockViewer, TabbedContentBlockViewer, RevealContentBlockViewer, EmbedBlockViewer];
+    }
+    return [ImageBlock, TabbedContentBlock, RevealContentBlock, EmbedBlock];
+  }, [isReadOnly]);
 
   const editor = useEditor({
     extensions: [
@@ -260,6 +362,7 @@ const CourseEditor: React.FC<CourseEditorProps> = ({
         width: 2,
       }),
       Gapcursor,
+      ...blockExtensions,
     ],
     content: course.summary_content || "",
     editable: !isReadOnly,
@@ -334,6 +437,7 @@ const CourseEditor: React.FC<CourseEditorProps> = ({
           summary_content: content,
         });
 
+        isSelfSaveRef.current = true;
         setCourse({ ...course, summary_content: content });
         setLastSaved(new Date());
       } catch (error: any) {
@@ -351,6 +455,10 @@ const CourseEditor: React.FC<CourseEditorProps> = ({
   );
 
   useEffect(() => {
+    if (isSelfSaveRef.current) {
+      isSelfSaveRef.current = false;
+      return;
+    }
     if (editor && course.summary_content !== editor.getHTML()) {
       editor.commands.setContent(course.summary_content || "");
     }
@@ -382,7 +490,7 @@ const CourseEditor: React.FC<CourseEditorProps> = ({
   }
 
   return (
-    <div className="h-full flex flex-col bg-card relative">
+    <div className="h-full flex flex-col relative bg-muted/50">
       {/* Save status - floating */}
       {!isReadOnly && (
         <div className="absolute top-4 right-4 z-10">
@@ -403,7 +511,7 @@ const CourseEditor: React.FC<CourseEditorProps> = ({
 
       {/* Editor Content */}
       <div className="flex-1 overflow-auto">
-        <div className="max-w-4xl mx-auto p-8 relative">
+        <div className="max-w-4xl mx-auto mt-4 p-8 relative bg-card rounded-t-lg shadow-md border border-border/50 border-b-0 min-h-[calc(100%-1rem)]">
           <div
             className="relative editor-container group"
             onMouseMove={(e) => {

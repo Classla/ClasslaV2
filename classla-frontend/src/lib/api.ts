@@ -592,10 +592,10 @@ export const apiClient = {
     }),
 
   // Image block operations
-  getImageUploadUrl: (data: { assignmentId: string; filename: string; contentType: string }) =>
+  getImageUploadUrl: (data: { assignmentId?: string; courseId?: string; filename: string; contentType: string }) =>
     api.post('/s3buckets/image-upload-url', data),
-  getImageUrl: (assignmentId: string, s3Key: string) =>
-    api.get('/s3buckets/image-url', { params: { assignmentId, s3Key } }),
+  getImageUrl: (s3Key: string, context: { assignmentId?: string; courseId?: string }) =>
+    api.get('/s3buckets/image-url', { params: { ...context, s3Key } }),
 
   // S3 version history operations (for grading edit history slider)
   getS3FileVersions: (bucketId: string, filePath: string) =>
@@ -726,6 +726,25 @@ export const apiClient = {
     params?: { student_id?: string }
   ) =>
     api.get(`/ide-blocks/test-runs/${assignmentId}/${blockId}/latest`, { params }),
+
+  // Enrollment self-service
+  leaveCourse: (courseId: string) =>
+    api.delete(`/enrollments/leave/${courseId}`),
+
+  // Admin: Official Courses & Auto-Enrollment
+  admin: {
+    getOfficialCourses: () => api.get("/admin/official-courses"),
+    createOfficialCourse: (name: string) =>
+      api.post("/admin/official-courses", { name }),
+    searchCourses: (query: string) =>
+      api.get("/admin/courses/search", { params: { q: query } }),
+    toggleOfficialCourse: (id: string, isOfficial: boolean) =>
+      api.put(`/admin/courses/${id}/official`, { is_official: isOfficial }),
+    getAutoEnroll: () => api.get("/admin/auto-enroll"),
+    setAutoEnroll: (courseId: string | null) =>
+      api.put("/admin/auto-enroll", { course_id: courseId }),
+    executeAutoEnroll: () => api.post("/admin/auto-enroll/execute"),
+  },
 
   // Admin IDE Dashboard endpoints
   adminIde: {

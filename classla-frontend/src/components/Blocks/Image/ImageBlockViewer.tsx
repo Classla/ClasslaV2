@@ -16,17 +16,17 @@ const ImageBlockViewer: React.FC<ImageBlockViewerProps> = memo(({ node }) => {
   const [hasError, setHasError] = useState(false);
 
   const fetchUrl = useCallback(async () => {
-    if (!imageData.s3Key || !imageData.assignmentId) {
+    if (!imageData.s3Key || (!imageData.assignmentId && !imageData.courseId)) {
       setIsLoading(false);
       return;
     }
     try {
       setIsLoading(true);
       setHasError(false);
-      const response = await apiClient.getImageUrl(
-        imageData.assignmentId,
-        imageData.s3Key
-      );
+      const context = imageData.courseId
+        ? { courseId: imageData.courseId }
+        : { assignmentId: imageData.assignmentId };
+      const response = await apiClient.getImageUrl(imageData.s3Key, context);
       setImageUrl(response.data.url);
     } catch (err) {
       console.error("[ImageBlockViewer] Failed to fetch image URL:", err);
@@ -34,7 +34,7 @@ const ImageBlockViewer: React.FC<ImageBlockViewerProps> = memo(({ node }) => {
     } finally {
       setIsLoading(false);
     }
-  }, [imageData.s3Key, imageData.assignmentId]);
+  }, [imageData.s3Key, imageData.assignmentId, imageData.courseId]);
 
   useEffect(() => {
     fetchUrl();
