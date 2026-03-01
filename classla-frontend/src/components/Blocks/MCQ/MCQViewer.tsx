@@ -174,8 +174,13 @@ const MCQViewer: React.FC<MCQViewerProps> = memo(
     );
 
     const handleCheckAnswer = useCallback(async () => {
+      if (selectedOptions.length === 0) {
+        setCheckResult({ isCorrect: false, feedback: "No answer selected" });
+        return;
+      }
+
       const assignmentId = getAssignmentIdFromUrl();
-      if (!assignmentId || selectedOptions.length === 0) return;
+      if (!assignmentId) return;
 
       setIsChecking(true);
       try {
@@ -371,10 +376,8 @@ const MCQViewer: React.FC<MCQViewerProps> = memo(
                     {checkResult.isCorrect ? "Correct" : "Incorrect"}
                   </span>
                 )}
-                {mcqData.allowCheckAnswer &&
-                  !(editor?.storage as any)?.isReadOnly &&
-                  !hasScore &&
-                  selectedOptions.length > 0 && (
+                {!(editor?.storage as any)?.isReadOnly &&
+                  !hasScore && (
                     <button
                       onClick={handleCheckAnswer}
                       disabled={isChecking}
