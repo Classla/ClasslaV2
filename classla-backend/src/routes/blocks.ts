@@ -399,19 +399,6 @@ router.post(
         return;
       }
 
-      // Verify allowCheckAnswer is enabled for this block
-      if (!blockData.allowCheckAnswer) {
-        res.status(403).json({
-          error: {
-            code: "CHECK_ANSWER_NOT_ALLOWED",
-            message: "Check answer is not enabled for this block",
-          },
-          timestamp: new Date().toISOString(),
-          path: req.path,
-        });
-        return;
-      }
-
       // Grade the answer
       const result = gradeMCQBlock(blockData, selectedOptions);
 
