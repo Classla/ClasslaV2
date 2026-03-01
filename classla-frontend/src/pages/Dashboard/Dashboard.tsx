@@ -23,7 +23,7 @@ import {
 } from "../../components/ui/dialog";
 import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
-import { Plus, Users, BookOpen } from "lucide-react";
+import { Plus, Users, BookOpen, BadgeCheck } from "lucide-react";
 
 interface Course {
   id: string;
@@ -32,6 +32,7 @@ interface Course {
   join_code: string;
   student_count: number;
   thumbnail_url?: string;
+  is_official?: boolean;
 }
 
 const Dashboard: React.FC = () => {
@@ -71,6 +72,7 @@ const Dashboard: React.FC = () => {
           join_code: course.slug,
           student_count: course.student_count || 0,
           thumbnail_url: course.thumbnail_url,
+          is_official: course.is_official,
         }));
 
         setCourses(transformedCourses);
@@ -477,8 +479,14 @@ const Dashboard: React.FC = () => {
                     className="w-full h-full object-cover object-top"
                   />
                 </div>
-                <CardTitle className="text-lg group-hover:text-primary transition-colors">
+                <CardTitle className="text-lg group-hover:text-primary transition-colors flex items-center gap-2">
                   {course.name}
+                  {course.is_official && (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-purple-100 dark:bg-purple-900/50 px-2 py-0.5 text-xs font-medium text-purple-700 dark:text-purple-300 flex-shrink-0">
+                      <BadgeCheck className="w-3 h-3" />
+                      Official
+                    </span>
+                  )}
                 </CardTitle>
                 <CardDescription className="line-clamp-2">
                   {course.description}

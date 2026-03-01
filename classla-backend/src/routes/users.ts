@@ -96,7 +96,8 @@ router.get(
             slug,
             thumbnail_url,
             summary_content,
-            created_at
+            created_at,
+            is_official
           )
         `
         )
