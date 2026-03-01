@@ -337,7 +337,7 @@ const CourseLayoutInner: React.FC<CourseLayoutProps> = ({ children }) => {
                                 due_dates_map: {},
                                 is_lockdown: false,
                                 lockdown_time_map: {},
-                                order_index: 0,
+                                // order_index omitted so backend computes max + 1
                               });
 
                               queryClient.invalidateQueries({ queryKey: ["courseAssignments", course.id] });
