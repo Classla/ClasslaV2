@@ -685,8 +685,8 @@ export const apiClient = {
   deleteManagedStudent: (id: string) => api.delete(`/managed-students/${id}`),
   resetManagedStudentPassword: (id: string) =>
     api.post(`/managed-students/${id}/reset-password`),
-  enrollManagedStudent: (studentId: string, courseId: string) =>
-    api.post(`/managed-students/${studentId}/enroll`, { courseId }),
+  enrollManagedStudent: (studentId: string, courseId: string, role?: string) =>
+    api.post(`/managed-students/${studentId}/enroll`, { courseId, role }),
   unenrollManagedStudent: (studentId: string, courseId: string) =>
     api.delete(`/managed-students/${studentId}/enroll/${courseId}`),
   getManagedStudentCourses: () => api.get("/managed-students/courses"),

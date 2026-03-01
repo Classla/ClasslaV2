@@ -840,7 +840,8 @@ export class ManagedStudentService {
     teacherId: string,
     studentId: string,
     courseId: string,
-    sectionId?: string
+    sectionId?: string,
+    role?: UserRole
   ): Promise<void> {
     try {
       // Verify student ownership
@@ -908,13 +909,24 @@ export class ManagedStudentService {
         }
       }
 
+      // Validate role if provided
+      const enrollRole = role || UserRole.STUDENT;
+      const validRoles = Object.values(UserRole);
+      if (!validRoles.includes(enrollRole)) {
+        throw new ManagedStudentServiceError(
+          'Invalid role',
+          'INVALID_ROLE',
+          400
+        );
+      }
+
       // Create enrollment
       const { error: createError } = await supabase
         .from('course_enrollments')
         .insert({
           user_id: studentId,
           course_id: courseId,
-          role: UserRole.STUDENT,
+          role: enrollRole,
           enrolled_at: new Date().toISOString(),
           section_id: sectionId || null,
         });

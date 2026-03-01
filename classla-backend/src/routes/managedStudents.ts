@@ -479,7 +479,7 @@ router.post(
     try {
       const teacherId = req.user!.id;
       const studentId = req.params.id;
-      const { courseId } = req.body;
+      const { courseId, role } = req.body;
 
       if (!courseId) {
         return res.status(400).json({
@@ -489,7 +489,7 @@ router.post(
         });
       }
 
-      await managedStudentService.enrollInCourse(teacherId, studentId, courseId);
+      await managedStudentService.enrollInCourse(teacherId, studentId, courseId, undefined, role);
 
       logger.info("Managed student enrolled in course via API", {
         requestId: req.headers["x-request-id"],
