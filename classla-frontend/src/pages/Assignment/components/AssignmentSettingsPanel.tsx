@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { HelpCircle, ChevronDown, ChevronRight, Trash2, Copy, ArrowRight, Clock } from "lucide-react";
+import { HelpCircle, ChevronDown, ChevronRight, Trash2, Copy, ArrowRight, Clock, EyeOff } from "lucide-react";
 import { Label } from "../../../components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../../components/ui/select";
 import { Assignment, AssignmentSettings, RubricSchema, Course, UserRole } from "../../../types";
@@ -80,6 +80,8 @@ const AssignmentSettingsPanel: React.FC<AssignmentSettingsPanelProps> = ({
       assignment.settings?.showResponsesAfterSubmission ?? false,
     showScoreAfterSubmission:
       assignment.settings?.showScoreAfterSubmission ?? false,
+    hideContentAfterReview:
+      assignment.settings?.hideContentAfterReview ?? false,
   });
 
   // Load rubric schema
@@ -464,6 +466,39 @@ const AssignmentSettingsPanel: React.FC<AssignmentSettingsPanelProps> = ({
             <span
               className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-card shadow ring-0 transition duration-200 ease-in-out ${
                 settings.showScoreAfterSubmission
+                  ? "translate-x-5"
+                  : "translate-x-0"
+              }`}
+            />
+          </button>
+        </div>
+
+        {/* Hide Content After Review */}
+        <div className="space-y-2">
+          <div className="flex items-start gap-2">
+            <EyeOff className="w-4 h-4 text-purple-600 mt-0.5 flex-shrink-0" />
+            <div className="flex-1">
+              <h3 className="text-sm font-medium text-foreground mb-1">
+                Hide Content After Review
+              </h3>
+              <p className="text-xs text-muted-foreground mb-2">
+                When enabled, students will only see their score after the
+                assignment is reviewed. The assignment content will be hidden to
+                keep assessments secure.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => handleToggle("hideContentAfterReview")}
+            className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 ${
+              settings.hideContentAfterReview ? "bg-purple-600" : "bg-accent"
+            }`}
+            role="switch"
+            aria-checked={settings.hideContentAfterReview ? "true" : "false"}
+          >
+            <span
+              className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-card shadow ring-0 transition duration-200 ease-in-out ${
+                settings.hideContentAfterReview
                   ? "translate-x-5"
                   : "translate-x-0"
               }`}

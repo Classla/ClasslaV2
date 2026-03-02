@@ -1263,6 +1263,30 @@ router.get(
         if (batchData) allGraders.push(...batchData);
       }
 
+      // Fetch rubric schemas for all assignments so the frontend can calculate total points
+      const assignmentIds = (assignments || []).map((a: any) => a.id);
+      let rubricSchemas: any[] = [];
+      if (assignmentIds.length > 0) {
+        const { data: rubricData, error: rubricError } = await supabase
+          .from("rubric_schemas")
+          .select("*")
+          .in("assignment_id", assignmentIds);
+        if (rubricError) throw rubricError;
+        rubricSchemas = rubricData || [];
+      }
+
+      // Build a map of assignment_id -> rubric_schema
+      const rubricSchemaMap = new Map<string, any>();
+      for (const rs of rubricSchemas) {
+        rubricSchemaMap.set(rs.assignment_id, rs);
+      }
+
+      // Attach rubric_schema to each assignment
+      const assignmentsWithRubric = (assignments || []).map((a: any) => ({
+        ...a,
+        rubric_schema: rubricSchemaMap.get(a.id) || null,
+      }));
+
       // Format students data
       const students = enrollments.map((enrollment: any) => ({
         userId: enrollment.users?.id,
@@ -1293,7 +1317,7 @@ router.get(
 
       res.json({
         students,
-        assignments: assignments || [],
+        assignments: assignmentsWithRubric,
         submissions: formattedSubmissions,
         graders: graders || [],
       });
@@ -1524,8 +1548,44 @@ router.get(
         return;
       }
 
+      // Fetch rubric schemas for published assignments so the frontend can calculate total points
+      const publishedAssignmentIds = publishedAssignments.map((a: any) => a.id);
+      let studentRubricSchemas: any[] = [];
+      if (publishedAssignmentIds.length > 0) {
+        const { data: rubricData, error: rubricError } = await supabase
+          .from("rubric_schemas")
+          .select("*")
+          .in("assignment_id", publishedAssignmentIds);
+        if (rubricError) throw rubricError;
+        studentRubricSchemas = rubricData || [];
+      }
+
+      // Build a map and attach rubric_schema to each assignment
+      const studentRubricMap = new Map<string, any>();
+      for (const rs of studentRubricSchemas) {
+        studentRubricMap.set(rs.assignment_id, rs);
+      }
+      // Determine which assignments should have content stripped (hideContentAfterReview + reviewed)
+      const reviewedAssignmentIds = new Set<string>();
+      for (const grader of visibleGraders) {
+        if (grader.reviewed_at) {
+          const sub = formattedSubmissions.find((s: any) => s.id === grader.submission_id);
+          if (sub) reviewedAssignmentIds.add(sub.assignment_id);
+        }
+      }
+
+      const assignmentsWithRubric = publishedAssignments.map((a: any) => {
+        const s = typeof a.settings === "string" ? JSON.parse(a.settings) : a.settings || {};
+        const shouldHide = s.hideContentAfterReview && reviewedAssignmentIds.has(a.id);
+        return {
+          ...a,
+          content: shouldHide ? '{"type":"doc","content":[]}' : a.content,
+          rubric_schema: studentRubricMap.get(a.id) || null,
+        };
+      });
+
       res.json({
-        assignments: publishedAssignments,
+        assignments: assignmentsWithRubric,
         submissions: formattedSubmissions,
         graders: visibleGraders,
       });

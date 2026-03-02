@@ -1,6 +1,7 @@
 import React from "react";
 import { Assignment, Submission, Grader } from "../../../../types";
 import { Badge } from "../../../../components/ui/badge";
+import { calculateAssignmentPoints } from "../../../../utils/assignmentPoints";
 
 interface GradeItemProps {
   assignment: Assignment;
@@ -20,12 +21,7 @@ const GradeItem: React.FC<GradeItemProps> = React.memo(
 
     // Get total points for an assignment
     const getTotalPoints = (assignment: Assignment): number => {
-      try {
-        const content = JSON.parse(assignment.content);
-        return content.totalPoints || 0;
-      } catch {
-        return 0;
-      }
+      return calculateAssignmentPoints(assignment.content, assignment.rubric_schema);
     };
 
     // Format due date

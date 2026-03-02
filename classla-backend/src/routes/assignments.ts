@@ -352,10 +352,35 @@ router.get(
           return publishTime && new Date(publishTime) <= now;
         });
 
-        // Filter content for students
+        // Check which assignments have hideContentAfterReview enabled AND a reviewed submission
+        const hideContentIds = new Set<string>();
+        const hideContentCandidates = filteredAssignments.filter((a) => {
+          const s = typeof a.settings === "string" ? JSON.parse(a.settings) : a.settings || {};
+          return s.hideContentAfterReview;
+        });
+
+        if (hideContentCandidates.length > 0) {
+          const candidateIds = hideContentCandidates.map((a) => a.id);
+          const { data: reviewedRows } = await supabase
+            .from("submissions")
+            .select("assignment_id, graders!inner(reviewed_at)")
+            .in("assignment_id", candidateIds)
+            .eq("student_id", userId)
+            .not("graders.reviewed_at", "is", null);
+
+          if (reviewedRows) {
+            for (const row of reviewedRows) {
+              hideContentIds.add(row.assignment_id);
+            }
+          }
+        }
+
+        // Filter content for students, stripping entirely for reviewed hide-content assignments
         filteredAssignments = filteredAssignments.map((assignment) => ({
           ...assignment,
-          content: filterAssignmentContentForStudent(assignment.content),
+          content: hideContentIds.has(assignment.id)
+            ? '{"type":"doc","content":[]}'
+            : filterAssignmentContentForStudent(assignment.content),
         }));
       }
 
@@ -451,10 +476,31 @@ router.get(
           return;
         }
 
-        // Filter content for student view
+        // Check hideContentAfterReview — strip content if the student has a reviewed submission
+        const assignmentSettings =
+          typeof assignment.settings === "string"
+            ? JSON.parse(assignment.settings)
+            : assignment.settings || {};
+
+        let contentToReturn = filterAssignmentContentForStudent(assignment.content);
+
+        if (assignmentSettings.hideContentAfterReview) {
+          const { data: reviewedGraders } = await supabase
+            .from("submissions")
+            .select("id, graders!inner(reviewed_at)")
+            .eq("assignment_id", id)
+            .eq("student_id", userId)
+            .not("graders.reviewed_at", "is", null)
+            .limit(1);
+
+          if (reviewedGraders && reviewedGraders.length > 0) {
+            contentToReturn = '{"type":"doc","content":[]}';
+          }
+        }
+
         const filteredAssignment = {
           ...assignment,
-          content: filterAssignmentContentForStudent(assignment.content),
+          content: contentToReturn,
         };
 
         res.json(filteredAssignment);
