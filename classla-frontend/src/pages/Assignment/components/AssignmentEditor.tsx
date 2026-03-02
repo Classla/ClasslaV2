@@ -31,6 +31,7 @@ import { TabbedContentBlock } from "../../../components/extensions/TabbedContent
 import { RevealContentBlock } from "../../../components/extensions/RevealContentBlock";
 import { PollBlock } from "../../../components/extensions/PollBlock";
 import { EmbedBlock } from "../../../components/extensions/EmbedBlock";
+import { AlertBlock } from "../../../components/extensions/AlertBlock";
 import { ImageBlock } from "../../../components/extensions/ImageBlock";
 import { DiscussionBlock } from "../../../components/extensions/DiscussionBlock";
 import { generateUUID } from "../../../components/extensions/blockUtils";
@@ -79,6 +80,9 @@ import {
   Eye,
   EyeOff,
   Image as ImageLucideIcon,
+  Info,
+  AlertTriangle,
+  OctagonAlert,
 } from "lucide-react";
 
 interface AssignmentEditorProps {
@@ -837,6 +841,60 @@ const AssignmentEditor: React.FC<AssignmentEditorProps> = ({
         },
       },
       {
+        title: "Info",
+        description: "Add an info callout.",
+        icon: <Info className="w-4 h-4" />,
+        command: (editor) => {
+          editor.chain().focus().insertContent({
+            type: "alertBlock",
+            attrs: {
+              alertData: {
+                id: generateUUID(),
+                alertType: "info",
+                title: "",
+                content: "",
+              },
+            },
+          }).run();
+        },
+      },
+      {
+        title: "Alert",
+        description: "Add an alert callout.",
+        icon: <OctagonAlert className="w-4 h-4" />,
+        command: (editor) => {
+          editor.chain().focus().insertContent({
+            type: "alertBlock",
+            attrs: {
+              alertData: {
+                id: generateUUID(),
+                alertType: "alert",
+                title: "",
+                content: "",
+              },
+            },
+          }).run();
+        },
+      },
+      {
+        title: "Warning",
+        description: "Add a warning callout.",
+        icon: <AlertTriangle className="w-4 h-4" />,
+        command: (editor) => {
+          editor.chain().focus().insertContent({
+            type: "alertBlock",
+            attrs: {
+              alertData: {
+                id: generateUUID(),
+                alertType: "warning",
+                title: "",
+                content: "",
+              },
+            },
+          }).run();
+        },
+      },
+      {
         title: "Image",
         description: "Add an image (supports GIFs).",
         icon: <ImageLucideIcon className="w-4 h-4" />,
@@ -949,6 +1007,7 @@ const AssignmentEditor: React.FC<AssignmentEditorProps> = ({
       RevealContentBlock,
       PollBlock,
       EmbedBlock,
+      AlertBlock,
       ImageBlock,
       DiscussionBlock,
       IDEBlock,

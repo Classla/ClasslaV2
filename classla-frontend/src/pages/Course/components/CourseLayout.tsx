@@ -383,7 +383,7 @@ const CourseLayoutInner: React.FC<CourseLayoutProps> = ({ children }) => {
 
           {/* Main Content */}
           <Allotment.Pane minSize={400}>
-            <div className="h-full overflow-auto">
+            <div className="h-full overflow-auto bg-muted/50">
               {React.cloneElement(children as React.ReactElement, {
                 course,
                 setCourse,

@@ -17,11 +17,13 @@ import { ImageBlock } from "../../../components/extensions/ImageBlock";
 import { TabbedContentBlock } from "../../../components/extensions/TabbedContentBlock";
 import { RevealContentBlock } from "../../../components/extensions/RevealContentBlock";
 import { EmbedBlock } from "../../../components/extensions/EmbedBlock";
+import { AlertBlock } from "../../../components/extensions/AlertBlock";
 // Non-graded block extensions (viewer)
 import { ImageBlockViewer } from "../../../components/extensions/ImageBlockViewer";
 import { TabbedContentBlockViewer } from "../../../components/extensions/TabbedContentBlockViewer";
 import { RevealContentBlockViewer } from "../../../components/extensions/RevealContentBlockViewer";
 import { EmbedBlockViewer } from "../../../components/extensions/EmbedBlockViewer";
+import { AlertBlockViewer } from "../../../components/extensions/AlertBlockViewer";
 
 import { generateUUID } from "../../../components/extensions/blockUtils";
 
@@ -51,6 +53,9 @@ import {
   ChevronDown,
   Columns,
   Play,
+  Info,
+  AlertTriangle,
+  OctagonAlert,
 } from "lucide-react";
 
 interface CourseEditorProps {
@@ -310,6 +315,60 @@ const CourseEditor: React.FC<CourseEditorProps> = ({
         }).run();
       },
     },
+    {
+      title: "Info",
+      description: "Add an info callout.",
+      icon: <Info className="w-4 h-4" />,
+      command: (editor) => {
+        editor.chain().focus().insertContent({
+          type: "alertBlock",
+          attrs: {
+            alertData: {
+              id: generateUUID(),
+              alertType: "info",
+              title: "",
+              content: "",
+            },
+          },
+        }).run();
+      },
+    },
+    {
+      title: "Alert",
+      description: "Add an alert callout.",
+      icon: <OctagonAlert className="w-4 h-4" />,
+      command: (editor) => {
+        editor.chain().focus().insertContent({
+          type: "alertBlock",
+          attrs: {
+            alertData: {
+              id: generateUUID(),
+              alertType: "alert",
+              title: "",
+              content: "",
+            },
+          },
+        }).run();
+      },
+    },
+    {
+      title: "Warning",
+      description: "Add a warning callout.",
+      icon: <AlertTriangle className="w-4 h-4" />,
+      command: (editor) => {
+        editor.chain().focus().insertContent({
+          type: "alertBlock",
+          attrs: {
+            alertData: {
+              id: generateUUID(),
+              alertType: "warning",
+              title: "",
+              content: "",
+            },
+          },
+        }).run();
+      },
+    },
   ];
 
   const filteredCommands = slashCommands.filter((command) =>
@@ -319,9 +378,9 @@ const CourseEditor: React.FC<CourseEditorProps> = ({
   // Use editor extensions when editable, viewer extensions when read-only
   const blockExtensions = useMemo(() => {
     if (isReadOnly) {
-      return [ImageBlockViewer, TabbedContentBlockViewer, RevealContentBlockViewer, EmbedBlockViewer];
+      return [ImageBlockViewer, TabbedContentBlockViewer, RevealContentBlockViewer, EmbedBlockViewer, AlertBlockViewer];
     }
-    return [ImageBlock, TabbedContentBlock, RevealContentBlock, EmbedBlock];
+    return [ImageBlock, TabbedContentBlock, RevealContentBlock, EmbedBlock, AlertBlock];
   }, [isReadOnly]);
 
   const editor = useEditor({

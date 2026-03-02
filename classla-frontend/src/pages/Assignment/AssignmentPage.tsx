@@ -763,9 +763,9 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
       <Allotment className="flex-1">
         {/* Main Scrollable Content Area */}
         <Allotment.Pane minSize={400}>
-          <div className="h-full flex flex-col overflow-hidden">
+          <div className="h-full flex flex-col overflow-hidden bg-muted/50">
             {/* Assignment Header */}
-            <div className="w-full bg-muted/50 flex-shrink-0">
+            <div className="w-full flex-shrink-0">
             <Card className="bg-purple-600 dark:bg-purple-900 text-white border-0 rounded-2xl max-w-4xl mx-auto mt-4">
               <div className="p-6">
                 <div className="flex justify-between items-start">
