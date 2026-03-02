@@ -76,6 +76,7 @@ export interface AssignmentSettings {
   allowResubmissions?: boolean;
   showResponsesAfterSubmission?: boolean;
   showScoreAfterSubmission?: boolean; // Show autograded score to students after submission
+  hideContentAfterReview?: boolean; // When enabled, students only see their score after review — content is hidden
   timeLimitSeconds?: number; // Time limit in seconds for timed assignments (e.g., 7200 = 2 hours)
   [key: string]: any;
 }
@@ -96,6 +97,7 @@ export interface Assignment {
   order_index: number; // For ordering assignments within their module
   created_at: Date;
   updated_at: Date;
+  rubric_schema?: RubricSchema; // Attached by gradebook/grades endpoints for point calculation
 }
 
 // Submission entity

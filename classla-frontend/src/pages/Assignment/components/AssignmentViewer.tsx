@@ -28,6 +28,7 @@ import {
   ChevronRight,
   Clock,
   Loader2,
+  EyeOff,
 } from "lucide-react";
 
 import { Assignment } from "../../../types";
@@ -178,6 +179,13 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
     !gradeVisibleToStudent
       ? "submitted"
       : submissionStatus;
+
+  // When hideContentAfterReview is enabled and the submission has been reviewed,
+  // students see only their score — the assignment content is hidden.
+  const hideContent =
+    isStudent &&
+    !!assignment.settings?.hideContentAfterReview &&
+    !!grader?.reviewed_at;
 
   // True when student is submitting over a previously submitted/graded submission
   const hasPreviousSubmission = useMemo(() => {
@@ -1968,7 +1976,21 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
 
       {/* Editor Content or Submission Success Screen */}
       <div className="flex-1 min-h-0 overflow-auto">
-        {effectiveStatus === "submitted" && !showResponsesAfterSubmission ? (
+        {hideContent ? (
+          // Content hidden after review — student sees score in the banner above
+          <div className="max-w-2xl mx-auto p-8">
+            <div className="bg-card rounded-lg border border-border p-8 text-center">
+              <EyeOff className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
+              <h2 className="text-xl font-bold text-foreground mb-2">
+                Content Hidden
+              </h2>
+              <p className="text-muted-foreground">
+                Your instructor has hidden the assignment content after review.
+                Your score is shown above.
+              </p>
+            </div>
+          </div>
+        ) : effectiveStatus === "submitted" && !showResponsesAfterSubmission ? (
           // Show submission success screen when responses are disabled
           <div className="max-w-2xl mx-auto p-8">
             <div className="bg-card rounded-lg border border-border p-8 text-center">

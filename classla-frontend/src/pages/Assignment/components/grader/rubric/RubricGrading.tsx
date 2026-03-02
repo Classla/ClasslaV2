@@ -28,6 +28,7 @@ const RubricGrading: React.FC<RubricGradingProps> = ({
     } else {
       setValues(rubricSchema.items.map(() => 0));
     }
+    setValueInputs({});
   }, [rubric, rubricSchema]);
 
   const handleCheckboxChange = (index: number, checked: boolean) => {
@@ -50,7 +51,8 @@ const RubricGrading: React.FC<RubricGradingProps> = ({
 
   const totalScore = values.reduce((sum, val) => sum + val, 0);
   const maxScore = rubricSchema.items.reduce(
-    (sum, item) => sum + item.points,
+    (sum, item) =>
+      item.points > 0 && !item.isExtraCredit ? sum + item.points : sum,
     0
   );
 

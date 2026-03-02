@@ -56,7 +56,7 @@ const GradebookTable: React.FC<GradebookTableProps> = React.memo(
 
       // In-progress — show score if autograded, else "—", with yellow badge
       if (submission?.status === "in-progress") {
-        const totalPoints = calculateAssignmentPoints(assignment.content);
+        const totalPoints = calculateAssignmentPoints(assignment.content, assignment.rubric_schema);
         const score = grader ? calculateFinalGrade(grader) : null;
         const isResubmitting = !!inProgressAfterSubmit?.get(submissionKey);
         const count = submissionCounts?.get(submissionKey) ?? 0;
@@ -90,7 +90,7 @@ const GradebookTable: React.FC<GradebookTableProps> = React.memo(
       // If graded, show score centered with corner status badge + right-click menu
       if (grader) {
         const finalGrade = calculateFinalGrade(grader);
-        const totalPoints = calculateAssignmentPoints(assignment.content);
+        const totalPoints = calculateAssignmentPoints(assignment.content, assignment.rubric_schema);
         const isReviewed = !!grader.reviewed_at;
 
         const isChangingGrade = changeGradeState?.graderId === grader.id;
@@ -223,7 +223,7 @@ const GradebookTable: React.FC<GradebookTableProps> = React.memo(
                           {assignment.name}
                         </button>
                         <span className="text-xs text-muted-foreground font-medium">
-                          Out of {calculateAssignmentPoints(assignment.content)}
+                          Out of {calculateAssignmentPoints(assignment.content, assignment.rubric_schema)}
                         </span>
                       </div>
                     </th>

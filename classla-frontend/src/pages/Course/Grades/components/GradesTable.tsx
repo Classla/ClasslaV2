@@ -36,9 +36,9 @@ const GradesTable: React.FC<GradesTableProps> = ({
     return baseScore + modifier;
   };
 
-  // Get total points for an assignment by calculating from MCQ blocks
+  // Get total points for an assignment by calculating from MCQ blocks and rubric
   const getTotalPoints = (assignment: Assignment): number => {
-    return calculateAssignmentPoints(assignment.content);
+    return calculateAssignmentPoints(assignment.content, assignment.rubric_schema);
   };
 
   // Format due date
