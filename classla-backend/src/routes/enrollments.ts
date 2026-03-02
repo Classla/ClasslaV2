@@ -209,4 +209,71 @@ router.delete(
   }
 );
 
+/**
+ * DELETE /enrollments/leave/:courseId
+ * Leave a course (self-unenroll)
+ */
+router.delete(
+  "/enrollments/leave/:courseId",
+  authenticateToken,
+  async (req: Request, res: Response): Promise<void> => {
+    try {
+      const { courseId } = req.params;
+      const userId = req.user!.id;
+
+      // Find the enrollment
+      const { data: enrollment, error: findError } = await supabase
+        .from("course_enrollments")
+        .select("id, role")
+        .eq("user_id", userId)
+        .eq("course_id", courseId)
+        .single();
+
+      if (findError || !enrollment) {
+        res.status(404).json({
+          error: {
+            code: "ENROLLMENT_NOT_FOUND",
+            message: "You are not enrolled in this course",
+            timestamp: new Date().toISOString(),
+            path: req.path,
+          },
+        });
+        return;
+      }
+
+      // Instructors cannot leave their own course
+      if (enrollment.role === UserRole.INSTRUCTOR) {
+        res.status(403).json({
+          error: {
+            code: "CANNOT_LEAVE",
+            message: "Instructors cannot leave their own course",
+            timestamp: new Date().toISOString(),
+            path: req.path,
+          },
+        });
+        return;
+      }
+
+      const { error: deleteError } = await supabase
+        .from("course_enrollments")
+        .delete()
+        .eq("id", enrollment.id);
+
+      if (deleteError) throw deleteError;
+
+      res.json({ message: "Successfully left the course" });
+    } catch (error) {
+      console.error("Error leaving course:", error);
+      res.status(500).json({
+        error: {
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Failed to leave course",
+          timestamp: new Date().toISOString(),
+          path: req.path,
+        },
+      });
+    }
+  }
+);
+
 export default router;

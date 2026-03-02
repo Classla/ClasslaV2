@@ -43,6 +43,7 @@ import { TabbedContentBlockViewer } from "../../../components/extensions/TabbedC
 import { RevealContentBlockViewer } from "../../../components/extensions/RevealContentBlockViewer";
 import { PollBlockViewer } from "../../../components/extensions/PollBlockViewer";
 import { EmbedBlockViewer } from "../../../components/extensions/EmbedBlockViewer";
+import { AlertBlockViewer } from "../../../components/extensions/AlertBlockViewer";
 import { ImageBlockViewer } from "../../../components/extensions/ImageBlockViewer";
 import { DiscussionBlockViewer } from "../../../components/extensions/DiscussionBlockViewer";
 import { validateMCQData, sanitizeMCQData } from "../../../components/extensions/MCQBlock";
@@ -1067,6 +1068,7 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
       RevealContentBlockViewer, // Add Reveal Content viewer extension
       PollBlockViewer, // Add Poll viewer extension
       EmbedBlockViewer, // Add Embed viewer extension
+      AlertBlockViewer, // Add Alert/Callout viewer extension
       ImageBlockViewer, // Add Image viewer extension
       DiscussionBlockViewer, // Add Discussion viewer extension
       IDEBlockViewer, // Add IDE viewer extension
@@ -1783,18 +1785,7 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
   );
 
   return (
-    <div className="h-full flex flex-col bg-background relative">
-      {/* Preview Mode Banner */}
-      {previewMode && (
-        <div className="bg-amber-100 border-b border-amber-300 px-4 py-3">
-          <div className="max-w-4xl mx-auto flex items-center justify-center gap-2">
-            <span className="font-medium text-amber-800">
-              Preview Mode - This is how students will see this assignment. Submissions are disabled.
-            </span>
-          </div>
-        </div>
-      )}
-
+    <div className="h-full flex flex-col bg-muted/50 relative">
       {/* Due Date Countdown Banner */}
       {isStudent && timeRemaining != null && timeRemaining > 0 && !countdownDismissed && submissionStatus === "in-progress" && (
         <div className="px-4 py-2 border-b border-border">
@@ -2042,7 +2033,7 @@ const AssignmentViewer: React.FC<AssignmentViewerProps> = ({
           <AssignmentContentSkeleton />
         ) : (
           // Show normal editor content
-          <div className="max-w-4xl mx-auto p-8 relative">
+          <div className="max-w-4xl mx-auto mt-4 p-8 relative bg-card rounded-t-lg shadow-md border border-border/50 border-b-0 min-h-[calc(100%-1rem)]">
             {/* Collapsed countdown pill */}
             {isStudent && timeRemaining != null && timeRemaining > 0 && countdownDismissed && submissionStatus === "in-progress" && (
               <button

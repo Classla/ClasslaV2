@@ -6,7 +6,7 @@ import React from "react";
  */
 const AssignmentContentSkeleton: React.FC = () => {
   return (
-    <div className="max-w-4xl mx-auto p-8 relative">
+    <div className="max-w-4xl mx-auto mt-4 p-8 relative bg-card rounded-t-lg shadow-md border border-border/50 border-b-0 min-h-[calc(100%-1rem)]">
       <div className="animate-pulse space-y-6">
         {/* Title skeleton */}
         <div className="h-8 bg-muted rounded w-3/4"></div>

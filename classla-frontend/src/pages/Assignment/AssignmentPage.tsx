@@ -763,9 +763,10 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
       <Allotment className="flex-1">
         {/* Main Scrollable Content Area */}
         <Allotment.Pane minSize={400}>
-          <div className="h-full flex flex-col overflow-hidden">
+          <div className="h-full flex flex-col overflow-hidden bg-muted/50">
             {/* Assignment Header */}
-            <Card className="bg-purple-600 dark:bg-purple-900 text-white border-0 rounded-3xl mx-6 mt-4 flex-shrink-0">
+            <div className="w-full flex-shrink-0">
+            <Card className="bg-purple-600 dark:bg-purple-900 text-white border-0 rounded-2xl max-w-4xl mx-auto mt-4">
               <div className="p-6">
                 <div className="flex justify-between items-start">
                   <div className="space-y-2 flex-1">
@@ -890,10 +891,11 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
                 </div>
               </div>
             </Card>
+            </div>
 
             {/* Student Preview Mode Banner */}
             {isPreviewMode && (
-              <div className="bg-amber-500 text-white px-4 py-2 mx-6 mt-2 rounded-lg flex items-center justify-between">
+              <div className="bg-amber-500 text-white px-4 py-2 max-w-4xl mx-auto mt-2 rounded-lg flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <Eye className="w-5 h-5" />
                   <span className="font-medium">Student Preview Mode</span>
@@ -914,7 +916,7 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
 
             {/* Viewing Student Submission Banner */}
             {selectedGradingStudent && (
-              <div className="bg-blue-500 text-white px-4 py-2 mx-6 mt-2 rounded-lg flex items-center justify-between">
+              <div className="bg-blue-500 text-white px-4 py-2 max-w-4xl mx-auto mt-2 rounded-lg flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <Eye className="w-5 h-5" />
                   <span className="font-medium">
@@ -933,7 +935,7 @@ const AssignmentPage: React.FC<AssignmentPageProps> = ({
             )}
 
             {/* Assignment Content */}
-            <div className="flex-1 min-h-0 mx-6">
+            <div className="flex-1 min-h-0">
               <div className="h-full overflow-hidden">
                 {assignment && (
                   <AssignmentProvider courseId={assignment.course_id} assignmentId={assignment.id} previewMode={isPreviewMode} studentId={selectedGradingStudent?.userId ?? null} snapshotBucketMap={snapshotBucketMap}>

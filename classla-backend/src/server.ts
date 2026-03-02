@@ -162,6 +162,7 @@ import organizationRoutes from "./routes/organizations";
 import courseTemplateRoutes from "./routes/courseTemplates";
 import managedStudentsRoutes from "./routes/managedStudents";
 import adminIdeRoutes from "./routes/adminIde";
+import adminRoutes from "./routes/admin";
 import aiMemoriesRoutes from "./routes/aiMemories";
 
 // Auth routes (mounted at root for WorkOS callback compatibility)
@@ -189,6 +190,7 @@ app.use("/api", organizationRoutes);
 app.use("/api", courseTemplateRoutes);
 app.use("/api", managedStudentsRoutes);
 app.use("/api/admin/ide", adminIdeRoutes);
+app.use("/api/admin", adminRoutes);
 app.use("/api", aiMemoriesRoutes);
 
 // Error handling - must be after all routes

@@ -39,6 +39,7 @@ export interface Course {
   deleted_at?: Date;
   student_count?: number; // Number of students enrolled (role = 'student')
   is_template?: boolean; // Whether this course is a template
+  is_official?: boolean; // Whether this is an official Classla course
 }
 
 // Section entity

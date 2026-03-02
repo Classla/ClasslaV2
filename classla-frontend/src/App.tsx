@@ -17,6 +17,9 @@ import TestIDE from "./pages/TestIDE";
 import IDEFullscreenPage from "./pages/IDEFullscreen/IDEFullscreenPage";
 import ManagedStudentsPage from "./pages/ManagedStudents/ManagedStudentsPage";
 import IDEDashboard from "./pages/Admin/IDEDashboard/IDEDashboard";
+import AdminDashboard from "./pages/Admin/AdminDashboard";
+import OfficialCoursesPage from "./pages/Admin/OfficialCourses/OfficialCoursesPage";
+import AdminTemplatesPage from "./pages/Admin/Templates/AdminTemplatesPage";
 import { Toaster } from "./components/ui/toaster";
 import "./App.css";
 
@@ -56,6 +59,30 @@ function App() {
               <Route path="settings" element={<UserSettings />} />
               <Route path="templates" element={<TemplatesPage />} />
               <Route path="managed-students" element={<ManagedStudentsPage />} />
+              <Route
+                path="admin"
+                element={
+                  <ProtectedRoute requireAdmin>
+                    <AdminDashboard />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="admin/official-courses"
+                element={
+                  <ProtectedRoute requireAdmin>
+                    <OfficialCoursesPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="admin/templates"
+                element={
+                  <ProtectedRoute requireAdmin>
+                    <AdminTemplatesPage />
+                  </ProtectedRoute>
+                }
+              />
               <Route
                 path="admin/ide"
                 element={

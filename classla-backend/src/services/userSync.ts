@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { WorkOSUser } from './workos';
 import { logger } from '../utils/logger';
+import { autoEnrollmentService } from './autoEnrollmentService';
 
 // Initialize Supabase client with service role key for server-side operations
 const supabaseUrl = process.env.SUPABASE_URL!;
@@ -199,6 +200,13 @@ export class UserSynchronizationService {
         workosUserId: workosUser.id,
         email: workosUser.email
       });
+
+      // Auto-enroll new user in official course if configured
+      try {
+        await autoEnrollmentService.autoEnrollUser(data.id);
+      } catch (err) {
+        logger.warn('Auto-enrollment failed for new user', { userId: data.id, error: err });
+      }
 
       return data as SupabaseUser;
     } catch (error) {

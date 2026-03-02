@@ -137,10 +137,10 @@
   .assignment-viewer-content ul,
   .prose ul {
     list-style-type: disc;
-    margin-left: 2rem;
+    margin-left: 0.5rem;
     margin-top: 0.5rem;
     margin-bottom: 0.5rem;
-    padding-left: 1rem;
+    padding-left: 0.75rem;
   }
 
   .ProseMirror ol,
@@ -148,10 +148,10 @@
   .assignment-viewer-content ol,
   .prose ol {
     list-style-type: decimal;
-    margin-left: 2rem;
+    margin-left: 0.5rem;
     margin-top: 0.5rem;
     margin-bottom: 0.5rem;
-    padding-left: 1rem;
+    padding-left: 0.75rem;
   }
 
   .ProseMirror ul li,
@@ -160,7 +160,7 @@
   .prose ul li {
     display: list-item;
     margin-left: 0;
-    padding-left: 0.5rem;
+    padding-left: 0.25rem;
     position: relative;
   }
 
@@ -170,7 +170,7 @@
   .prose ol li {
     display: list-item;
     margin-left: 0;
-    padding-left: 0.5rem;
+    padding-left: 0.25rem;
     position: relative;
   }
 
@@ -362,23 +362,23 @@
 
   /* Specific TipTap list styles */
   .tiptap-bullet-list {
-    margin-left: 2rem;
+    margin-left: 0.5rem;
     margin-top: 0.5rem;
     margin-bottom: 0.5rem;
-    padding-left: 1rem;
+    padding-left: 0.75rem;
   }
 
   .tiptap-ordered-list {
-    margin-left: 2rem;
+    margin-left: 0.5rem;
     margin-top: 0.5rem;
     margin-bottom: 0.5rem;
-    padding-left: 1rem;
+    padding-left: 0.75rem;
   }
 
   .tiptap-list-item {
     display: list-item;
     margin-left: 0;
-    padding-left: 0.5rem;
+    padding-left: 0.25rem;
     margin-bottom: 0;
     line-height: 1.6;
     position: relative;

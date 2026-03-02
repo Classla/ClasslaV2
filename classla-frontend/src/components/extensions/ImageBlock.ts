@@ -13,6 +13,7 @@ export interface ImageBlockData {
   caption?: string;
   originalFilename?: string;
   mimeType?: string;
+  courseId?: string; // Used for images in course summary (instead of assignmentId)
 }
 
 export const defaultImageBlockData: ImageBlockData = {

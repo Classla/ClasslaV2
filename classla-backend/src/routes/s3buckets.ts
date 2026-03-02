@@ -356,16 +356,17 @@ async function ensureImageBucket(assignmentId: string): Promise<string> {
 
 /**
  * POST /api/s3buckets/image-upload-url
- * Get a presigned PUT URL for uploading an image to the assignment's image bucket.
+ * Get a presigned PUT URL for uploading an image.
+ * Accepts either assignmentId (for assignment images) or courseId (for course summary images).
  * Auth: session-based. Authorization: canWrite on the course.
  */
 router.post(
   "/image-upload-url",
   asyncHandler(async (req: Request, res: Response) => {
-    const { assignmentId, filename, contentType } = req.body;
+    const { assignmentId, courseId, filename, contentType } = req.body;
 
-    if (!assignmentId || !filename || !contentType) {
-      return res.status(400).json({ error: "assignmentId, filename, and contentType are required" });
+    if ((!assignmentId && !courseId) || !filename || !contentType) {
+      return res.status(400).json({ error: "assignmentId or courseId, filename, and contentType are required" });
     }
 
     if (!ALLOWED_IMAGE_TYPES.has(contentType)) {
@@ -401,25 +402,37 @@ router.post(
       return res.status(401).json({ error: "Valid session is required" });
     }
 
-    // Look up assignment to get course_id
-    const { data: assignment, error: assignmentError } = await supabase
-      .from("assignments")
-      .select("course_id")
-      .eq("id", assignmentId)
-      .single();
+    // Resolve course_id and bucket identifier
+    let resolvedCourseId: string;
+    let bucketId: string;
 
-    if (assignmentError || !assignment) {
-      return res.status(404).json({ error: "Assignment not found" });
+    if (courseId) {
+      // Course summary image — use courseId directly
+      resolvedCourseId = courseId;
+      bucketId = `course-${courseId}`;
+    } else {
+      // Assignment image — look up assignment to get course_id
+      const { data: assignment, error: assignmentError } = await supabase
+        .from("assignments")
+        .select("course_id")
+        .eq("id", assignmentId)
+        .single();
+
+      if (assignmentError || !assignment) {
+        return res.status(404).json({ error: "Assignment not found" });
+      }
+      resolvedCourseId = assignment.course_id;
+      bucketId = assignmentId;
     }
 
     // Authorization: canWrite on the course
-    const permissions = await getCoursePermissions(userId, assignment.course_id, isAdmin);
+    const permissions = await getCoursePermissions(userId, resolvedCourseId, isAdmin);
     if (!permissions.canWrite) {
       return res.status(403).json({ error: "Insufficient permissions to upload images" });
     }
 
     try {
-      const bucketName = await ensureImageBucket(assignmentId);
+      const bucketName = await ensureImageBucket(bucketId);
 
       // Generate S3 key
       const ext = filename.split(".").pop()?.toLowerCase() || "png";
@@ -449,16 +462,17 @@ router.post(
 
 /**
  * GET /api/s3buckets/image-url
- * Get a presigned GET URL for reading an image from the assignment's image bucket.
- * Auth: session-based. Authorization: canRead on the assignment's course.
+ * Get a presigned GET URL for reading an image.
+ * Accepts either assignmentId (for assignment images) or courseId (for course summary images).
+ * Auth: session-based. Authorization: canRead on the course.
  */
 router.get(
   "/image-url",
   asyncHandler(async (req: Request, res: Response) => {
-    const { assignmentId, s3Key } = req.query;
+    const { assignmentId, courseId, s3Key } = req.query;
 
-    if (!assignmentId || !s3Key) {
-      return res.status(400).json({ error: "assignmentId and s3Key are required" });
+    if ((!assignmentId && !courseId) || !s3Key) {
+      return res.status(400).json({ error: "assignmentId or courseId, and s3Key are required" });
     }
 
     // Authenticate via session
@@ -490,25 +504,37 @@ router.get(
       return res.status(401).json({ error: "Valid session is required" });
     }
 
-    // Look up assignment to get course_id for authorization
-    const { data: assignment, error: assignmentError } = await supabase
-      .from("assignments")
-      .select("course_id")
-      .eq("id", assignmentId as string)
-      .single();
+    // Resolve course_id and bucket identifier
+    let resolvedCourseId: string;
+    let bucketId: string;
 
-    if (assignmentError || !assignment) {
-      return res.status(404).json({ error: "Assignment not found" });
+    if (courseId) {
+      // Course summary image
+      resolvedCourseId = courseId as string;
+      bucketId = `course-${courseId}`;
+    } else {
+      // Assignment image
+      const { data: assignment, error: assignmentError } = await supabase
+        .from("assignments")
+        .select("course_id")
+        .eq("id", assignmentId as string)
+        .single();
+
+      if (assignmentError || !assignment) {
+        return res.status(404).json({ error: "Assignment not found" });
+      }
+      resolvedCourseId = assignment.course_id;
+      bucketId = assignmentId as string;
     }
 
     // Authorization: canRead on the course
-    const permissions = await getCoursePermissions(userId, assignment.course_id, isAdmin);
+    const permissions = await getCoursePermissions(userId, resolvedCourseId, isAdmin);
     if (!permissions.canRead) {
       return res.status(403).json({ error: "Insufficient permissions to view images" });
     }
 
     try {
-      const bucketName = `classla-images-${assignmentId}`;
+      const bucketName = `classla-images-${bucketId}`;
 
       const command = new GetObjectCommand({
         Bucket: bucketName,

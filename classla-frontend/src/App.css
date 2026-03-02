@@ -87,7 +87,7 @@
 .ProseMirror ul,
 .ProseMirror ol {
   margin: 0.75rem 0;
-  padding-left: 1.5rem;
+  padding-left: 1rem;
 }
 
 .ProseMirror li {
@@ -292,7 +292,7 @@ Enhanced TipTap Block Styles */
 .assignment-editor-content .ProseMirror ul,
 .assignment-editor-content .ProseMirror ol {
   margin: 0.125rem 0 !important;
-  padding-left: 1.25rem;
+  padding-left: 1rem;
 }
 
 .assignment-editor-content .ProseMirror li {

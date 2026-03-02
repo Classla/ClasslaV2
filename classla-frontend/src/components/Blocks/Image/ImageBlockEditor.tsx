@@ -48,7 +48,7 @@ const ImageBlockEditor: React.FC<ImageBlockEditorProps> = memo(
 
     // Fetch presigned GET URL when s3Key changes
     useEffect(() => {
-      if (!imageData.s3Key || !imageData.assignmentId) {
+      if (!imageData.s3Key || (!imageData.assignmentId && !imageData.courseId)) {
         setImageUrl("");
         return;
       }
@@ -56,10 +56,10 @@ const ImageBlockEditor: React.FC<ImageBlockEditorProps> = memo(
       let cancelled = false;
       const fetchUrl = async () => {
         try {
-          const response = await apiClient.getImageUrl(
-            imageData.assignmentId,
-            imageData.s3Key
-          );
+          const context = imageData.courseId
+            ? { courseId: imageData.courseId }
+            : { assignmentId: imageData.assignmentId };
+          const response = await apiClient.getImageUrl(imageData.s3Key, context);
           if (!cancelled) {
             setImageUrl(response.data.url);
           }
@@ -72,7 +72,7 @@ const ImageBlockEditor: React.FC<ImageBlockEditorProps> = memo(
       return () => {
         cancelled = true;
       };
-    }, [imageData.s3Key, imageData.assignmentId]);
+    }, [imageData.s3Key, imageData.assignmentId, imageData.courseId]);
 
     const handleFileUpload = useCallback(
       async (file: File) => {
@@ -87,9 +87,11 @@ const ImageBlockEditor: React.FC<ImageBlockEditorProps> = memo(
           return;
         }
 
+        // Determine context: courseId from block data (course summary) or assignmentId from URL
         const assignmentId = getAssignmentIdFromUrl();
-        if (!assignmentId) {
-          setUploadError("Could not determine assignment from URL.");
+        const courseId = imageData.courseId;
+        if (!assignmentId && !courseId) {
+          setUploadError("Could not determine context from URL.");
           return;
         }
 
@@ -99,7 +101,7 @@ const ImageBlockEditor: React.FC<ImageBlockEditorProps> = memo(
         try {
           // 1. Get presigned upload URL
           const { data } = await apiClient.getImageUploadUrl({
-            assignmentId,
+            ...(courseId ? { courseId } : { assignmentId: assignmentId! }),
             filename: file.name,
             contentType: file.type,
           });
@@ -112,7 +114,7 @@ const ImageBlockEditor: React.FC<ImageBlockEditorProps> = memo(
           // 3. Update block data
           updateImageData({
             s3Key: data.s3Key,
-            assignmentId,
+            ...(courseId ? { courseId } : { assignmentId: assignmentId! }),
             originalFilename: file.name,
             mimeType: file.type,
           });

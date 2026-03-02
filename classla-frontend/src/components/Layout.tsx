@@ -6,7 +6,7 @@ import { Sun, Moon } from "lucide-react";
 import { useTheme } from "../hooks/useTheme";
 
 const Layout = () => {
-  const { signOut } = useAuth();
+  const { signOut, user } = useAuth();
   const location = useLocation();
   const { isDark, toggle } = useTheme();
 
@@ -51,6 +51,14 @@ const Layout = () => {
                 >
                   Settings
                 </Link>
+                {user?.isAdmin && (
+                  <Link
+                    to="/admin"
+                    className="text-purple-100 hover:text-white transition-colors duration-200"
+                  >
+                    Admin
+                  </Link>
+                )}
                 <button
                   onClick={toggle}
                   className="text-purple-100 hover:text-white transition-colors duration-200 p-2"
